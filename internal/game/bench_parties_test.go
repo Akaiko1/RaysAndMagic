@@ -78,10 +78,25 @@ func benchSourceGates(t *testing.T, g *MMGame, wm *world.WorldManager) map[strin
 			bossLevel = min(bossLevel, d.Level)
 		}
 	}
+	var offerEntry func(e config.LootEntry, level int)
+	offerEntry = func(e config.LootEntry, level int) {
+		switch e.Type {
+		case "first_of":
+			for _, child := range e.Of {
+				offerEntry(child, level)
+			}
+		case "set":
+			for _, piece := range config.ItemSetPieces(e.Key) {
+				offer(piece, level)
+			}
+		default:
+			offer(e.Key, level)
+		}
+	}
 	for k, entries := range config.GlobalLoots.Loots {
 		for _, e := range entries {
 			if lvl, ok := levelOf[k]; ok {
-				offer(e.Key, lvl)
+				offerEntry(e, lvl)
 			}
 		}
 	}
@@ -420,7 +435,7 @@ func checkBenchParty(t *testing.T, g *MMGame, p BenchParty, level int, gates map
 		}
 		var authored []string
 		for _, key := range build.Equipment {
-			it, _ := benchGear(key)
+			it, _ := items.FromKey(key)
 			authored = append(authored, it.Name)
 			available("gear", key)
 		}
@@ -435,8 +450,8 @@ func checkBenchParty(t *testing.T, g *MMGame, p BenchParty, level int, gates map
 				t.Errorf("%s quick slot %d holds %v, authored %s", m.Name, j, q, key)
 			}
 		}
-		if build.Spell != "" && string(m.Equipment[items.SlotSpell].SpellEffect) != build.Spell {
-			t.Errorf("%s readies %q, authored %s", m.Name, m.Equipment[items.SlotSpell].SpellEffect, build.Spell)
+		if readied := quickSlotKey(m.Equipment[items.SlotQuickAction]); build.Spell != "" && readied != build.Spell {
+			t.Errorf("%s readies %q, authored %s", m.Name, readied, build.Spell)
 		}
 		// Every open school knows all of its spells but the party's withheld ones.
 		for school, s := range m.MagicSchools {
@@ -475,7 +490,7 @@ func checkBenchParty(t *testing.T, g *MMGame, p BenchParty, level int, gates map
 	for _, m := range g.party.Members {
 		bags = append(bags, m.Inventory)
 		for _, q := range m.QuickSlots {
-			if q != nil && !benchShortcut(*q) {
+			if q != nil && !q.VirtualAction() {
 				bags = append(bags, []items.Item{*q})
 				if q.Count() != 1 {
 					t.Errorf("%s quick-slots %d %s; the stock stays in the shared bag", m.Name, q.Count(), q.Name)

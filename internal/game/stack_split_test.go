@@ -66,8 +66,8 @@ func TestCancelPickedUpStackSplitKeepsInventorySource(t *testing.T) {
 	ui.beginPickedUpStackSplit(item)
 	g.cancelStackSplitInteraction()
 
-	if g.stackSplitInteractionActive() || g.dragActive || g.dragPickedUp {
-		t.Fatalf("cancel left split interaction active: drag=%v picked=%v", g.dragActive, g.dragPickedUp)
+	if g.stackSplitInteractionActive() || g.drag.active || g.dragPickedUp {
+		t.Fatalf("cancel left split interaction active: drag=%v picked=%v", g.drag.active, g.dragPickedUp)
 	}
 	if got := g.party.Inventory[0]; got.Count() != 5 || got.InstanceID != 42 {
 		t.Fatalf("cancel mutated the source: %+v", got)
@@ -113,8 +113,8 @@ func TestTimelineReplacementCancelsEverySplitGesture(t *testing.T) {
 			ui := NewUISystem(g)
 			g.gameLoop = &GameLoop{game: g, ui: ui}
 			ui.openStackSplitPicker(stackSplitPickerInventory, 0, items.Item{Name: "Potion", Quantity: 2})
-			g.dragActive, g.dragPickedUp = true, true
-			g.stashDragActive, g.stashDragPickedUp = true, true
+			g.drag.active, g.dragPickedUp = true, true
+			g.stashDrag.active, g.stashDragPickedUp = true, true
 
 			tc.run(t, g, wm)
 			if ui.stackSplitPicker.open || g.dragPickedUp || g.stashDragPickedUp || g.stackSplitInteractionActive() {
@@ -171,7 +171,7 @@ func TestEscCancelsHubSplitFragmentWithoutClosingHub(t *testing.T) {
 
 	g.menuOpen = true
 	g.party.Inventory = []items.Item{{Name: "Health Potion", Type: items.ItemConsumable, Quantity: 6, InstanceID: 3}}
-	g.dragActive, g.dragPickedUp = true, true
+	g.drag.active, g.dragPickedUp = true, true
 	g.dragSrc = dragFromInventory
 	g.dragInvIndex = 0
 	g.dragSplitQuantity = 2
@@ -199,7 +199,7 @@ func TestEscCancelsStashSplitFragmentBeforeClosingStash(t *testing.T) {
 	ih.keys = keytracker.NewWithSource(escKeyboard())
 
 	g.stashScreenOpen = true
-	g.stashDragActive, g.stashDragPickedUp = true, true
+	g.stashDrag.active, g.stashDragPickedUp = true, true
 	g.stashDragSplitQuantity = 2
 
 	ih.HandleInput()

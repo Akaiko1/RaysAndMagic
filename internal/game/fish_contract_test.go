@@ -101,7 +101,7 @@ func TestFishUpdateTracksOnlyLiveWorlds(t *testing.T) {
 				case "landed":
 					m.AdvanceFishLeap(m.FishLeap.Duration)
 				case "killed":
-					g.combat.ApplyDamageToMonster(m, 100, "Iron Sword", false)
+					g.combat.ApplyDamageToMonster(m, 100, testWeapon("Iron Sword"), false)
 					g.gameLoop.removeDeadMonstersByID()
 				case "travel":
 					g.world = newTestWorldSized(g.config, 30, 30)

@@ -2,17 +2,17 @@ package game
 
 import (
 	"fmt"
-	"io"
 	"math"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 
-	"gopkg.in/yaml.v3"
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
+	"ugataima/internal/strictyaml"
 	"ugataima/internal/world"
 )
 
@@ -37,31 +37,32 @@ type TestScenario struct {
 	SpeedTarget           int              `yaml:"speed_target"`
 	EnduranceTarget       int              `yaml:"endurance_target"`
 	LearnSchoolSpells     bool             `yaml:"learn_school_spells"`
+	SkillMastery          string           `yaml:"skill_mastery"`
+	// AutoStats spends level-up points by each class's auto chain (as bench
+	// parties do) instead of the speed/endurance targets.
+	AutoStats bool `yaml:"auto_stats"`
 }
 type ScenarioMember struct {
 	Name      string            `yaml:"name"`
 	Class     string            `yaml:"class"`
+	Race      string            `yaml:"race"`
 	Skills    map[string]string `yaml:"skills"`
+	Schools   map[string]string `yaml:"schools"`
 	Equipment []string          `yaml:"equipment"`
+	Action    string            `yaml:"action"` // readied action: a spell, flask, trap or technique
+	Quick     []string          `yaml:"quick"`
 }
 
 func LoadTestScenarios(path string) (map[string]TestScenario, error) {
-	f, err := os.Open(path)
+	raw, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
 	var data struct {
 		Scenarios map[string]TestScenario `yaml:"scenarios"`
 	}
-	dec := yaml.NewDecoder(f)
-	dec.KnownFields(true)
-	if err := dec.Decode(&data); err != nil {
+	if err := strictyaml.Decode(raw, &data); err != nil {
 		return nil, err
-	}
-	var extra any
-	if err := dec.Decode(&extra); err != io.EOF {
-		return nil, fmt.Errorf("scenario catalog must contain one YAML document")
 	}
 	if len(data.Scenarios) == 0 {
 		return nil, fmt.Errorf("empty scenario catalog")
@@ -71,12 +72,23 @@ func LoadTestScenarios(path string) (map[string]TestScenario, error) {
 			return nil, fmt.Errorf("invalid scenario %q", key)
 		}
 		// A bench party is a complete build: it owns the roster, stats and spells.
-		if s.BenchParty != "" && (len(s.Party) > 0 || s.Level == 0 || s.SpeedTarget > 0 || s.EnduranceTarget > 0 || s.LearnSchoolSpells) {
+		if s.BenchParty != "" && (len(s.Party) > 0 || s.Level == 0 || s.SpeedTarget > 0 || s.EnduranceTarget > 0 || s.LearnSchoolSpells || s.SkillMastery != "") {
 			return nil, fmt.Errorf("scenario %q: bench_party takes only a level and placement fields", key)
+		}
+		if s.AutoStats && (s.SpeedTarget > 0 || s.EnduranceTarget > 0) {
+			return nil, fmt.Errorf("scenario %q: auto_stats replaces speed_target and endurance_target", key)
+		}
+		if _, ok := character.MasteryFromKey(s.SkillMastery); s.SkillMastery != "" && !ok {
+			return nil, fmt.Errorf("scenario %q: unknown skill_mastery %q", key, s.SkillMastery)
 		}
 		for _, m := range s.Party {
 			if _, ok := character.ClassFromKey(m.Class); !ok || m.Name == "" {
 				return nil, fmt.Errorf("scenario %q: invalid member %q", key, m.Class)
+			}
+			for school, tier := range m.Schools {
+				if _, ok := character.MasteryFromKey(tier); !ok || !slices.Contains(character.AllMagicSchools, character.MagicSchoolID(school)) {
+					return nil, fmt.Errorf("scenario %q: invalid school %q mastery %q", key, school, tier)
+				}
 			}
 			for skill, tier := range m.Skills {
 				if _, ok := character.SkillTypeFromKey(skill); !ok {
@@ -170,6 +182,17 @@ func (g *MMGame) applyTestScenario(s TestScenario, bench *BenchCatalog) error {
 			return fmt.Errorf("scenario: unknown class %q", data.Class)
 		}
 		m := character.CreateCharacter(data.Name, class, g.config)
+		if data.Race != "" {
+			if _, ok := g.config.Characters.Races[data.Race]; !ok {
+				return fmt.Errorf("scenario: %s has unknown race %q", data.Name, data.Race)
+			}
+			m.ApplyRace(data.Race, g.config)
+		}
+		for key, tier := range data.Schools {
+			mastery, _ := character.MasteryFromKey(tier)
+			unlockSchool(m, character.MagicSchoolID(key))
+			m.MagicSchools[character.MagicSchoolID(key)].Mastery = mastery
+		}
 		for key, tier := range data.Skills {
 			skill, _ := character.SkillTypeFromKey(key)
 			mastery, _ := character.MasteryFromKey(tier)
@@ -179,7 +202,7 @@ func (g *MMGame) applyTestScenario(s TestScenario, bench *BenchCatalog) error {
 			m.Skills[skill].Mastery = mastery
 		}
 		for _, key := range data.Equipment {
-			it, err := items.TryCreateItemFromYAML(key)
+			it, err := items.FromKey(key)
 			if err != nil {
 				return err
 			}
@@ -224,17 +247,38 @@ func (g *MMGame) applyTestScenario(s TestScenario, bench *BenchCatalog) error {
 			m.Experience += xpStepCost(m.Level)
 			g.combat.checkLevelUp(m, false)
 		}
-		pts := m.FreeStatPoints
-		pts -= raiseStat(&m.Speed, s.SpeedTarget, pts)
-		pts -= raiseStat(&m.Endurance, s.EnduranceTarget, pts)
-		addMainDamageStat(m, pts)
+		if s.AutoStats {
+			autoDistributeStatPoints(m, autoClassStats(m.Class, g.config), g.config)
+		} else {
+			pts := m.FreeStatPoints
+			pts -= raiseStat(&m.Speed, s.SpeedTarget, pts)
+			pts -= raiseStat(&m.Endurance, s.EnduranceTarget, pts)
+			addMainDamageStat(m, pts)
+		}
 		m.FreeStatPoints = 0
 		if s.LearnSchoolSpells {
 			learnAllSchoolSpells(m)
 		}
+		if s.SkillMastery != "" {
+			mastery, _ := character.MasteryFromKey(s.SkillMastery)
+			for _, skill := range m.Skills {
+				if skill != nil {
+					skill.Mastery = mastery
+				}
+			}
+		}
 		m.CalculateDerivedStats(g.config)
 		m.HitPoints = m.MaxHitPoints
 		m.SpellPoints = m.MaxSpellPoints
+	}
+	for i, data := range s.Party {
+		if err := readyBuildActions(g.party.Members[i], data.Action, data.Quick); err != nil {
+			return fmt.Errorf("scenario: %w", err)
+		}
+	}
+	if s.SkillMastery != "" || s.AutoStats {
+		g.levelUpChoiceQueue = nil
+		g.closeLevelUpChoice()
 	}
 	g.awardGold(s.Gold)
 	for _, it := range loot {
@@ -268,7 +312,7 @@ func (g *MMGame) applyTestScenario(s TestScenario, bench *BenchCatalog) error {
 			return err
 		}
 	}
-	g.AddCombatMessage("Test scenario ready. This is a fresh party; earned level-up choices remain available.")
+	g.AddCombatMessage(uitext.Text("scenario.ready"))
 	return nil
 }
 

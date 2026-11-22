@@ -64,12 +64,12 @@ func itemTooltipWithUsageRows(item items.Item, char *character.MMCharacter, comb
 	var core character.CardRows
 	switch item.Type {
 	case items.ItemTechnique:
-		if d := config.Technique(string(item.SpellEffect)); d != nil {
+		if d := config.Technique(item.Technique); d != nil {
 			core = buildTechniqueTooltipUnifiedRows(d, char, combatSystem, full)
 		}
 	case items.ItemTrap:
-		if def, ok := config.GetTrapDefinition(string(item.SpellEffect)); ok {
-			core = buildTrapTooltipUnifiedRows(string(item.SpellEffect), def, char, combatSystem, full)
+		if def, ok := config.GetTrapDefinition(item.Trap); ok {
+			core = buildTrapTooltipUnifiedRows(item.Trap, def, char, combatSystem, full)
 		}
 	case items.ItemWeapon:
 		core = buildWeaponTooltipUnifiedRows(item, char, combatSystem, full)
@@ -153,7 +153,7 @@ func GetSpellComparisonTooltipRows(spellID spells.SpellID, char *character.MMCha
 	if char == nil || combatSystem == nil || combatSystem.game == nil {
 		return nil
 	}
-	equipped, hasEquipped := char.Equipment[items.SlotSpell]
+	equipped, hasEquipped := char.Equipment[items.SlotQuickAction]
 	if !hasEquipped {
 		return nil
 	}
@@ -236,13 +236,13 @@ func buildWeaponComparisonLines(item, equipped items.Item, char *character.MMCha
 	if nextDamage.True != oldDamage.True {
 		lines = append(lines, fmt.Sprintf("True damage / hit: %d -> %d (%+d)", oldDamage.True, nextDamage.True, nextDamage.True-oldDamage.True))
 	}
-	oldFrames, nextFrames := combatSystem.WeaponCooldownFramesFor(char, equipped.Name), afterCombat.WeaponCooldownFramesFor(after, item.Name)
+	oldFrames, nextFrames := combatSystem.WeaponCooldownFramesFor(char, equipped), afterCombat.WeaponCooldownFramesFor(after, item)
 	oldRecovery, nextRecovery := cooldownSeconds(combatSystem, oldFrames), cooldownSeconds(afterCombat, nextFrames)
 	if oldRecovery != nextRecovery {
 		lines = append(lines, fmt.Sprintf("RT recovery: %s -> %s", oldRecovery, nextRecovery))
 	}
-	oldDef, _, _ := config.GetWeaponDefinitionByName(equipped.Name)
-	nextDef, _, _ := config.GetWeaponDefinitionByName(item.Name)
+	oldDef, _, _ := config.WeaponDefOf(equipped)
+	nextDef, _, _ := config.WeaponDefOf(item)
 	if oldDef != nil && nextDef != nil {
 		oldCount, nextCount := character.WeaponStrikeCount(oldDef), character.WeaponStrikeCount(nextDef)
 		if oldCount != nextCount {
@@ -264,10 +264,10 @@ func buildWeaponComparisonLines(item, equipped items.Item, char *character.MMCha
 	}
 
 	itemArc, eqArc := "", ""
-	if def, _, ok := config.GetWeaponDefinitionByName(item.Name); ok {
+	if def, _, ok := config.WeaponDefOf(item); ok {
 		itemArc = character.MeleeArcShortLabel(def)
 	}
-	if def, _, ok := config.GetWeaponDefinitionByName(equipped.Name); ok {
+	if def, _, ok := config.WeaponDefOf(equipped); ok {
 		eqArc = character.MeleeArcShortLabel(def)
 	}
 	if itemArc != eqArc {
@@ -294,11 +294,7 @@ func buildSpellComparisonRowsByID(itemID, equippedID spells.SpellID, char *chara
 	}
 
 	// Costs as actually paid (Meditation GM discount), matching the main tooltip.
-	itemCost, eqCost := itemDef.SpellPointsCost, equippedDef.SpellPointsCost
-	if combatSystem != nil {
-		itemCost = combatSystem.effectiveSpellCost(char, itemCost)
-		eqCost = combatSystem.effectiveSpellCost(char, eqCost)
-	}
+	itemCost, eqCost := char.MeditatedSPCost(itemDef.SpellPointsCost), char.MeditatedSPCost(equippedDef.SpellPointsCost)
 	lines := character.CardRows{{Text: fmt.Sprintf("Equipped: %s", equippedDef.Name), Kind: character.CardRowTitle}, {Text: "After equipping (current -> new)", Kind: character.CardRowCategory}}
 	casting := ttSection{Title: "CASTING"}
 	damageSection := ttSection{Title: "DAMAGE"}
@@ -330,7 +326,7 @@ func buildSpellComparisonRowsByID(itemID, equippedID spells.SpellID, char *chara
 		}
 		_, _, total := combatSystem.CalculateSpellDamage(def.ID, char)
 		parts := combatSystem.spellDamageParts(def.ID, char, total)
-		parts, _ = combatSystem.spellPartsWithOutgoingBuff(parts, def.School)
+		parts, _, _ = combatSystem.spellPartsWithOutgoingBuff(parts, def.DamageType())
 		return parts.Total()
 	}
 	for _, perTick := range []bool{false, true} {
@@ -353,7 +349,7 @@ func buildSpellComparisonRowsByID(itemID, equippedID spells.SpellID, char *chara
 	}
 
 	if itemDef.IsUtility || equippedDef.IsUtility {
-		if itemDef.Duration > 0 || equippedDef.Duration > 0 {
+		if len(itemDef.DurationByMastery) > 0 || len(equippedDef.DurationByMastery) > 0 {
 			itemDur := combatSystem.CalculateSpellDurationSeconds(itemDef.ID, char)
 			eqDur := combatSystem.CalculateSpellDurationSeconds(equippedDef.ID, char)
 			if itemDur != eqDur {
@@ -397,7 +393,7 @@ func spellEffectsSummary(def spells.SpellDefinition, char *character.MMCharacter
 		}
 	}
 	if kind := def.DamageFormula().Kind; kind == spells.DamageNova || kind == spells.DamageZone {
-		lines = append(lines, damageTypeAoELine(def.School, 0))
+		lines = append(lines, character.DamageTypeAoE(def.DamageType(), 0).String())
 	}
 	lines = append(lines, spellAreaLines(def)...)
 	return strings.Join(lines, "; ")
@@ -433,20 +429,18 @@ func spellSchoolForChar(char *character.MMCharacter, def spells.SpellDefinition)
 	return string(char.SpellSchoolFor(def))
 }
 
+// tierDurationText writes a per-tier duration in config's one wording: the
+// hero's own tier, or the catalog ladder ("300/360/420/480s / 100/120/140/160
+// TB turns").
+func tierDurationText(hero bool, tier int, seconds [4]int) string {
+	rounds := tierValues(func(t int) int { return config.CombatRounds(seconds[t]) })
+	turns := tierValueText(hero, tier, rounds)
+	return config.DurationTextOf(tierValueText(hero, tier, seconds), turns, turns == "1")
+}
+
 // spellSchoolsLabel names EVERY school a spell belongs to ("Earth / Air"), so a
 // dual-school page does not read as the one school its definition happens to
 // list first - the shop sells it to either caster.
-// cardDurationText is the card span format: seconds, then the TB rounds the
-// same span covers.
-func cardDurationText(seconds, rounds string) string {
-	return fmt.Sprintf("%ss (TB: %s)", seconds, rounds)
-}
-
-// tbRoundsForSeconds rounds a real-time span up to whole TB rounds.
-func tbRoundsForSeconds(seconds int) int {
-	return (seconds + character.TurnBasedTurnSeconds - 1) / character.TurnBasedTurnSeconds
-}
-
 func spellSchoolsLabel(def spells.SpellDefinition) string {
 	schools := def.SchoolList()
 	names := make([]string, 0, len(schools))
@@ -474,12 +468,12 @@ func itemProseRows(item items.Item) character.CardRows {
 	}
 	description, flavor := "", ""
 	if item.Type == items.ItemWeapon {
-		if def, _, ok := config.GetWeaponDefinitionByName(item.Name); ok {
+		if def, _, ok := config.WeaponDefOf(item); ok {
 			description, flavor = def.Description, def.Flavor
 		} else {
 			flavor = item.Description
 		}
-	} else if def, _, ok := config.GetItemDefinitionByName(item.Name); ok {
+	} else if def, _, ok := config.ItemDefOf(item); ok {
 		description, flavor = def.Description, def.Flavor
 	} else {
 		flavor = item.Description

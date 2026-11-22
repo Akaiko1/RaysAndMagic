@@ -1,6 +1,7 @@
 package core
 
 import (
+	"errors"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -62,5 +63,43 @@ func TestWorkerPool_SubmitAfterStopRefuses(t *testing.T) {
 	case <-done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("Wait() hung after a refused Submit - WaitGroup counter leaked")
+	}
+}
+
+// A job's panic reaches the goroutine that waits for the batch - with the
+// job's own value - and the rest of the batch still runs. The pool then serves
+// the next batch with no stale failure.
+func TestWorkerPool_WaitRaisesJobPanic(t *testing.T) {
+	pool := NewWorkerPool(2)
+	pool.Start()
+	defer pool.Stop()
+
+	cause := errors.New("job failed")
+	var ran atomic.Int32
+	for i := 0; i < 8; i++ {
+		pool.Submit(func() {
+			if i == 3 {
+				panic(cause)
+			}
+			ran.Add(1)
+		})
+	}
+	raised := func() (caught any) {
+		defer func() { caught = recover() }()
+		pool.Wait()
+		return nil
+	}()
+	failed, ok := raised.(*JobPanic)
+	if !ok || failed.Value != cause || len(failed.Stack) == 0 {
+		t.Fatalf("Wait raised %v, want the job's panic with its stack", raised)
+	}
+	if got := ran.Load(); got != 7 {
+		t.Fatalf("%d of 7 healthy jobs ran", got)
+	}
+
+	pool.Submit(func() { ran.Add(1) })
+	pool.Wait()
+	if got := ran.Load(); got != 8 {
+		t.Fatal("the pool did not serve the batch after a failed one")
 	}
 }

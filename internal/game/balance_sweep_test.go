@@ -21,10 +21,18 @@ import (
 //
 //	go test -tags balance ./internal/game -run TestBalanceSweep -v
 //
-// BALANCE_TRIALS (default 10), BALANCE_PARTY, BALANCE_LEVEL and BALANCE_KIND
-// narrow the sweep; BALANCE_OUT writes every cell as JSON.
+// BALANCE_MODE=rt fights in real time (default tb). BALANCE_TRIALS (default
+// 10), BALANCE_PARTY, BALANCE_LEVEL and BALANCE_KIND narrow the sweep;
+// BALANCE_OUT writes every cell as JSON.
 func TestBalanceSweep(t *testing.T) {
 	a := newBalanceArena(t)
+	switch mode := os.Getenv("BALANCE_MODE"); mode {
+	case "", "tb":
+	case "rt":
+		a.rt = true
+	default:
+		t.Fatalf("BALANCE_MODE=%q: want tb or rt", mode)
+	}
 	trials := balanceEnvInt("BALANCE_TRIALS", 10)
 	encounters := balanceEncounters(a, a.wm)
 	coverage := newBalanceCoverage()

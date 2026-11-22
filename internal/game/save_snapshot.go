@@ -9,6 +9,7 @@ import (
 	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
+	"ugataima/internal/stats"
 	"ugataima/internal/world"
 )
 
@@ -107,7 +108,9 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		ps.CardCollectionItems[i] = g.cardCollectionItem(i)
 	}
 	for _, m := range g.party.Members {
-		ps.Members = append(ps.Members, buildCharacterSave(m))
+		saved := buildCharacterSave(m)
+		g.refundShotsInFlight(m, &saved.SpellState)
+		ps.Members = append(ps.Members, saved)
 	}
 	for _, m := range g.party.Reserve {
 		ps.Reserve = append(ps.Reserve, buildCharacterSave(m))
@@ -124,12 +127,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 			// Local canon: unified-world containers persist as (region key +
 			// map-local coords), resolved by POSITION (a bag can drop across a
 			// region seam from the key it was tagged with).
-			cMapKey, cX, cY := c.MapKey, c.X, c.Y
-			if wm != nil && wm.IsOpenWorldRegion(cMapKey) {
-				if key, lx, ly, ok := wm.LocalizeWorldPos(cX, cY); ok {
-					cMapKey, cX, cY = key, lx, ly
-				}
-			}
+			cMapKey, cX, cY := savedPos(wm, wm != nil && wm.IsOpenWorldRegion(c.MapKey), c.MapKey, c.X, c.Y)
 			entry := GroundContainerSave{
 				Kind:      int(c.Kind),
 				ID:        c.ID,
@@ -175,13 +173,17 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 			rootHeldThisTurn, slowPctThisTurn, weakenPctThisTurn := mon.TurnDebuffLatches()
 			poisonTickTimer, burnTickTimer := mon.DoTTickTimers()
 			saveEntry := MonsterSave{
-				AmbientThreat:     mon.Threat,
-				Arbor:             mon.Arbor,
-				Population:        mon.Population,
-				AmbientMoveCredit: mon.AmbientMoveCredit,
-				ID:                mon.ID, Key: mon.Key, Name: mon.Name, X: mon.X, Y: mon.Y, HitPoints: mon.HitPoints,
-				Bound: mon.Bound, BoundFramesRemaining: mon.BoundFramesRemaining,
-				Pacified: mon.Pacified, PacifiedFramesRemaining: mon.PacifiedFramesRemaining,
+				Relics:        mon.Relics.Clone(),
+				AmbientThreat: mon.Threat,
+				Arbor:         mon.Arbor,
+				Population:    mon.Population,
+				ID:            mon.ID, Key: mon.Key, Name: mon.Name, X: mon.X, Y: mon.Y, HitPoints: mon.HitPoints,
+				Bound: mon.Bound, BoundFramesRemaining: mon.BoundClock.Frames,
+				FearFramesRemaining:            mon.Fear.Frames,
+				SilenceFramesRemaining:         mon.Silence.Frames,
+				SilenceImmunityFramesRemaining: mon.SilenceImmunity.Frames,
+				BerserkFramesRemaining:         mon.Berserk.Frames,
+				Pacified:                       mon.Pacified, PacifiedFramesRemaining: mon.PacifiedClock.Frames,
 				CharmedByParty:          mon.CharmedByParty,
 				WasAttacked:             mon.WasAttacked,
 				BandInstance:            mon.BandInstance,
@@ -193,61 +195,58 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				LootGuardSide:           mon.LootGuardSide,
 				LootGuardPatrolAlt:      mon.LootGuardPatrolAlt,
 				LootGuardAlerted:        mon.LootGuardAlerted,
+				LootGuardRelieved:       mon.LootGuardRelieved,
 				RallyDone:               mon.RallyDone,
 				Relentless:              mon.Relentless,
 				ChampionTier:            mon.ChampionTier,
 				OpeningSpellDone:        mon.OpeningSpellDone,
 				EnrageAnnounced:         mon.Enraged,
 				SoakDamage:              mon.SoakDamage,
-				SoakFrames:              mon.SoakFrames,
-				SoakTurns:               mon.SoakTurns,
-				SoakRate:                mon.SoakRate,
+				Soak:                    mon.Soak.Saved(),
 				PackKey:                 mon.PackKey,
 				QuestProgressIgnored:    mon.QuestProgressIgnored,
 				HomeMap:                 mon.HomeMap,
-				StunFramesRemaining:     mon.StunFramesRemaining,
-				StunTurnsRemaining:      mon.StunTurnsRemaining,
-				StunRate:                mon.StunRate,
+				Stun:                    mon.Stun.Saved(),
 				PoisonedFramesRemaining: mon.PoisonedFramesRemaining,
 				PoisonTickTimer:         poisonTickTimer,
 				StunDRStacks:            mon.StunDRStacks,
-				StunDRMemoryTurns:       mon.StunDRMemoryTurns,
-				StunDRMemoryFrames:      mon.StunDRMemoryFrames,
-				RootFramesRemaining:     mon.RootFramesRemaining,
-				RootTurnsRemaining:      mon.RootTurnsRemaining,
-				RootRate:                mon.RootRate,
+				StunDRMemory:            mon.StunDRMemory.Saved(),
+				Root:                    mon.Root.Saved(),
 				ArmorShredPct:           mon.ArmorShredPct,
 				ElementalMarks:          maps.Clone(mon.ElementalMarks),
-				ArmorShredFrames:        mon.ArmorShredFramesRemaining,
-				ArmorShredTurns:         mon.ArmorShredTurnsRemaining,
-				ArmorShredRate:          mon.ArmorShredRate,
+				ArmorShred:              mon.ArmorShred.Saved(),
+				ArmorMelt:               mon.ArmorMelt.Saved(),
 				BurnFramesRemaining:     mon.BurnFramesRemaining,
 				BurnTickTimer:           burnTickTimer,
-				TrapVolleyCD:            mon.TrapVolleyCDFrames,
-				TrapVolleyTurnCD:        mon.TrapVolleyTurnCD,
-				TrapVolleyCDRate:        mon.TrapVolleyCDRate,
+				TrapVolleyCD:            mon.TrapVolleyCD.Saved(),
 				Telegraph:               mon.Telegraph.Clone(),
 				SlowPct:                 mon.SlowPct,
-				SlowFrames:              mon.SlowFramesRemaining,
-				SlowTurns:               mon.SlowTurnsRemaining,
-				SlowRate:                mon.SlowRate,
-				SlowTurnCount:           mon.SlowTurnCount,
+				Slow:                    mon.Slow.Saved(),
+				SlowSkip:                mon.SlowSkip.Saved(),
 				RootHeldThisTurn:        rootHeldThisTurn,
 				SlowPctThisTurn:         slowPctThisTurn,
 				WeakenPct:               mon.WeakenPct,
-				WeakenFrames:            mon.WeakenFramesRemaining,
-				WeakenTurns:             mon.WeakenTurnsRemaining,
-				WeakenRate:              mon.WeakenRate,
+				Weaken:                  mon.Weaken.Saved(),
 				WeakenPctThisTurn:       weakenPctThisTurn,
 				Pilfered:                mon.Pilfered,
-				PounceCDFrames:          mon.PounceCDFrames,
-				PounceCDTurns:           mon.PounceCDTurns,
-				PounceCDRate:            mon.PounceCDRate,
-				BossCD:                  mon.BossCD,
-				InfernoCD:               mon.InfernoCDFrames,
+				PounceCD:                mon.PounceCD.Saved(),
+				PhaseShiftCD:            mon.PhaseShiftCD.Saved(),
+				TurnBasedSwingCarry:     mon.TurnBasedSwingCarry,
+				TurnBasedStepCarry:      mon.TurnBasedStepCarry,
+				Jammed:                  mon.Jammed,
+				AttackCDFrames:          mon.AttackCDFrames,
+				OffHandCDFrames:         mon.OffHandCDFrames,
+				HourMarks:               mon.HourMarks,
+				BossCD:                  mon.BossCD.Saved(),
+				NovaRollCD:              mon.NovaRollCD.Saved(),
 				BossHurtPending:         mon.BossHurtPending,
-				BossLastHP:              mon.BossLastHP,
+				BossBlowRolls:           mon.BossBlowRolls,
+				HurtSummonCD:            mon.HurtSummonCD.Saved(),
+				AttackSummonCD:          mon.AttackSummonCD.Saved(),
 				SummonFirstDone:         mon.SummonFirstDone,
+				SummonCD:                mon.SummonCD.Saved(),
+				PushCD:                  mon.PushCD.Saved(),
+				LaneCD:                  mon.LaneCD.Saved(),
 				SummonedBy:              mon.SummonedBy,
 				SummonerName:            mon.SummonerName,
 			}
@@ -353,21 +352,16 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				if npc.QuestPropOwner != "" || npc.HarvestOwner != "" {
 					continue // derived from saved activity state, not NPC visited flags
 				}
-				key, x, y := mapKey, npc.X, npc.Y
-				if localize {
-					if k, lx, ly, ok := wm.LocalizeWorldPos(npc.X, npc.Y); ok {
-						key, x, y = k, lx, ly
-					}
-				}
+				key, x, y := savedSpot(wm, localize, mapKey, npc.X, npc.Y)
 				ns := NPCSave{
-					MapKey: key, Name: npc.Name, X: x, Y: y, Visited: npc.Visited,
+					MapKey: key, Key: npc.Key, Name: npc.Name, X: x, Y: y, Visited: npc.Visited,
 					DoorAttempts: npc.DoorAttempts, DoorLockBroken: npc.DoorLockBroken,
 					DoorOpenedBy: npc.DoorOpenedBy,
 				}
 				if len(npc.MerchantStock) > 0 {
 					ns.Stock = make([]NPCStockSave, len(npc.MerchantStock))
 					for i, entry := range npc.MerchantStock {
-						ns.Stock[i] = NPCStockSave{Name: entry.Item.Name, Quantity: entry.Quantity}
+						ns.Stock[i] = NPCStockSave{Key: config.CatalogKey(entry.Item), Quantity: entry.Quantity}
 					}
 				}
 				nstates = append(nstates, ns)
@@ -388,7 +382,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 			questSaves = append(questSaves, QuestSave{
 				ID:               quest.ID,
 				Activity:         quest.Activity.Clone(),
-				Status:           string(quest.Status),
+				Status:           string(quest.Status()),
 				CurrentCount:     quest.CurrentCount,
 				DynamicTarget:    quest.DynamicTarget,
 				DynamicTargetSet: quest.DynamicTargetSet,
@@ -404,6 +398,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		}
 	}
 	sort.Strings(questSpawnsDone) // deterministic save bytes
+	watcherSeen, watcherLastDay, watcherQueue := g.watcherSaveState()
 
 	// Calculate played time
 	playedTime := time.Since(g.sessionStartTime)
@@ -435,12 +430,10 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 	// map-local coords). The save format never records the merged grid, so
 	// saves survive layout changes, new maps, and flag flips in both
 	// directions. Corridor positions snap to the nearest region interior.
-	saveMapKey, savePX, savePY, saveAngle := wm.CurrentMapKey, g.camera.X, g.camera.Y, g.camera.Angle
+	saveMapKey, savePX, savePY := savedPos(wm, g.openWorldActive(), wm.CurrentMapKey, g.camera.X, g.camera.Y)
+	saveAngle := g.camera.Angle
 	if g.openWorldActive() {
-		if key, lx, ly, ok := wm.LocalizeWorldPos(savePX, savePY); ok {
-			saveMapKey, savePX, savePY = key, lx, ly
-			saveAngle = wm.LocalizeAngle(key, saveAngle)
-		}
+		saveAngle = wm.LocalizeAngle(saveMapKey, saveAngle)
 	}
 	g.ensurePersistentDamageZoneFieldIDs()
 	persistentDamageZoneSaves := buildPersistentDamageZoneSaves(g.persistentDamageZones)
@@ -452,41 +445,34 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		tileSize := g.config.GetTileSize()
 		for i := range persistentDamageZoneSaves {
 			z := &persistentDamageZoneSaves[i]
-			if wm.IsOpenWorldRegion(z.MapKey) {
-				if key, lx, ly, ok := wm.LocalizeWorldPos(z.X, z.Y); ok {
-					z.MapKey, z.X, z.Y = key, lx, ly
-				}
-			}
+			z.MapKey, z.X, z.Y = savedPos(wm, wm.IsOpenWorldRegion(z.MapKey), z.MapKey, z.X, z.Y)
 		}
 		for i := range trapSaves {
 			t := &trapSaves[i]
 			if wm.IsOpenWorldRegion(t.MapKey) {
-				if key, lx, ly, ok := wm.LocalizeWorldPos(t.X, t.Y); ok {
-					t.MapKey, t.X, t.Y = key, lx, ly
-					t.TileX, t.TileY = TileIndex(lx, tileSize), TileIndex(ly, tileSize)
-				}
+				t.MapKey, t.X, t.Y = savedPos(wm, true, t.MapKey, t.X, t.Y)
+				t.TileX, t.TileY = TileIndex(t.X, tileSize), TileIndex(t.Y, tileSize)
 			}
 		}
 		if len(g.mapReturnPoses) > 0 {
 			returnPoses = make(map[string]MapPose, len(g.mapReturnPoses))
 			for key, pose := range g.mapReturnPoses {
 				if wm.IsOpenWorldRegion(key) {
-					if _, lx, ly, ok := wm.LocalizeWorldPos(pose.X, pose.Y); ok {
-						pose.X, pose.Y = lx, ly
-						pose.Angle = wm.LocalizeAngle(key, pose.Angle)
-					}
+					// The pose keeps its key: localize into that region, as the
+					// restore projects it back out of it.
+					pose.X, pose.Y = wm.LocalizeKeyedWorldPos(key, pose.X, pose.Y)
+					pose.Angle = wm.LocalizeAngle(key, pose.Angle)
 				}
 				returnPoses[key] = pose
 			}
 		}
 		if wm.IsOpenWorldRegion(g.underwaterReturnMap) {
-			if _, lx, ly, ok := wm.LocalizeWorldPos(uwX, uwY); ok {
-				uwX, uwY = lx, ly
-			}
+			uwX, uwY = wm.LocalizeKeyedWorldPos(g.underwaterReturnMap, uwX, uwY)
 		}
 	}
 
-	return GameSave{
+	save := GameSave{
+		TickRate:         config.GetTargetTPS(),
 		Adventure:        cloneAdventureState(g.adventure),
 		TerrainChanges:   append([]TerrainChange(nil), g.terrainChanges...),
 		MapKey:           saveMapKey,
@@ -502,58 +488,61 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		NPCStates:        nstates,
 		Quests:           questSaves,
 		QuestSpawnsDone:  questSpawnsDone,
+		WatcherSeen:      watcherSeen,
+		WatcherLastDay:   watcherLastDay,
+		WatcherQueue:     watcherQueue,
 		QuestPropLayouts: cloneQuestPropLayouts(g.questPropLayouts),
-		Alchemy:          g.alchemy.Clone(), SpatialReuseFrames: g.spatialReuseFrames, SpatialStepThisTurn: g.spatialStepThisTurn,
-		BossFireTraps:              bossFireTrapSaves,
-		BossFireTrapsOwner:         g.bossFireTrapsOwner,
-		GroundContainers:           groundContainerSaves,
-		PendingLevelUpChoices:      pendingChoices,
-		PlayedTimeNs:               playedTime.Nanoseconds(),
-		MaxPartyLevel:              g.unlockedPartyLevel(),
-		DayNightFrames:             g.dayNightFrames,
-		DayNightDay:                g.dayNightDay,
-		Ecology:                    cloneEcologyState(g.ecology),
-		CalendarDay:                g.currentCalendarDay(),
-		CalendarWeek:               g.calendarWeek,
-		CalendarMonth:              g.calendarMonth,
-		RespawnDayVersion:          respawnDaySaveVersion,
-		ArenaTierFoughtDay:         g.arenaTierFoughtDay,
-		ArenaRunID:                 g.playthroughID,
-		TotalGoldEarned:            g.totalGoldEarned,
-		TotalExperienceEarned:      g.totalExperienceEarned,
-		VictoryAcknowledged:        g.victoryAcknowledged,
-		StashTransferID:            g.pendingStashTransferID,
-		TurnBasedTurnSuspended:     g.turnBasedTurnSuspended,
-		CurrentTurn:                g.currentTurn,
-		PartyRoot:                  g.partyRoot,
-		PartyHinder:                g.partyHinder,
-		PartyActionsUsed:           g.partyActionsUsed,
-		PartyTechniqueActionsUsed:  g.partyTechniqueActionsUsed,
-		TurnBasedMoveCooldown:      g.turnBasedMoveCooldown,
-		TurnBasedRotCooldown:       g.turnBasedRotCooldown,
-		MonsterTurnResolved:        g.monsterTurnResolved,
-		TurnBasedSpRegenCount:      g.turnBasedSpRegenCount,
-		ExtraMonsterAction:         g.turnBasedExtraMonsterAction,
-		TurnBasedMonsterPassesLeft: g.turnBasedMonsterPassesLeft,
-		TurnBasedMonsterPassDelay:  g.turnBasedMonsterPassDelay,
-		TurnBasedMonsterStatusTick: g.turnBasedMonsterStatusTick,
-		TurnBasedMonsterStunned:    turnBasedMonsterStunned,
-		CardSummonCooldowns:        g.snapshotCardSummonCooldowns(),
-		TorchLightActive:           g.torchLightActive,
-		TorchLightDuration:         g.torchLightDuration,
-		TorchLightRadius:           g.torchLightRadius,
-		WizardEyeActive:            g.wizardEyeActive,
-		WizardEyeDuration:          g.wizardEyeDuration,
-		WalkOnWaterActive:          g.walkOnWaterActive,
-		WalkOnWaterDuration:        g.walkOnWaterDuration,
-		FlyActive:                  g.flyActive,
-		FlyDuration:                g.flyDuration,
-		VisitedTavernMaps:          g.sortedVisitedPortalMaps(),
-		StatBuffs:                  buildStatBuffSaves(g.statBuffs),
-		BlessActive:                legacyBless.Frames > 0,
-		BlessDuration:              legacyBless.Frames,
-		BlessStatBonus:             legacyBless.Bonuses.Might,
-		BlessBonusesPerStat:        statBonusesToMap(legacyBless.Bonuses),
+		Alchemy:          g.alchemy.Clone(), SpatialReuse: g.spatialReuse.Saved(), OpenerCooldown: g.openerCooldown.Saved(), PartyMoveClock: g.partyMoveClock.Saved(),
+		BossFireTraps:               bossFireTrapSaves,
+		BossFireTrapsOwner:          g.bossFireTrapsOwner,
+		GroundContainers:            groundContainerSaves,
+		PendingLevelUpChoices:       pendingChoices,
+		PlayedTimeNs:                playedTime.Nanoseconds(),
+		MaxPartyLevel:               g.unlockedPartyLevel(),
+		DayNightFrames:              g.dayNightFrames,
+		DayNightDay:                 g.dayNightDay,
+		Ecology:                     cloneEcologyState(g.ecology),
+		CalendarDay:                 g.currentCalendarDay(),
+		CalendarWeek:                g.calendarWeek,
+		CalendarMonth:               g.calendarMonth,
+		RespawnDayVersion:           respawnDaySaveVersion,
+		StackLayoutVersion:          stackLayoutSaveVersion,
+		ArenaTierFoughtDay:          g.arenaTierFoughtDay,
+		ArenaRunID:                  g.playthroughID,
+		TotalGoldEarned:             g.totalGoldEarned,
+		TotalExperienceEarned:       g.totalExperienceEarned,
+		VictoryAcknowledged:         g.victoryAcknowledged,
+		StashTransferID:             g.pendingStashTransferID,
+		TurnBasedTurnSuspended:      g.turnBasedTurnSuspended,
+		CurrentTurn:                 g.currentTurn,
+		PartyRoot:                   g.partyRoot,
+		PartyHinder:                 g.partyHinder,
+		PartyActionsUsed:            g.partyActionsUsed,
+		PartyPenaltyFreeActionsUsed: g.partyPenaltyFreeActionsUsed,
+		TurnBasedMoveCooldown:       g.turnBasedMoveCooldown,
+		TurnBasedRotCooldown:        g.turnBasedRotCooldown,
+		MonsterTurnResolved:         g.monsterTurnResolved,
+		ExtraMonsterAction:          g.turnBasedExtraMonsterAction,
+		TurnBasedMonsterPassesLeft:  g.turnBasedMonsterPassesLeft,
+		TurnBasedMonsterPassDelay:   g.turnBasedMonsterPassDelay,
+		TurnBasedMonsterStatusTick:  g.turnBasedMonsterStatusTick,
+		TurnBasedMonsterStunned:     turnBasedMonsterStunned,
+		CardSummonClocks:            g.snapshotCardSummonCooldowns(),
+		TorchLightActive:            g.torchLightActive,
+		TorchLightDuration:          g.torchLightClock.Frames,
+		TorchLightRadius:            g.torchLightRadius,
+		WizardEyeActive:             g.wizardEyeActive,
+		WizardEyeDuration:           g.wizardEyeClock.Frames,
+		WalkOnWaterActive:           g.walkOnWaterActive,
+		WalkOnWaterDuration:         g.walkOnWaterClock.Frames,
+		FlyActive:                   g.flyActive,
+		FlyDuration:                 g.flyClock.Frames,
+		VisitedTavernMaps:           g.sortedVisitedPortalMaps(),
+		StatBuffs:                   buildStatBuffSaves(g.statBuffs),
+		BlessActive:                 legacyBless.Clock.Active(),
+		BlessDuration:               legacyBless.Clock.Frames,
+		BlessStatBonus:              legacyBless.Bonuses.Might,
+		BlessBonusesPerStat:         statBonusesToMap(legacyBless.Bonuses),
 		// Write-only legacy: an OLD binary reads stat_bonus on load (its expiry
 		// math subtracts bless_stat_bonus from it); the new binary derives the
 		// aggregate from stat_buffs and never reads this back.
@@ -562,15 +551,18 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		CelestialBuffSpellID:   g.celestialBuffSpellID,
 		TimedBuffSourceVersion: timedBuffSourceSaveVersion,
 		PersistentDamageZones:  persistentDamageZoneSaves,
+		FrozenWater:            append([]FrozenWaterTile(nil), g.frozenWater...),
 		Traps:                  trapSaves,
 		WaterBreathingActive:   g.waterBreathingActive,
-		WaterBreathingDuration: g.waterBreathingDuration,
+		WaterBreathingDuration: g.waterBreathingClock.Frames,
 		UnderwaterReturnX:      uwX,
 		UnderwaterReturnY:      uwY,
 		UnderwaterReturnMap:    g.underwaterReturnMap,
 
 		MapReturnPoses: returnPoses,
 	}
+	g.storySaveState(&save)
+	return save
 }
 
 // statBonusesToMap serializes a StatBonuses block for saves (nonzero entries
@@ -580,7 +572,7 @@ func statBonusesToMap(b character.StatBonuses) map[string]int {
 		return nil
 	}
 	m := map[string]int{}
-	for _, key := range config.StatNames {
+	for _, key := range stats.Names {
 		if v := b.ValueByName(key); v != 0 {
 			m[key] = v
 		}

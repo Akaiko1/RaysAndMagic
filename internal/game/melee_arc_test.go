@@ -320,7 +320,7 @@ func TestTurnBased_PlayerProjectileAssistsPulledFrontDiagonalTarget(t *testing.T
 			} else {
 				ch.LearnSpell("firebolt")
 				ch.SpellPoints, ch.MaxSpellPoints = 100, 100
-				ch.Equipment[items.SlotSpell] = items.Item{Type: items.ItemBattleSpell, SpellEffect: "firebolt", SpellCost: 2}
+				ch.Equipment[items.SlotQuickAction] = items.Item{Type: items.ItemBattleSpell, SpellEffect: "firebolt", SpellCost: 2}
 				if !game.combat.CastEquippedSpell() {
 					t.Fatal("spell launch failed")
 				}

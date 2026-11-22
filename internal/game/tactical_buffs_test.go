@@ -52,12 +52,12 @@ func TestOverwatchAttackActionWiring(t *testing.T) {
 					// swing; zeroing only m.StunCharChance cannot pin them.
 					template := g.championTemplateFor(m)
 					for _, slot := range []items.EquipSlot{items.SlotMainHand, items.SlotOffHand} {
-						weapon := lookupWeaponConfigByName(template.Equipment[slot].Name)
+						weapon := lookupWeaponConfig(template.Equipment[slot])
 						original := *weapon
 						t.Cleanup(func() { *weapon = original })
 						weapon.StunChance = 0
 						if kind == "champion stun" && slot == items.SlotMainHand {
-							weapon.StunChance, weapon.StunTurns = 1, 3
+							weapon.StunChance, weapon.StunSeconds = 1, 9
 						}
 					}
 					ch.Luck = 0
@@ -66,9 +66,9 @@ func TestOverwatchAttackActionWiring(t *testing.T) {
 					}
 				}
 				m.State, m.StateTimer, m.AttackCDFrames, m.OffHandCDFrames = monster.StateAttacking, 1, 0, 0
-				m.AttacksPerRound = 3
+				m.AttackCooldownMultiplier = 1.0 / 3 // several TB swings still earn one reaction
 				m.DamageMin, m.DamageMax = 1, 1
-				m.StunCharChance = 0
+				m.Abilities.Stun.Chance = 0
 				cadence := monsterAttackRealtime
 				if tb {
 					cadence = monsterAttackTurn
@@ -82,7 +82,7 @@ func TestOverwatchAttackActionWiring(t *testing.T) {
 					cadence = monsterAttackPounce
 				case "cooldown":
 					if tb {
-						m.StunTurnsRemaining = 2
+						m.Stun.Turns = 2
 					} else {
 						m.AttackCDFrames = 100
 					}
@@ -91,7 +91,7 @@ func TestOverwatchAttackActionWiring(t *testing.T) {
 					g.world.Tiles[10][x] = world.TileWall
 					want = 0
 				case "stunned":
-					ch.StunFramesRemaining, ch.StunTurnsRemaining = 100, 5
+					ch.Stun.Frames, ch.Stun.Turns = 100, 5
 					want = 0
 				case "crossfire":
 					foe := monster.NewMonster3DFromConfig(g.camera.X, g.camera.Y, "skeleton", g.config)
@@ -105,12 +105,11 @@ func TestOverwatchAttackActionWiring(t *testing.T) {
 				}
 				switch kind {
 				case "inferno":
-					m.InfernoDamage = 1
-					g.combat.applyMonsterInferno(m)
+					castTestPartyAttack(g.combat, m, catalogPartyAttack("inferno"), 1)
 				case "volley":
-					m.TrapVolleyCount = 4
-					m.TrapVolleyRadiusTiles = 2
-					g.combat.tryBossTrapVolley(m, tb)
+					m.Abilities.TrapVolley.Count = 4
+					m.Abilities.TrapVolley.RadiusTiles = 2
+					g.combat.tryBossTrapVolley(m)
 				default:
 					g.combat.commitMonsterAttack(m, target, cadence)
 				}
@@ -186,7 +185,7 @@ func TestBallisticsCriticalChanceAndTooltip(t *testing.T) {
 				ch.Skills[character.SkillBallistics] = skill
 				skill.Mastery = character.SkillMastery(tier)
 				want := 0
-				if character.BallisticsWeapon(lookupWeaponConfigByName(weapon.Name)) {
+				if character.BallisticsWeapon(lookupWeaponConfig(weapon)) {
 					want = character.BallisticsCritPct(tier)
 				}
 				if got := g.combat.CalculateWeaponCritChance(weapon, ch); got != min(100, before+want) {

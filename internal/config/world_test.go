@@ -81,3 +81,27 @@ func TestLoadConfigRejectsRetiredTreeLOD(t *testing.T) {
 		})
 	}
 }
+
+// A bad slide duration names its key.
+func TestLoadConfigRejectsTurnStepSeconds(t *testing.T) {
+	data, err := os.ReadFile("../../config.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	line := regexp.MustCompile(`(?m)^    turn_step_seconds:.*$`)
+	if matches := line.FindAll(data, -1); len(matches) != 1 {
+		t.Fatalf("shipped config contains %d turn_step_seconds lines, want 1", len(matches))
+	}
+	for _, value := range []string{"-0.1", "3"} {
+		t.Run(value, func(t *testing.T) {
+			contents := line.ReplaceAllString(string(data), "    turn_step_seconds: "+value)
+			path := filepath.Join(t.TempDir(), "config.yaml")
+			if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := LoadConfig(path); err == nil || !strings.Contains(err.Error(), "graphics.view.turn_step_seconds") {
+				t.Fatalf("LoadConfig(turn_step_seconds=%s) error = %v, want the key named", value, err)
+			}
+		})
+	}
+}

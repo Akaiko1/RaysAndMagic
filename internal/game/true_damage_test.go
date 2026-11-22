@@ -32,6 +32,18 @@ func isolateTrueDamageMember(member *character.MMCharacter, resist int) {
 	}
 }
 
+// noPartyDodge zeroes the party's Perfect Dodge (luck is its only source on a
+// fresh test party), so a test's monster hits land with their riders.
+func noPartyDodge(t *testing.T, cs *CombatSystem) {
+	t.Helper()
+	for _, m := range cs.game.party.Members {
+		m.Luck = 0
+		if chance := cs.PerfectDodgeChance(m); chance != 0 {
+			t.Fatalf("fixture: %s keeps %d%% perfect dodge", m.Name, chance)
+		}
+	}
+}
+
 func TestPartyMitigation_ResistanceAppliesToBothFlatOnlyToNormal(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	member := cs.game.party.Members[0]
@@ -100,13 +112,13 @@ func TestPartyCardTrueDamage_DodgeResistanceAndMeleeMultiplier(t *testing.T) {
 	g.cardSlots[1].key = "masked_serpent_dancer_card" // +% normal melee
 	trueDmg := cardItemDef(t, "samurai_card").CardMeleeTrueDmg
 	meleePct := cardItemDef(t, "masked_serpent_dancer_card").CardMeleeDmgPct
-	maul := lookupWeaponConfigByName("Idol-Breaker, the Warlord's Maul")
-	if maul == nil || maul.TrueDamage != 0 {
+	maul := lookupWeaponConfig(testWeapon("Idol-Breaker, the Warlord's Maul"))
+	if maul == nil || maul.TrueDamagePct != 0 {
 		t.Fatal("fixture weapon missing or carries its own true damage")
 	}
 
 	target := mkTestMonster("Target", 1000)
-	cs.ApplyDamageToMonster(target, 100, maul.Name, false)
+	cs.ApplyDamageToMonster(target, 100, testWeapon(maul.Name), false)
 	if got, want := 1000-target.HitPoints, 100*(100+meleePct)/100+trueDmg; got != want {
 		t.Fatalf("100 normal with +%d%% normal and +%d true dealt %d, want %d", meleePct, trueDmg, got, want)
 	}
@@ -115,9 +127,67 @@ func TestPartyCardTrueDamage_DodgeResistanceAndMeleeMultiplier(t *testing.T) {
 	dodger := mkTestMonster("Dodger", 100)
 	dodger.PerfectDodge = 100
 	dodger.Resistances[monsterPkg.DamagePhysical] = 50
-	cs.ApplyDamageToMonster(dodger, 100, maul.Name, false)
+	cs.ApplyDamageToMonster(dodger, 100, testWeapon(maul.Name), false)
 	if got, want := 100-dodger.HitPoints, trueDmg*(100-50)/100; got != want {
 		t.Fatalf("card true through dodge dealt %d, want %d after physical resistance", got, want)
+	}
+}
+
+// Broodspike turns a third of each hit into true damage: the cut moves damage
+// without adding any, it is taken after flat damage buffs, and the share
+// ignores armor and a Perfect Dodge but still meets resistance. A plain spear dealing the
+// remaining normal part is the control that measures armor and resistance; a
+// champion wielding Broodspike makes the same cut.
+func TestBroodspikeTurnsAShareOfEachHitIntoTrueDamage(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	attacker := cs.game.party.Members[cs.game.selectedChar]
+	isolateTrueDamageMember(attacker, 0)
+	cs.game.cardSlots = [MaxCardSlots]cardSlot{}
+	brood, plain := lookupWeaponConfig(testWeapon("Broodspike")), lookupWeaponConfig(testWeapon("Tarn Trident"))
+	if brood == nil || plain == nil || brood.TrueDamagePct != 33 || plain.TrueDamagePct != 0 {
+		t.Fatal("fixture: Broodspike must cut 33% and the control spear nothing")
+	}
+	hit := func(weapon string, normal int, setup func(*monsterPkg.Monster3D)) int {
+		m := mkTestMonster("Target", 10000)
+		setup(m)
+		cs.ApplyDamageToMonster(m, normal, testWeapon(weapon), false)
+		return 10000 - m.HitPoints
+	}
+	// A flat +60 outgoing buff joins the hit before the cut: a third of 360.
+	buffed := func() int {
+		cs.game.combatBuffs = []TimedCombatBuff{{OutBonus: 60}}
+		defer func() { cs.game.combatBuffs = nil }()
+		m := mkTestMonster("Target", 10000)
+		m.PerfectDodge = 100
+		cs.ApplyDamageToMonster(m, 300, testWeapon(brood.Name), false)
+		return 10000 - m.HitPoints
+	}
+	bare := func(*monsterPkg.Monster3D) {}
+	armored := func(m *monsterPkg.Monster3D) { m.ArmorClass = 60 }
+	dodger := func(m *monsterPkg.Monster3D) { m.PerfectDodge = 100 }
+	resists := func(m *monsterPkg.Monster3D) { m.Resistances[monsterPkg.DamagePhysical] = 50 }
+
+	for _, tc := range []struct {
+		name string
+		got  int
+		want int
+	}{
+		{"bare target", hit(brood.Name, 300, bare), 300},
+		{"armor spares the share", hit(brood.Name, 300, armored), hit(plain.Name, 201, armored) + 99},
+		{"the share lands through a dodge", hit(brood.Name, 300, dodger), 99},
+		{"the share is cut after flat buffs", buffed(), 360 * 33 / 100},
+		{"resistance meets the share", hit(brood.Name, 300, resists), hit(plain.Name, 201, resists) + 99*(100-50)/100},
+	} {
+		if tc.got != tc.want {
+			t.Errorf("%s: dealt %d, want %d", tc.name, tc.got, tc.want)
+		}
+	}
+
+	champion := mkTestMonster("Champion", 1000)
+	champion.TrueDamage = 4
+	parts := championMeleeHit(champion, brood, 300).Parts
+	if parts.Normal != 201 || parts.True != 4+99 {
+		t.Fatalf("champion Broodspike hit = %d normal + %d true, want 201 + %d", parts.Normal, parts.True, 4+99)
 	}
 }
 
@@ -128,7 +198,7 @@ func TestPartyWeaponMasteryTrueDamage_InheritsWeaponElement(t *testing.T) {
 	isolateTrueDamageMember(attacker, 0)
 	attacker.Skills[character.SkillMace] = &character.Skill{Mastery: character.MasteryGrandMaster}
 	cs.game.cardSlots = [MaxCardSlots]cardSlot{}
-	weapon := lookupWeaponConfigByName("Holy Mace")
+	weapon := lookupWeaponConfig(testWeapon("Holy Mace"))
 	if weapon == nil {
 		t.Fatal("Holy Mace definition missing")
 	}
@@ -141,7 +211,7 @@ func TestPartyWeaponMasteryTrueDamage_InheritsWeaponElement(t *testing.T) {
 	target.Resistances[monsterPkg.DamagePhysical] = 100
 	target.Resistances[monsterPkg.DamageLight] = 50
 
-	cs.ApplyDamageToMonster(target, 0, "Holy Mace", false)
+	cs.ApplyDamageToMonster(target, 0, testWeapon("Holy Mace"), false)
 
 	// Holy Mace makes the mastery true damage Light: physical immunity is
 	// irrelevant and 50% Light resistance halves it (rounded down).
@@ -165,10 +235,10 @@ func TestPartyTrueDamage_ReachesWeaponAoeVictims(t *testing.T) {
 	near := mkTestMonster("Near", 1000)
 	near.X, near.Y = center.X+tile, center.Y
 	near.Resistances[monsterPkg.DamagePhysical] = 50
-	near.SoakDamage, near.SoakFrames = 999, 1
+	near.SoakDamage, near.Soak.Frames = 999, 1
 	g.world.Monsters = []*monsterPkg.Monster3D{center, near}
 
-	cs.ApplyDamageToMonster(center, 0, "Idol-Breaker, the Warlord's Maul", false)
+	cs.ApplyDamageToMonster(center, 0, testWeapon("Idol-Breaker, the Warlord's Maul"), false)
 	if got, want := 1000-near.HitPoints, trueDmg*(100-50)/100; got != want {
 		t.Fatalf("AoE victim took %d, want %d resistance-reduced true damage through soak", got, want)
 	}
@@ -180,7 +250,7 @@ func TestMonsterCrossfireProjectile_CarriesTrueDamage(t *testing.T) {
 	source.Bound = true
 	target := mkTestMonster("Target", 100)
 	target.Resistances[monsterPkg.DamagePhysical] = 50
-	target.SoakDamage, target.SoakFrames = 999, 1
+	target.SoakDamage, target.Soak.Frames = 999, 1
 
 	bolt := &Arrow{
 		ID:            "true_crossfire",
@@ -188,11 +258,11 @@ func TestMonsterCrossfireProjectile_CarriesTrueDamage(t *testing.T) {
 		LifeTime:      1,
 		DamageType:    monsterPkg.DamagePhysical.String(),
 		TrueDamage:    20,
-		Owner:         ProjectileOwnerBoundUndead,
+		Owner:         ProjectileOwnerPartyAlly,
 		SourceName:    source.Name,
 		SourceMonster: source,
 	}
-	cs.resolveMonsterProjectileVsMonster(bolt, "arrow", target, bolt.ID)
+	cs.resolveMonsterProjectileVsMonster(bolt, target, bolt.ID)
 
 	if got := 100 - target.HitPoints; got != 10 {
 		t.Fatalf("crossfire projectile dealt %d, want 10 resistance-reduced true damage through soak", got)
@@ -209,13 +279,11 @@ func TestMonsterSpecialAoe_CarriesAuthoredTrueDamage(t *testing.T) {
 	member.HitPoints, member.MaxHitPoints = 200, 200
 	cs.game.combatBuffs = []TimedCombatBuff{{InReduce: 999}}
 	attacker := &monsterPkg.Monster3D{
-		Name:               "Burst Caster",
-		FireburstDamageMin: 10,
-		FireburstDamageMax: 10,
-		TrueDamage:         20,
+		Name:       "Burst Caster",
+		TrueDamage: 20,
 	}
 
-	cs.applyMonsterFireburst(attacker)
+	castTestPartyAttack(cs, attacker, catalogPartyAttack("fireburst"), 10)
 	if got := 200 - member.HitPoints; got != 10 {
 		t.Fatalf("Fireburst dealt %d, want only 10 resistance-reduced true through flat ward", got)
 	}
@@ -232,7 +300,7 @@ func TestChampionSpellUsesOnlySpellMasteryTrueDamage(t *testing.T) {
 	}
 
 	champion.TrueDamage = 99
-	champion.IgnoresDodge = true
+	champion.GrazesDodge = true
 	// A crit doubles BOTH damage parts (rollSpellCritParts), so a random crit
 	// turns the expected true rider into 2x and flakes this assertion. The test
 	// is about WHICH riders apply, so take the roll out. Cast with an OWN COPY of
@@ -259,8 +327,95 @@ func TestChampionSpellUsesOnlySpellMasteryTrueDamage(t *testing.T) {
 		t.Fatalf("impossible tier: bad mastery %q", tier.Mastery)
 	}
 	wantTrue := int(mastery) * MasterySpellEffectPerLevel
-	if projectile.TrueDamage != wantTrue || projectile.IgnoresDodge {
-		t.Fatalf("champion spell riders: true=%d ignoreDodge=%v, want spell true=%d and no dodge ignore",
-			projectile.TrueDamage, projectile.IgnoresDodge, wantTrue)
+	if projectile.TrueDamage != wantTrue || projectile.GrazesDodge {
+		t.Fatalf("champion spell riders: true=%d grazesDodge=%v, want spell true=%d and no dodge ignore",
+			projectile.TrueDamage, projectile.GrazesDodge, wantTrue)
 	}
+}
+
+// A Perfect Dodge takes the normal hit; true damage still lands, and a
+// Grandmaster's hit grazes through for WeaponGMDodgeGrazePct of its normal
+// damage, which meets the usual defenses. Riders never ride a dodged hit.
+// Both directions: a GM hero against a dodging monster, and a champion's GM hit
+// against a dodging hero.
+func TestGrandmasterHitGrazesThroughPerfectDodge(t *testing.T) {
+	const normal, trueDmg = 100, 20
+	graze := normal * character.WeaponGMDodgeGrazePct / 100
+	t.Run("hero hits a dodging monster", func(t *testing.T) {
+		for _, tc := range []struct {
+			name   string
+			skill  *character.Skill
+			tiers  int
+			grazes bool
+		}{
+			{"Expert lands only true damage", expertSkill(), 1, false},
+			{"Grandmaster grazes through", gmSkill(), 3, true},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				cs := newTestCombatSystemWithConfig(t)
+				sword := lookupWeaponConfig(items.CreateWeaponFromYAML("iron_sword"))
+				if sword == nil {
+					t.Fatal("iron_sword config missing")
+				}
+				attacker := cs.game.party.Members[cs.game.selectedChar]
+				isolateTrueDamageMember(attacker, 0)
+				attacker.Skills[character.SkillSword] = tc.skill
+				cs.game.cardSlots = [MaxCardSlots]cardSlot{}
+				target := mkTestMonster("Dodger", 1000)
+				target.PerfectDodge = 100
+				cs.ApplyDamageToMonster(target, normal, testWeapon(sword.Name), false)
+				want := tc.tiers * MasteryWeaponTrueDamagePerTier
+				if tc.grazes {
+					want += graze
+				}
+				if got := 1000 - target.HitPoints; got != want {
+					t.Fatalf("damage through the dodge = %d, want %d", got, want)
+				}
+			})
+		}
+	})
+	t.Run("champion hits a dodging hero", func(t *testing.T) {
+		for _, tc := range []struct {
+			name         string
+			grazes       bool
+			armored      bool
+			disintegrate float64
+			want         int // -1: graze reduced by armor, true damage whole
+		}{
+			{"a plain hit lands only true damage", false, false, 0, trueDmg},
+			{"a Grandmaster hit grazes through", true, false, 0, graze + trueDmg},
+			{"armor meets the graze", true, true, 0, -1},
+			{"no rider rides the graze", true, false, 1, graze + trueDmg},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				cs := newTestCombatSystemWithConfig(t)
+				member := cs.game.party.Members[0]
+				isolateTrueDamageMember(member, 0)
+				if tc.armored {
+					member.Skills[character.SkillLeather] = &character.Skill{Mastery: character.MasteryNovice}
+					equipArmorPieces(t, member, "leather_armor")
+				}
+				member.Luck = 100 * LuckToDodgeDivisor
+				member.HitPoints, member.MaxHitPoints = 200, 200
+				cs.monsterHitCharacter(mkTestMonster("Champion", 500), member, "Champion", monsterCharacterHit{
+					Parts:              damagecalc.Parts{Normal: normal, True: trueDmg},
+					DamageType:         monsterPkg.DamagePhysical.String(),
+					GrazesDodge:        tc.grazes,
+					DisintegrateChance: tc.disintegrate,
+					Melee:              true,
+				})
+				got := 200 - member.HitPoints
+				if tc.want < 0 {
+					if got <= trueDmg || got >= graze+trueDmg {
+						t.Fatalf("armoured graze dealt %d, want armour to cut the %d graze but not the %d true", got, graze, trueDmg)
+					}
+				} else if got != tc.want {
+					t.Fatalf("damage through the dodge = %d, want %d", got, tc.want)
+				}
+				if member.HasCondition(character.ConditionEradicated) {
+					t.Fatal("a rider rode a dodged hit")
+				}
+			})
+		}
+	})
 }

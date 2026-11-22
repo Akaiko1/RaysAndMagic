@@ -22,9 +22,17 @@ func (g *MMGame) canActivateQuest(id string) error {
 		return fmt.Errorf("unknown quest %q", id)
 	}
 	if !g.partyLevelUnlocked(d.MinPartyLevel) {
-		return fmt.Errorf("This quest requires party level %d.", d.MinPartyLevel)
+		return questLevelLocked{d.MinPartyLevel}
 	}
 	return nil
+}
+
+// questLevelLocked refuses a quest the party is too young for; a giver may
+// answer it in its own voice (quest_messages level_locked).
+type questLevelLocked struct{ level int }
+
+func (e questLevelLocked) Error() string {
+	return uitext.Text("dialog.quest_needs_party_level", e.level)
 }
 
 func (g *MMGame) activateQuest(id string) error {
@@ -36,9 +44,7 @@ func (g *MMGame) activateQuest(id string) error {
 	}
 	g.spawnQuestCompletionMonsters(false)
 	g.syncQuestProps()
-	if g.creditQuestIfCleared(id) {
-		g.applyCompletedQuestTiles()
-	}
+	g.creditQuestIfCleared(id)
 	return nil
 }
 
@@ -68,7 +74,7 @@ func (g *MMGame) activityNPCAbsent(npc *character.NPC) bool {
 		return false
 	}
 	q := g.questManager.GetQuest(id)
-	if q == nil || q.RewardsClaimed || q.Status == quests.QuestStatusFailed {
+	if q == nil || q.RewardsClaimed {
 		return true
 	}
 	return len(d.Activity.Forage) > 0 && (!slices.Contains(q.Activity.Selected, prop.Token) || slices.Contains(q.Activity.Collected, prop.Token))
@@ -93,7 +99,7 @@ func (g *MMGame) handleQuestActivity(npc *character.NPC, id string, words *chara
 		}
 		return true
 	}
-	if q == nil || q.Status != quests.QuestStatusActive {
+	if q == nil {
 		g.AddCombatMessage(words.NotYet)
 		return true
 	}
@@ -113,11 +119,31 @@ func (g *MMGame) handleQuestActivity(npc *character.NPC, id string, words *chara
 	}
 	g.AddCombatMessage(words.Took)
 	if completed {
-		g.applyCompletedQuestTiles()
-		g.announceQuestCompletionWithMessage(q, words.Completed+" Claim its reward in the quest journal (J).")
+		g.completePropErrand(npc, q, words.Completed, " "+questJournalClaimHint)
 	}
 	return true
 }
+
+// completePropErrand is the completion beat every prop route shares: the
+// prop's completed line and - when the errand's own giver took the
+// delivery, which is its turn-in - the payout on the spot. Elsewhere the line
+// carries the route's hint for claiming the reward later.
+func (g *MMGame) completePropErrand(npc *character.NPC, q *quests.Quest, completed, claimHint string) {
+	if !npcGivesQuest(npc, q.ID) {
+		g.announceQuestCompletionWithMessage(q, completed+claimHint)
+		return
+	}
+	g.announceQuestCompletionWithMessage(q, completed)
+	if g.claimQuestReward(q.ID, npc) {
+		g.concludeGiverAfterPayout(npc, q.ID)
+		return
+	}
+	// The delivery row closed with the errand; the journal still pays it.
+	g.AddCombatMessage(questJournalClaimHint)
+}
+
+// questJournalClaimHint points a completed, unpaid errand to the journal.
+const questJournalClaimHint = "Claim its reward in the quest journal (J)."
 
 // validateQuestPropCopy is shared by general and activity-specific validation.
 func validateQuestPropCopy(npcKey string, p *character.NPCPropCopy) error {

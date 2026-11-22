@@ -69,7 +69,10 @@ const (
 	CollisionTypeItem
 )
 
-// Entity represents any game object that can have collisions
+// Entity represents any game object that can have collisions. Once
+// registered, it changes only through the system's methods (UpdateEntity,
+// SetEntitySolid, SetEntityCollisionType, SetMovementBounds): PassabilityView
+// refills only when one of them reports a change.
 type Entity struct {
 	movementBounds MovementBounds
 	BoundingBox    *BoundingBox
@@ -93,6 +96,9 @@ func (b MovementBounds) Allows(box *BoundingBox) bool {
 	x0, y0, x1, y1 := box.GetBounds()
 	return x0 >= b.MinX && y0 >= b.MinY && x1 <= b.MaxX && y1 <= b.MaxY
 }
+
+// MovementBounds is the box this entity's movement must stay inside.
+func (e *Entity) MovementBounds() MovementBounds { return e.movementBounds }
 
 // WithMovementBounds configures a new entity before it is registered.
 func (e *Entity) WithMovementBounds(bounds MovementBounds) *Entity {

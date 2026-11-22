@@ -12,17 +12,7 @@ func elementalAbilityDamage(def *config.WeaponDefinitionConfig, attacker *charac
 	if def == nil || def.ElementalAbility == nil {
 		return 0
 	}
-	a := def.ElementalAbility
-	damage := a.Damage
-	if attacker != nil && a.ScalingStat != "" {
-		_, intellect, _, _, _, speed, _ := attacker.GetEffectiveStats()
-		stat := intellect
-		if a.ScalingStat == "Speed" {
-			stat = speed
-		}
-		damage += max(0, stat) / a.StatDivisor
-	}
-	return damage
+	return statScaledDamage(def.ElementalAbility.StatScaledDamage, attacker)
 }
 
 // Direct, landed party weapon hits alone can charge marks. Projectile scaling
@@ -36,7 +26,7 @@ func (cs *CombatSystem) applyElementalWeaponAbility(target *monster.Monster3D, d
 	if shot != nil {
 		damage = shot.ElementalAbilityDamage
 	}
-	if a.Kind == "backwash" {
+	if a.Kind == config.AbilityBackwash {
 		if shot == nil {
 			return
 		}
@@ -49,25 +39,25 @@ func (cs *CombatSystem) applyElementalWeaponAbility(target *monster.Monster3D, d
 	if !target.IsAlive() {
 		return
 	}
-	frames, turns := weaponStatusClocks(a.DurationSeconds, g.config.GetTPS())
-	mark := target.ElementalMarks[a.Kind]
+	frames, turns := config.EffectClock(a.DurationSeconds, g.config.GetTPS())
+	mark := target.ElementalMarks[string(a.Kind)]
 	if mark.Frames <= 0 || mark.Turns <= 0 {
 		mark.Count = 0
 	}
 	mark.Count++
-	if a.Kind == "anchor" {
+	if a.Kind == config.AbilityAnchor {
 		mark.Count = min(mark.Count, a.MaxStacks)
-		target.SetElementalMark(a.Kind, mark, frames, turns)
+		target.SetElementalMark(string(a.Kind), mark, frames, turns)
 		cs.elementalWeaponBonus(target, damage*mark.Count, def.DamageType, "Stored Load")
 		return
 	}
 	if mark.Count < a.Hits {
-		target.SetElementalMark(a.Kind, mark, frames, turns)
+		target.SetElementalMark(string(a.Kind), mark, frames, turns)
 		return
 	}
-	delete(target.ElementalMarks, a.Kind)
+	delete(target.ElementalMarks, string(a.Kind))
 	label := "Pressure Vent"
-	if a.Kind == "crosswind" {
+	if a.Kind == config.AbilityCrosswind {
 		label = "Transfer"
 		cs.pushElementalTarget(target, a.RangeTiles)
 	}
@@ -82,7 +72,7 @@ type backwashCharge struct {
 	OriginX, OriginY float64
 }
 
-// Retarget serially before projectile workers run. Losing range, sight or the
+// Retarget before the shots of this tick move. Losing range, sight or the
 // target ends the charge; it cannot fly through a newly closed door.
 func (cs *CombatSystem) prepareBackwashCharge(shot *Arrow) {
 	if shot.Backwash == nil || !shot.Active {
@@ -180,10 +170,7 @@ func (cs *CombatSystem) pushElementalTarget(m *monster.Monster3D, tiles float64)
 		x, y, moved = nx, ny, moved+step
 	}
 	if x != m.X || y != m.Y {
-		g.releaseMonsterAttackPost(m)
-		m.X, m.Y = x, y
-		m.ResetPathfinding()
-		g.collisionSystem.UpdateEntity(m.ID, x, y)
+		g.relocateMonster(m, x, y)
 		g.refreshMonsterCollisionState(m)
 	}
 }
@@ -192,9 +179,15 @@ func (cs *CombatSystem) pushElementalTarget(m *monster.Monster3D, tiles float64)
 // crit rolls, or a second kill settlement for the primary target.
 func (cs *CombatSystem) elementalWeaponBonus(target *monster.Monster3D, amount int, school, label string) {
 	parts := cs.game.elementalDamageBuff(damagecalc.Parts{Normal: amount}, school)
-	dealt := cs.applyMonsterDamagePacket(target, singleMonsterDamagePacket(parts, school, 0), monsterDamageOptions{}).Total()
+	dealt := cs.applyMonsterDamagePacket(target, singleMonsterDamagePacket(parts, school, 0), monsterDamageOptions{})
 	cs.markMonsterHit(target)
 	x, y := cs.monsterVisualPos(target)
 	cs.game.createElementalAbilityImpact(x, y, school, target)
-	cs.game.logCombat(logToneGood, "%s hits %s for %s damage!", logSchoolWord(school, label), logMonsterName(target), logDamage(dealt, school))
+	cs.game.reportDamage(logToneGood, damageLog{
+		Source: logSchoolWord(school, label),
+		Target: monsterLogTarget(target),
+		Amount: dealt.Total(),
+		School: school,
+		Shares: dealtShares(dealt),
+	})
 }

@@ -7,6 +7,7 @@ import (
 
 	"ugataima/internal/config"
 	"ugataima/internal/spells"
+	"ugataima/internal/status"
 	"ugataima/internal/world"
 )
 
@@ -14,7 +15,7 @@ func TestTraversalBuffValidationRunsAtBoot(t *testing.T) {
 	cfg := setupPreviewSandboxTest(t)
 	const id = "review_unregistered_passage"
 	spellConfig := config.GlobalSpells
-	spellConfig.Spells[id] = &config.SpellDefinitionConfig{IsUtility: true, Duration: 10, TerrainPassage: true}
+	spellConfig.Spells[id] = &config.SpellDefinitionConfig{IsUtility: true, DurationByMastery: []int{10, 12, 14, 16}, TerrainPassage: true}
 	t.Cleanup(func() { delete(spellConfig.Spells, id) })
 	defer func() {
 		failure := recover()
@@ -43,12 +44,13 @@ func TestTraversalBuffRegistryValidationAndActivation(t *testing.T) {
 			g.gameLoop = gl
 			cfg := config.GlobalSpells
 			const id = "review_traversal"
-			cfg.Spells[id] = &config.SpellDefinitionConfig{IsUtility: true, Duration: 10, Fly: tc.fly, TerrainPassage: true}
+			cfg.Spells[id] = &config.SpellDefinitionConfig{IsUtility: true, DurationByMastery: []int{10, 12, 14, 16}, Fly: tc.fly, TerrainPassage: true}
 			t.Cleanup(func() { delete(cfg.Spells, id) })
-			active, frames := false, 0
+			var active bool
+			var clock status.DualClock
 			gl.timedBuffRegistry = g.buildTimedBuffs()
 			if tc.registered {
-				gl.timedBuffRegistry = append(gl.timedBuffRegistry, timedBuff{id: id, active: &active, duration: &frames})
+				gl.timedBuffRegistry = append(gl.timedBuffRegistry, timedBuff{id: id, active: &active, clock: &clock})
 			}
 			err := g.validateTraversalBuffs()
 			if !tc.fly && !tc.registered {
@@ -67,7 +69,7 @@ func TestTraversalBuffRegistryValidationAndActivation(t *testing.T) {
 			if g.combat.activateUtilityTimedBuff(id, def, spells.UtilitySpellResult{}, 60) != timedBuffApplied || !g.partyHasTerrainPassage() {
 				t.Fatal("validated spell did not activate terrain passage")
 			}
-			if tc.registered && (!active || frames != 60) {
+			if tc.registered && (!active || clock.Frames != 60) {
 				t.Fatal("passage did not use its registered timer")
 			}
 		})
@@ -89,9 +91,10 @@ func TestTerrainPassageProviders(t *testing.T) {
 			cfg := config.GlobalSpells
 			cfg.Spells["spirit_walk_fixture"] = &config.SpellDefinitionConfig{TerrainPassage: provider != "non_provider"}
 			t.Cleanup(func() { delete(cfg.Spells, "spirit_walk_fixture") })
-			spiritActive, spiritDuration := false, 0
+			var spiritActive bool
+			var spiritClock status.DualClock
 			g.gameLoop = gl
-			gl.timedBuffRegistry = append(g.buildTimedBuffs(), timedBuff{id: "spirit_walk_fixture", active: &spiritActive, duration: &spiritDuration})
+			gl.timedBuffRegistry = append(g.buildTimedBuffs(), timedBuff{id: "spirit_walk_fixture", active: &spiritActive, clock: &spiritClock})
 			if provider == "fly" || provider == "both" {
 				g.activateTimedBuffFrames("fly", 3, false)
 			}

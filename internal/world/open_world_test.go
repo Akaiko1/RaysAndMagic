@@ -1,8 +1,10 @@
 package world
 
 import (
+	"image"
 	"math"
 	"slices"
+	"strings"
 	"testing"
 
 	"ugataima/internal/character"
@@ -221,6 +223,35 @@ func TestOpenWorldStitchGeometry(t *testing.T) {
 		t.Errorf("unified start = (%d,%d), want forest region start (%d,%d)",
 			wm.OpenWorld.StartX, wm.OpenWorld.StartY, forest.StartX, forest.StartY)
 	}
+
+	// Authored water bodies keep their kind through the stitch (rotated
+	// placements included) and on the split maps of the same boot.
+	for key, mc := range wm.MapConfigs {
+		for _, body := range mc.WaterBodies {
+			w, x, y := wm.LoadedMaps[key], body.At[0], body.At[1]
+			if wm.IsOpenWorldRegion(key) {
+				w = wm.OpenWorld
+				x, y = wm.ProjectTile(key, x, y)
+			}
+			if got := w.WaterBodyKind(x, y); got != body.Kind {
+				t.Errorf("%s water body at %v: kind %q, want %q", key, body.At, got, body.Kind)
+			}
+		}
+	}
+
+	// An unlisted body fails the boot on a split map as on a stitched one.
+	// Runs last: it leaves the manager half loaded.
+	for _, key := range []string{"culverts", "forest"} {
+		shipped := wm.MapConfigs[key]
+		trimmed := *shipped
+		trimmed.WaterBodies = shipped.WaterBodies[1:]
+		wm.MapConfigs[key] = &trimmed
+		err := wm.LoadAllMaps()
+		wm.MapConfigs[key] = shipped
+		if err == nil || !strings.Contains(err.Error(), "maps."+key+".water_bodies: unlisted water bodies") {
+			t.Errorf("%s without its first water body: LoadAllMaps error = %v", key, err)
+		}
+	}
 }
 
 // tilesReachable BFS-walks the merged grid's walkable tiles from start to goal.
@@ -382,4 +413,40 @@ func (r *OpenWorldRegion) OpeningInteriorCells(side config.OpenWorldPortalSide, 
 		cells = append(cells, [2]int{x, y})
 	}
 	return cells
+}
+
+// A tile is a region's exactly when it lies in that region's footprint. The
+// corridors between regions are part of the world - walkable, flyable - but
+// belong to no region; their state is saved under the nearest region.
+func TestOpenWorldCorridorsBelongToNoRegion(t *testing.T) {
+	wm, _ := bootOpenWorldTest(t)
+	w := wm.OpenWorld
+	corridors := 0
+	for ty := 0; ty < w.Height; ty++ {
+		for tx := 0; tx < w.Width; tx++ {
+			var owner *OpenWorldRegion
+			for i := range wm.OpenWorldRegions {
+				if r := &wm.OpenWorldRegions[i]; image.Pt(tx, ty).In(r.TileBounds()) {
+					owner = r
+				}
+			}
+			if got := wm.OpenWorldRegionAtTile(tx, ty); got != owner {
+				t.Fatalf("tile %d,%d owned by %v, want its footprint's %v", tx, ty, got, owner)
+			}
+			inWorld := wm.OpenWorldTileInWorld(tx, ty)
+			if inWorld == w.flyBoundary(tx, ty) {
+				t.Fatalf("tile %d,%d: in world=%v but fly boundary=%v", tx, ty, inWorld, w.flyBoundary(tx, ty))
+			}
+			if owner != nil || !inWorld {
+				continue
+			}
+			corridors++
+			if key := wm.MapKeyAt(w, tx, ty); key != wm.nearestOpenWorldRegion(tx, ty).MapKey {
+				t.Fatalf("corridor tile %d,%d saved under %q, want the nearest region", tx, ty, key)
+			}
+		}
+	}
+	if corridors == 0 {
+		t.Fatal("fixture: the unified world has no corridor tiles")
+	}
 }

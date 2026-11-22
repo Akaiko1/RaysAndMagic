@@ -90,5 +90,25 @@ func TestCanStartPlayerEngagement(t *testing.T) {
 		if m.CanStartPlayerEngagement(checker, outsidePX, outsidePY) {
 			t.Fatal("loot guard used its ordinary authored radius beyond seven tiles")
 		}
+		// Relief needs a fight; then the leash is that of any monster that
+		// sees seven tiles, and the sight itself stays.
+		m.RelieveLootGuard()
+		if m.LootGuardRelieved {
+			t.Fatal("a calm guard was relieved")
+		}
+		m.IsEngagingPlayer = true
+		m.RelieveLootGuard()
+		plain := newMob()
+		plain.AlertRadius = LootGuardAggroRadiusTiles * defaultTileSize
+		if leash := m.PursuitLeashPixels(); leash != plain.PursuitLeashPixels() || leash <= LootGuardAggroRadiusTiles*defaultTileSize {
+			t.Fatalf("relieved guard leash = %.1f, want %.1f", leash, plain.PursuitLeashPixels())
+		}
+		if m.SeesPlayerWithinAlertRadius(checker, outsidePX, outsidePY) {
+			t.Fatal("relief widened the guard sight")
+		}
+		m.EndPlayerEngagement()
+		if m.LootGuardRelieved {
+			t.Fatal("the relief outlived the engagement")
+		}
 	})
 }

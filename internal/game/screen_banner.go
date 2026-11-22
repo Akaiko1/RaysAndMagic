@@ -334,9 +334,11 @@ func (g *MMGame) syncInteractPromptBanner() {
 const bannerLegendaryRarity = "legendary"
 
 // announceLegendaryDrops COLLECTS the legendaries in a drop; the next tick turns
-// everything collected into ONE heading. It hangs off addGroundContainer, the
-// funnel every floor container passes, so every death path announces alike -
-// and one event can drop several containers (the pyramid dais opens four).
+// everything collected into ONE heading. Every source of loot calls it: floor
+// containers (addGroundContainer, so every death path announces alike - one
+// event can drop several, the pyramid dais opens four), map crates, harvest,
+// pickpocket, quest props and quest rewards. Purchases and the party's own
+// items moving (stash, card slots) do not.
 func (g *MMGame) announceLegendaryDrops(drops []items.Item) {
 	for _, it := range drops {
 		if strings.EqualFold(it.Rarity, bannerLegendaryRarity) {

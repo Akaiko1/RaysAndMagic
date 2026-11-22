@@ -7,8 +7,9 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/hajimehoshi/ebiten/v2"
 	"ugataima/internal/graphics"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 // All caches here are transient: save/load must rebuild them, never persist

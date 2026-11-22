@@ -17,7 +17,7 @@ func TestModeSwitch_PreservesRTCooldowns(t *testing.T) {
 		member.OffHandRTCooldown = 20 + i
 		member.NextTBAttackOffHand = i%2 == 0
 	}
-	game.spellInputCooldown = 9
+	game.actionInputStagger = 9
 
 	game.ToggleTurnBasedMode() // TB -> RT
 	if game.turnBasedMode || !game.turnBasedTurnSuspended {
@@ -56,8 +56,8 @@ func TestModeSwitch_BearTrapRootPinsMinotaurAndWeaponMasterInRT(t *testing.T) {
 			game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
 
 			game.combat.fireTrap(&PlacedTrap{Key: "bear_trap", X: m.X, Y: m.Y}, m)
-			if m.RootTurnsRemaining <= 0 || m.RootFramesRemaining <= 0 {
-				t.Fatalf("bear trap must arm both root clocks: turns=%d frames=%d", m.RootTurnsRemaining, m.RootFramesRemaining)
+			if m.Root.Turns <= 0 || m.Root.Frames <= 0 {
+				t.Fatalf("bear trap must arm both root clocks: turns=%d frames=%d", m.Root.Turns, m.Root.Frames)
 			}
 
 			game.ToggleTurnBasedMode() // TB -> RT while the root is still active
@@ -83,8 +83,8 @@ func assertModeSwitchCooldowns(t *testing.T, game *MMGame) {
 			t.Errorf("member %d TB hand cursor = %v, want %v", i, member.NextTBAttackOffHand, want)
 		}
 	}
-	if game.spellInputCooldown != 9 {
-		t.Errorf("spell input cooldown = %d, want 9", game.spellInputCooldown)
+	if game.actionInputStagger != 9 {
+		t.Errorf("spell input cooldown = %d, want 9", game.actionInputStagger)
 	}
 }
 
@@ -224,7 +224,7 @@ func TestTurnBasedActionsCarryRTCadenceAcrossModeSwitch(t *testing.T) {
 		member.ActionsRemaining = 1
 		want := game.combat.WeaponCooldownFrames(member)
 
-		game.consumeSelectedCharWeaponAction()
+		game.commitWeaponAction()
 		if member.RTCooldown != want {
 			t.Fatalf("TB main-hand cooldown = %d, want %d", member.RTCooldown, want)
 		}
@@ -241,7 +241,7 @@ func TestTurnBasedActionsCarryRTCadenceAcrossModeSwitch(t *testing.T) {
 		member.ActionsRemaining = 1
 		member.RTCooldown = 53
 
-		game.consumeSelectedCharActionWithRTCooldown(37)
+		game.commitHeroAction(game.selectedChar, 37)
 		if member.RTCooldown != 53 {
 			t.Fatalf("TB spell action shortened carried RT cooldown to %d, want 53", member.RTCooldown)
 		}
@@ -255,7 +255,7 @@ func TestTurnBasedActionsCarryRTCadenceAcrossModeSwitch(t *testing.T) {
 		member.NextTBAttackOffHand = true
 		want := game.combat.OffHandWeaponCooldownFrames(member)
 
-		game.consumeSelectedCharWeaponAction()
+		game.commitWeaponAction()
 		if member.RTCooldown != 0 || member.OffHandRTCooldown != want {
 			t.Fatalf("TB off-hand cooldowns = main:%d off:%d, want 0/%d", member.RTCooldown, member.OffHandRTCooldown, want)
 		}
@@ -325,8 +325,8 @@ func TestTurnBasedBossSpecialCarriesRTCadenceAcrossModeSwitch(t *testing.T) {
 	boss := spawnSpecialsMonster(game, "golden_thief_bug", 3, 2)
 	aggro(boss)
 	noSummons(boss)
-	boss.InfernoChance = 1
-	boss.TeleportChance = 0
+	setPartyAttackChance(boss, "inferno", 1)
+	boss.Abilities.Teleport.Chance = 0
 
 	runTBMonsterTurns(game, gl, 1)
 	castsAfterTB := countCombatLog(game, "Inferno scorches")
@@ -391,12 +391,13 @@ func TestTurnBasedSmartAttackIgnoresRetainedRTCooldown(t *testing.T) {
 		t.Fatalf("create firebolt: %v", err)
 	}
 	member.LearnSpell("firebolt")
-	member.Equipment[items.SlotSpell] = spell
+	member.Equipment[items.SlotQuickAction] = spell
 	member.SpellPoints, member.MaxSpellPoints = 99, 99
 	member.RTCooldown = 999
 	game.selectedChar = 0
 
-	acted, spellID := combat.SmartAttack()
+	action := combat.SmartAttack()
+	acted, spellID := action.Acted, action.Spell
 	if !acted || spellID != "firebolt" {
 		t.Fatalf("TB SmartAttack with retained RT cooldown = acted:%v spell:%q, want true/firebolt", acted, spellID)
 	}

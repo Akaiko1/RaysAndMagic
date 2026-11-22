@@ -2,7 +2,6 @@ package core
 
 import (
 	"fmt"
-	"os"
 	"runtime"
 	"runtime/debug"
 	"sync"
@@ -16,6 +15,17 @@ type WorkerPool struct {
 	wg         sync.WaitGroup
 	quit       chan struct{}
 	stopped    atomic.Bool
+	failed     atomic.Pointer[JobPanic]
+}
+
+// JobPanic is a job's panic, carried to the goroutine that waits for the job.
+type JobPanic struct {
+	Value any
+	Stack []byte
+}
+
+func (p *JobPanic) Error() string {
+	return fmt.Sprintf("worker job panic: %v\n%s", p.Value, p.Stack)
 }
 
 // NewWorkerPool creates a new worker pool. Pass numWorkers <= 0 to use
@@ -59,15 +69,15 @@ func (wp *WorkerPool) worker() {
 	}
 }
 
-// runJob executes a single job in isolation. wg.Done() runs even if the job
-// panics - otherwise a panic would leak the WaitGroup counter and Wait() would
-// hang the whole frame. Panics are logged and swallowed so a single bad job
-// can't take down the pool.
+// runJob executes a single job. wg.Done() runs even if the job panics -
+// otherwise Wait() would hang the whole frame. The first panic of a batch is
+// kept for Wait, which raises it on the waiting goroutine: a job that fails
+// must stop the game like any other code, not repeat silently every tick.
 func (wp *WorkerPool) runJob(job func()) {
 	defer wp.wg.Done()
 	defer func() {
 		if r := recover(); r != nil {
-			fmt.Fprintf(os.Stderr, "[worker_pool] job panic: %v\n%s\n", r, debug.Stack())
+			wp.failed.CompareAndSwap(nil, &JobPanic{Value: r, Stack: debug.Stack()})
 		}
 	}()
 	job()
@@ -87,13 +97,18 @@ func (wp *WorkerPool) Submit(job func()) bool {
 	return true
 }
 
-// Wait blocks until all submitted jobs have completed.
+// Wait blocks until all submitted jobs have completed, then panics with the
+// *JobPanic of a job that failed.
 func (wp *WorkerPool) Wait() {
 	wp.wg.Wait()
+	if failed := wp.failed.Swap(nil); failed != nil {
+		panic(failed)
+	}
 }
 
 // Stop signals workers to exit and waits for every accepted job (in-flight
-// AND still queued - workers drain the queue on quit) to finish. Idempotent.
+// AND still queued - workers drain the queue on quit) to finish, raising a
+// failed job's panic like Wait. Idempotent.
 // Lifecycle contract: Submit must not be called CONCURRENTLY with Stop - the
 // pool has a single owner (the main goroutine submits during ticks, stops at
 // shutdown), and a truly concurrent Submit could slip its job into the queue
@@ -104,7 +119,7 @@ func (wp *WorkerPool) Stop() {
 		return
 	}
 	close(wp.quit)
-	wp.wg.Wait()
+	wp.Wait()
 }
 
 // GetNumWorkers returns the configured worker count.

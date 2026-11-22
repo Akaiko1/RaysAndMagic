@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"math"
+	"slices"
 )
 
 // AdventureConfig describes closed, calendar-owned visits and authored terrain.
@@ -24,33 +25,65 @@ type AdventureSchedule struct {
 	RequiresSpell        string      `yaml:"requires_spell"`
 	Days                 [][2]string `yaml:"days"`
 }
+
+// EffectKind is the closed set of chamber environment effects.
+type EffectKind string
+
+const (
+	EffectOccupation EffectKind = "occupation"
+	EffectTrap       EffectKind = "trap"
+	EffectTransfer   EffectKind = "transfer"
+	EffectLane       EffectKind = "lane"
+)
+
+// KindNames is a closed set of typed kinds as plain strings (editor choices,
+// messages that list a set).
+func KindNames[K ~string](kinds []K) []string {
+	out := make([]string, len(kinds))
+	for i, k := range kinds {
+		out[i] = string(k)
+	}
+	return out
+}
+
+// EffectKinds lists every effect kind, in the editor's order.
+var EffectKinds = []EffectKind{EffectTrap, EffectOccupation, EffectTransfer, EffectLane}
+
 type EnvironmentEffect struct {
-	RequiresControl  string  `yaml:"requires_control,omitempty"`
-	TriggerLane      string  `yaml:"trigger_lane,omitempty"`
-	ID               string  `yaml:"id"`
-	Kind             string  `yaml:"kind"` // occupation, trap, transfer, or lane
-	Name             string  `yaml:"name"`
-	Rect             [4]int  `yaml:"rect"` // inclusive x0,y0,x1,y1
-	School           string  `yaml:"school,omitempty"`
-	SecondarySchool  string  `yaml:"secondary_school,omitempty"`
-	Damage           int     `yaml:"damage,omitempty"`
-	SustainDamage    int     `yaml:"sustain_damage,omitempty"`
-	Destination      [2]int  `yaml:"destination,omitempty"`
+	RequiresControl string     `yaml:"requires_control,omitempty"`
+	TriggerLane     string     `yaml:"trigger_lane,omitempty"`
+	ID              string     `yaml:"id"`
+	Kind            EffectKind `yaml:"kind"`
+	Name            string     `yaml:"name"`
+	Rect            [4]int     `yaml:"rect"` // inclusive x0,y0,x1,y1
+	School          string     `yaml:"school,omitempty"`
+	SecondarySchool string     `yaml:"secondary_school,omitempty"`
+	Damage          int        `yaml:"damage,omitempty"`
+	SustainDamage   int        `yaml:"sustain_damage,omitempty"`
+	// DamagePercent and SustainPercent author the damage as a percent of the
+	// map boss's attack at the visit's level, so it grows with the chamber;
+	// each replaces its flat counterpart.
+	DamagePercent  int    `yaml:"damage_percent,omitempty"`
+	SustainPercent int    `yaml:"sustain_percent,omitempty"`
+	Destination    [2]int `yaml:"destination,omitempty"`
+	// Timer exception: warning and rearm are authored RT/TB pairs, not the
+	// 1 round = 3 s conversion; the warning is a reaction window.
 	WarningSeconds   float64 `yaml:"warning_seconds,omitempty"`
 	WarningRounds    int     `yaml:"warning_rounds,omitempty"`
-	DurationSeconds  float64 `yaml:"duration_seconds,omitempty"`
-	DurationRounds   int     `yaml:"duration_rounds,omitempty"`
+	DurationSeconds  int     `yaml:"duration_seconds,omitempty"` // a lane's lingering field: whole rounds, both modes
 	RearmSeconds     float64 `yaml:"rearm_seconds,omitempty"`
 	RearmRounds      int     `yaml:"rearm_rounds,omitempty"`
 	BossBelowPercent int     `yaml:"boss_below_percent,omitempty"`
 }
 type EnvironmentControl struct {
-	Message        string            `yaml:"message,omitempty"`
-	ID             string            `yaml:"id"`
-	Disable        []string          `yaml:"disable,omitempty"`
-	Tiles          []EnvironmentTile `yaml:"tiles,omitempty"`
-	ArmorReduction int               `yaml:"armor_reduction,omitempty"`
-	StopHealing    bool              `yaml:"stop_healing,omitempty"`
+	Message string            `yaml:"message,omitempty"`
+	ID      string            `yaml:"id"`
+	Disable []string          `yaml:"disable,omitempty"`
+	Tiles   []EnvironmentTile `yaml:"tiles,omitempty"`
+	// ArmorReductionPercent removes that percent of the boss's armor while the
+	// switch stays operated (percents of several switches add up).
+	ArmorReductionPercent int  `yaml:"armor_reduction_percent,omitempty"`
+	StopHealing           bool `yaml:"stop_healing,omitempty"`
 }
 type EnvironmentTile struct {
 	X    int    `yaml:"x"`
@@ -58,27 +91,33 @@ type EnvironmentTile struct {
 	Tile string `yaml:"tile"`
 }
 type AdventureBoss struct {
-	Phases         []AdventureBossPhase `yaml:"phases,omitempty"`
-	Arena          *[4]int              `yaml:"arena,omitempty"`
-	Monster        string               `yaml:"monster"`
-	Lanes          []string             `yaml:"lanes"`
-	EveryActions   int                  `yaml:"every_actions"`
-	HealPercent    int                  `yaml:"heal_percent,omitempty"`
-	HealCapPercent int                  `yaml:"heal_cap_percent,omitempty"`
-	ArmorFloor     int                  `yaml:"armor_floor,omitempty"`
-	LowHealthRange float64              `yaml:"low_health_range,omitempty"`
+	Phases  []AdventureBossPhase `yaml:"phases,omitempty"`
+	Arena   *[4]int              `yaml:"arena,omitempty"`
+	Monster string               `yaml:"monster"`
+	Lanes   []string             `yaml:"lanes"`
+	// CooldownSeconds (whole rounds, at least 2) is the lane cadence: once it
+	// is over, the boss's next landed attack also marks the next pattern.
+	CooldownSeconds int `yaml:"cooldown_seconds"`
+	// HealPercent of max HP is restored every round (its seconds in RT) while
+	// the boss is below HealCeilingPercent of max HP.
+	HealPercent        int     `yaml:"heal_percent,omitempty"`
+	HealCeilingPercent int     `yaml:"heal_ceiling_percent,omitempty"`
+	ArmorFloor         int     `yaml:"armor_floor,omitempty"`
+	LowHealthRange     float64 `yaml:"low_health_range,omitempty"`
 }
 
-// Phases are ordered from high to low HP. Each pattern consumes one special
-// action, even when it contains several separately marked lanes.
+// Phases are ordered from high to low HP. Each pattern is one lane action,
+// even when it marks several lanes; lane actions ride the boss's landed
+// attack for free.
 type AdventureBossPhase struct {
-	BelowPercent int        `yaml:"below_percent"`
-	Patterns     [][]string `yaml:"patterns"`
-	EveryActions int        `yaml:"every_actions,omitempty"`
+	BelowPercent    int        `yaml:"below_percent"`
+	Patterns        [][]string `yaml:"patterns"`
+	CooldownSeconds int        `yaml:"cooldown_seconds,omitempty"` // 0 keeps the boss's
 }
 
-func (b *AdventureBoss) Pattern(hp, maxHP, actions int) []string {
-	every := b.EveryActions
+// phase is the lane patterns and their cooldown at an HP.
+func (b *AdventureBoss) phase(hp, maxHP int) ([][]string, int) {
+	cooldown := b.CooldownSeconds
 	patterns := make([][]string, len(b.Lanes))
 	for i, lane := range b.Lanes {
 		patterns[i] = []string{lane}
@@ -86,15 +125,41 @@ func (b *AdventureBoss) Pattern(hp, maxHP, actions int) []string {
 	for _, p := range b.Phases {
 		if hp*100 <= maxHP*p.BelowPercent {
 			patterns = p.Patterns
-			if p.EveryActions > 0 {
-				every = p.EveryActions
+			if p.CooldownSeconds > 0 {
+				cooldown = p.CooldownSeconds
 			}
 		}
 	}
-	if every < 1 || actions < 1 || actions%every != 0 || len(patterns) == 0 {
+	return patterns, cooldown
+}
+
+// Pattern is the phase's next lane pattern after fired earlier ones, in turn.
+func (b *AdventureBoss) Pattern(hp, maxHP, fired int) []string {
+	patterns, _ := b.phase(hp, maxHP)
+	if len(patterns) == 0 {
 		return nil
 	}
-	return patterns[(actions/every-1)%len(patterns)]
+	return patterns[max(0, fired)%len(patterns)]
+}
+
+// LaneCooldown is the phase's lane cooldown at an HP, in seconds.
+func (b *AdventureBoss) LaneCooldown(hp, maxHP int) int {
+	_, cooldown := b.phase(hp, maxHP)
+	return cooldown
+}
+
+// PhaseLanes lists every lane the boss fires at an HP, in pattern order.
+func (b *AdventureBoss) PhaseLanes(hp, maxHP int) []string {
+	patterns, _ := b.phase(hp, maxHP)
+	var out []string
+	for _, pattern := range patterns {
+		for _, id := range pattern {
+			if !slices.Contains(out, id) {
+				out = append(out, id)
+			}
+		}
+	}
+	return out
 }
 
 func (s *AdventureSchedule) Destination(day int, night bool) string {
@@ -107,6 +172,13 @@ func (s *AdventureSchedule) Destination(day int, night bool) string {
 	}
 	return s.Days[(day-1)%len(s.Days)][phase]
 }
+
+// Damaging reports an effect that deals damage, flat or as a percent of the
+// boss hit.
+func (e EnvironmentEffect) Damaging() bool {
+	return e.Damage > 0 || e.SustainDamage > 0 || e.DamagePercent > 0 || e.SustainPercent > 0
+}
+
 func (e EnvironmentEffect) Contains(x, y int) bool {
 	return x >= e.Rect[0] && y >= e.Rect[1] && x <= e.Rect[2] && y <= e.Rect[3]
 }
@@ -153,8 +225,14 @@ func (c *MapConfigs) ValidateAdventures() error {
 			if len(s.Days) != 7 || s.RequiresQuest == "" || s.RequiresSpell == "" {
 				return fail("schedule requires seven days, an access quest and a spell")
 			}
-			if s.AlternativeTechnique != "" && s.AlternativeTechnique != "fold_step" {
-				return fail("schedule alternative_technique must be fold_step")
+			if s.AlternativeTechnique != "" {
+				// A programming error, not content: the catalog must load first.
+				if GlobalTechniques == nil {
+					return fmt.Errorf("map configs name techniques: load assets/techniques.yaml before validating them")
+				}
+				if d := Technique(s.AlternativeTechnique); d == nil || d.Kind != TechniqueFoldStep {
+					return fail("schedule alternative_technique must name a fold_step technique")
+				}
 			}
 			for _, day := range s.Days {
 				for _, dest := range day {
@@ -180,25 +258,44 @@ func (c *MapConfigs) ValidateAdventures() error {
 				return fail("invalid or duplicate effect " + e.ID)
 			}
 			ids[e.ID] = true
-			if e.Kind != "occupation" && e.Kind != "trap" && e.Kind != "transfer" && e.Kind != "lane" {
-				return fail("unknown effect kind " + e.Kind)
+			if !slices.Contains(EffectKinds, e.Kind) {
+				return fail("unknown effect kind " + string(e.Kind))
 			}
-			if e.Kind != "transfer" && (e.Damage <= 0 || !validSchool(e.School)) {
-				return fail("damage needs a positive amount and known school")
+			if e.Kind != EffectTransfer && ((e.Damage > 0) == (e.DamagePercent > 0) || !validSchool(e.School)) {
+				return fail("damage needs exactly one of damage or damage_percent, and a known school")
+			}
+			if e.Damage < 0 || e.DamagePercent < 0 || e.SustainDamage < 0 || e.SustainPercent < 0 || (e.SustainDamage > 0 && e.SustainPercent > 0) {
+				return fail("invalid damage on " + e.ID)
+			}
+			if (e.DamagePercent > 0 || e.SustainPercent > 0) && a.Boss == nil {
+				return fail("percent damage on " + e.ID + " needs a map boss")
+			}
+			if e.Kind != EffectLane && (e.SustainDamage > 0 || e.SustainPercent > 0) {
+				return fail("lingering damage on " + e.ID + " is for lanes only")
+			}
+			if e.Kind == EffectTransfer && (e.Damage > 0 || e.DamagePercent > 0) {
+				return fail("transfer " + e.ID + " deals no damage")
 			}
 			if e.SecondarySchool != "" && !validSchool(e.SecondarySchool) {
 				return fail("unknown secondary school")
 			}
-			if e.Kind == "transfer" && (e.Destination[0] < 0 || e.Destination[1] < 0 || e.Contains(e.Destination[0], e.Destination[1])) {
+			if e.Kind == EffectTransfer && (e.Destination[0] < 0 || e.Destination[1] < 0 || e.Contains(e.Destination[0], e.Destination[1])) {
 				return fail("invalid receiver")
 			}
-			if e.Kind == "lane" && (e.WarningSeconds <= 0 || e.WarningRounds < 1 || e.DurationSeconds <= 0 || e.DurationRounds < 1) {
-				return fail("lanes require RT and TB warning/duration")
+			if e.Kind == EffectLane && (e.WarningSeconds <= 0 || e.WarningRounds < 1) {
+				return fail("lanes require RT and TB warning")
 			}
-			if e.Kind == "trap" && (e.RearmSeconds <= 0 || e.RearmRounds < 1) {
+			if e.Kind == EffectLane {
+				if err := ValidateEffectSeconds("lane "+e.ID+" duration_seconds", e.DurationSeconds); err != nil {
+					return fail(err.Error())
+				}
+			} else if e.DurationSeconds != 0 {
+				return fail("duration_seconds is for lanes only")
+			}
+			if e.Kind == EffectTrap && (e.RearmSeconds <= 0 || e.RearmRounds < 1) {
 				return fail("traps require RT and TB rearm")
 			}
-			for _, n := range []float64{e.WarningSeconds, e.DurationSeconds, e.RearmSeconds} {
+			for _, n := range []float64{e.WarningSeconds, e.RearmSeconds} {
 				if n < 0 || math.IsNaN(n) || math.IsInf(n, 0) {
 					return fail("invalid duration")
 				}
@@ -214,7 +311,7 @@ func (c *MapConfigs) ValidateAdventures() error {
 		}
 		controls := map[string]bool{}
 		for _, v := range a.Controls {
-			if v.ID == "" || controls[v.ID] || v.ArmorReduction < 0 {
+			if v.ID == "" || controls[v.ID] || v.ArmorReductionPercent < 0 || v.ArmorReductionPercent > 100 {
 				return fail("invalid control")
 			}
 			controls[v.ID] = true
@@ -235,7 +332,7 @@ func (c *MapConfigs) ValidateAdventures() error {
 			}
 			if e.TriggerLane != "" {
 				lane := a.Effect(e.TriggerLane)
-				if e.Kind != "transfer" || lane == nil || lane.Kind != "lane" {
+				if e.Kind != EffectTransfer || lane == nil || lane.Kind != EffectLane {
 					return fail("transfer requires a known trigger lane")
 				}
 			}
@@ -243,8 +340,9 @@ func (c *MapConfigs) ValidateAdventures() error {
 		if b := a.Boss; b != nil {
 			lastThreshold := 101
 			for _, phase := range b.Phases {
-				if phase.BelowPercent < 1 || phase.BelowPercent >= lastThreshold || len(phase.Patterns) == 0 || phase.EveryActions < 0 {
-					return fail("invalid boss phase order, patterns or cadence")
+				if phase.BelowPercent < 1 || phase.BelowPercent >= lastThreshold || len(phase.Patterns) == 0 ||
+					(phase.CooldownSeconds != 0 && ValidateEffectSeconds("boss phase cooldown_seconds", phase.CooldownSeconds) != nil) {
+					return fail("invalid boss phase order, patterns or cooldown (whole rounds)")
 				}
 				lastThreshold = phase.BelowPercent
 				for _, pattern := range phase.Patterns {
@@ -254,7 +352,7 @@ func (c *MapConfigs) ValidateAdventures() error {
 					}
 					for _, id := range pattern {
 						e := a.Effect(id)
-						if e == nil || e.Kind != "lane" || seen[id] {
+						if e == nil || e.Kind != EffectLane || seen[id] {
 							return fail("invalid or duplicate boss phase lane")
 						}
 						seen[id] = true
@@ -264,15 +362,21 @@ func (c *MapConfigs) ValidateAdventures() error {
 			if b.Arena != nil && (!a.OpeningOwned || b.Arena[0] < 0 || b.Arena[1] < 0 || b.Arena[2] < b.Arena[0] || b.Arena[3] < b.Arena[1]) {
 				return fail("boss arena requires an opening-owned map and a valid rectangle")
 			}
-			if b.Monster == "" || b.EveryActions < 2 || b.HealPercent < 0 || b.HealCapPercent < 0 || b.HealCapPercent > 100 || b.ArmorFloor < 0 {
+			if b.Monster == "" || b.ArmorFloor < 0 {
 				return fail("invalid boss policy")
+			}
+			if ValidateEffectSeconds("boss cooldown_seconds", b.CooldownSeconds) != nil || CombatRounds(b.CooldownSeconds) < 2 {
+				return fail("boss cooldown_seconds must be whole rounds, at least 2")
+			}
+			if b.HealPercent < 0 || b.HealPercent > 100 || b.HealCeilingPercent < 0 || b.HealCeilingPercent > 100 || (b.HealPercent > 0 && b.HealCeilingPercent == 0) {
+				return fail("regeneration needs heal_percent 1..100 per round and heal_ceiling_percent 1..100")
 			}
 			if b.LowHealthRange < 0 || math.IsNaN(b.LowHealthRange) || math.IsInf(b.LowHealthRange, 0) {
 				return fail("invalid boss range")
 			}
 			for _, id := range b.Lanes {
 				e := a.Effect(id)
-				if e == nil || e.Kind != "lane" {
+				if e == nil || e.Kind != EffectLane {
 					return fail("boss names invalid lane")
 				}
 			}

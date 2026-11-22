@@ -13,8 +13,8 @@ import (
 )
 
 func personalBagCell(r layoutRect, slot int) (int, int) {
-	x, y, w, h := scaleInventorySourceRect(r.x, r.y, r.w, r.h, inventoryGridLayoutSize, inventoryGridLayoutSize, inventoryGridSlots[slot])
-	return x + w/2, y + h/2
+	cell := inventoryGridCell(r, slot)
+	return cell.x + cell.w/2, cell.y + cell.h/2
 }
 
 func TestPersonalInventoryDisplayedTransfers(t *testing.T) {
@@ -27,7 +27,7 @@ func TestPersonalInventoryDisplayedTransfers(t *testing.T) {
 				hero := g.party.Members[0]
 				item := g.party.Inventory[0]
 				hero.Inventory = nil
-				layout := computeInventoryContentLayout(computeTabbedMenuLayout(res[0], gameplayViewportBottom(g)).content)
+				layout := computeInventoryContentLayout(computeTabbedMenuLayout(res[0], gameplayViewportBottom(g)).content, 1)
 				src, dst := layout.grid, layout.personalGrid
 				var source, target *character.MMCharacter
 				target = hero
@@ -94,7 +94,7 @@ func TestPersonalInventoryIndependentWheelAndFiltering(t *testing.T) {
 			g.party.Bag(owner).Add(items.Item{Name: fmt.Sprintf("Sword %d", i), Type: items.ItemWeapon})
 		}
 	}
-	l := computeInventoryContentLayout(computeTabbedMenuLayout(800, gameplayViewportBottom(g)).content)
+	l := computeInventoryContentLayout(computeTabbedMenuLayout(800, gameplayViewportBottom(g)).content, 1)
 	fp := installFakePointer(t)
 	old := pointerWheel
 	t.Cleanup(func() { pointerWheel = old })
@@ -125,7 +125,7 @@ func TestPersonalInventoryDoubleClickBindsBag(t *testing.T) {
 	it.Quantity = 3
 	g.party.Inventory = []items.Item{it}
 	ch.Inventory = []items.Item{it}
-	l := computeInventoryContentLayout(computeTabbedMenuLayout(1024, gameplayViewportBottom(g)).content)
+	l := computeInventoryContentLayout(computeTabbedMenuLayout(1024, gameplayViewportBottom(g)).content, 1)
 	sx, sy := personalBagCell(l.grid, 0)
 	px, py := personalBagCell(l.personalGrid, 0)
 	h.clicks(false, sx, sy, 1)
@@ -393,13 +393,14 @@ func TestPersonalInventoryGeometryAllResolutions(t *testing.T) {
 	for _, size := range [][2]int{{mw, mh}, {800, 600}, {1024, 768}, {1280, 720}, {1280, 800}, {1366, 768}, {1440, 900}, {1600, 900}, {1680, 1050}, {1920, 1080}, {1920, 1200}, {2560, 1440}, {3440, 1440}, {3840, 2160}} {
 		t.Run(fmt.Sprint(size), func(t *testing.T) {
 			region, boxes := inventoryLayoutBoxes(size[0], size[1])
-			l := computeInventoryContentLayout(computeTabbedMenuLayout(size[0], gameplayViewportBottomWithPartyHUD(size[1])).content)
+			l := computeInventoryContentLayout(computeTabbedMenuLayout(size[0], gameplayViewportBottomWithPartyHUD(size[1])).content, 1)
 			for i, grid := range []layoutRect{l.paper, l.personalGrid, l.grid} {
 				if i == 0 {
 					continue
 				}
-				for _, source := range inventoryGridSlots {
-					x, y, w, h := scaleInventorySourceRect(grid.x, grid.y, grid.w, grid.h, inventoryGridLayoutSize, inventoryGridLayoutSize, source)
+				for slot := range inventoryGridSlots {
+					cell := inventoryGridCell(grid, slot)
+					x, y, w, h := cell.x, cell.y, cell.w, cell.h
 					minSlot := 36
 					if size[1] < mh {
 						minSlot = 30
@@ -428,7 +429,7 @@ func TestInventoryArtUsesTheFrame(t *testing.T) {
 	for _, size := range withInterfaceFrames(t, logical) {
 		t.Run(fmt.Sprint(size), func(t *testing.T) {
 			content := computeTabbedMenuLayout(size[0], gameplayViewportBottomWithPartyHUD(size[1])).content
-			l := computeInventoryContentLayout(content)
+			l := computeInventoryContentLayout(content, 1)
 			fillsHeight := l.paper.bottom() >= content.bottom()-1
 			spansWidth := l.grid.right()-l.paper.x >= content.w-32-3
 			if !fillsHeight && !spansWidth {
@@ -458,7 +459,7 @@ func TestPersonalInventoryQuickSlotRoundTrip(t *testing.T) {
 				ch.Inventory = g.party.Inventory
 				g.party.Inventory = nil
 			}
-			l := computeInventoryContentLayout(computeTabbedMenuLayout(1024, gameplayViewportBottom(g)).content)
+			l := computeInventoryContentLayout(computeTabbedMenuLayout(1024, gameplayViewportBottom(g)).content, 1)
 			grid := l.grid
 			if personal {
 				grid = l.personalGrid
@@ -500,7 +501,7 @@ func TestPersonalInventoryStaleDragCannotRetarget(t *testing.T) {
 			g.menuOpen, g.currentTab = true, TabInventory
 			ch.Inventory = g.party.Inventory
 			g.party.Inventory = nil
-			l := computeInventoryContentLayout(computeTabbedMenuLayout(1024, gameplayViewportBottom(g)).content)
+			l := computeInventoryContentLayout(computeTabbedMenuLayout(1024, gameplayViewportBottom(g)).content, 1)
 			sx, sy := personalBagCell(l.personalGrid, 0)
 			dx, dy := personalBagCell(l.grid, 0)
 			fp := installFakePointer(t)
@@ -577,7 +578,7 @@ func TestPersonalInventoryContextActions(t *testing.T) {
 			g.menuOpen, g.currentTab = true, TabInventory
 			ch.Inventory = g.party.Inventory
 			g.party.Inventory = nil
-			l := computeInventoryContentLayout(computeTabbedMenuLayout(1024, gameplayViewportBottom(g)).content)
+			l := computeInventoryContentLayout(computeTabbedMenuLayout(1024, gameplayViewportBottom(g)).content, 1)
 			x, y := personalBagCell(l.personalGrid, 0)
 			h.clicks(true, x, y, 1)
 			if !h.ui.inventoryContextOpen || h.ui.inventoryContextOwner != ch {
@@ -660,7 +661,7 @@ func TestPersonalInventoryDisplayedFiltersStayIndependent(t *testing.T) {
 				}
 				h.pointerStep() // Establish the selected hero before setting page state.
 				h.ui.inventoryPage, h.ui.personalInventoryPage = 1, 2
-				l := computeInventoryContentLayout(computeTabbedMenuLayout(size[0], gameplayViewportBottom(g)).content)
+				l := computeInventoryContentLayout(computeTabbedMenuLayout(size[0], gameplayViewportBottom(g)).content, 1)
 				filters := l.categories
 				var owner *character.MMCharacter
 				if personal {
@@ -716,14 +717,16 @@ func TestPersonalInventoryDragAcrossDifferentFilters(t *testing.T) {
 			h.ui.setInventoryTab(inventoryTabCatchAll, destination)
 			_, page := h.ui.inventoryFilterState(source)
 			*page = 1
-			l := computeInventoryContentLayout(computeTabbedMenuLayout(1024, gameplayViewportBottom(g)).content)
+			l := computeInventoryContentLayout(computeTabbedMenuLayout(1024, gameplayViewportBottom(g)).content, 1)
 			src, dst := l.grid, l.personalGrid
 			if personalSource {
 				src, dst = dst, src
 			}
 			sx, sy := personalBagCell(src, 1)
 			dx, dy := personalBagCell(dst, 0)
-			expected := g.party.Bag(source).Items()[17]
+			// The catch-all filter shows the destination's furs alone: the dragged
+			// blade trades cells with that stack (absolute entry 19).
+			expected, occupant := g.party.Bag(source).Items()[17], g.party.Bag(destination).Items()[19]
 			fp := installFakePointer(t)
 			fp.moveTo(sx, sy)
 			fp.press()
@@ -734,7 +737,7 @@ func TestPersonalInventoryDragAcrossDifferentFilters(t *testing.T) {
 			fp.release()
 			h.pointerStep()
 			srcItems, dstItems := g.party.Bag(source).Items(), g.party.Bag(destination).Items()
-			if len(srcItems) != 19 || len(dstItems) != 21 || dstItems[20].Name != expected.Name || dstItems[20].InstanceID != expected.InstanceID {
+			if len(srcItems) != 20 || len(dstItems) != 20 || !reflect.DeepEqual(dstItems[19], expected) || !reflect.DeepEqual(srcItems[17], occupant) {
 				t.Fatal("filtered drag moved the wrong absolute entry")
 			}
 			dstFilter, _ := h.ui.inventoryFilterState(destination)
@@ -762,7 +765,7 @@ func TestPersonalInventoryFilterChangeRejectsStaleCellClicks(t *testing.T) {
 			bag.Add(items.CreateWeaponFromYAML("iron_sword"))
 			bag.Add(items.CreateItemFromYAML("health_potion"))
 			h.pointerStep()
-			l := computeInventoryContentLayout(computeTabbedMenuLayout(1024, gameplayViewportBottom(g)).content)
+			l := computeInventoryContentLayout(computeTabbedMenuLayout(1024, gameplayViewportBottom(g)).content, 1)
 			grid := l.grid
 			if personal {
 				grid = l.personalGrid
@@ -798,7 +801,7 @@ func TestPersonalInventoryMapOpensWithEitherHUDLayout(t *testing.T) {
 					owner = hero
 				}
 				g.party.Bag(owner).Add(items.Item{Name: "World Map", Type: items.ItemQuest, Attributes: map[string]int{"opens_map": 1}})
-				l := computeInventoryContentLayout(computeTabbedMenuLayout(1024, gameplayViewportBottom(g)).content)
+				l := computeInventoryContentLayout(computeTabbedMenuLayout(1024, gameplayViewportBottom(g)).content, 1)
 				grid := l.grid
 				if personal {
 					grid = l.personalGrid
@@ -821,7 +824,7 @@ func TestPersonalInventoryLongLabelsKeepFullHoverText(t *testing.T) {
 			g.showPartyStats, g.menuOpen, g.currentTab = true, true, TabInventory
 			g.party.Members[0].Name = "An Exceptionally Long Traveller Name That Cannot Fit The Heading"
 			g.party.Gold, g.party.Food = int(^uint(0)>>1), int(^uint(0)>>1)
-			l := computeInventoryContentLayout(computeTabbedMenuLayout(800, gameplayViewportBottom(g)).content)
+			l := computeInventoryContentLayout(computeTabbedMenuLayout(800, gameplayViewportBottom(g)).content, 1)
 			r, full := l.headings[0], g.party.Members[0].Name
 			if label == "gold" {
 				r, full = l.resources[0], fmt.Sprintf("Gold %d", g.party.Gold)

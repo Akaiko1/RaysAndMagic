@@ -25,14 +25,14 @@ func TestRareRulesRequiredBalanceConfig(t *testing.T) {
 		name, section, key string
 		value              any
 	}{
-		{"missing_status", "status_damage", "", nil},
-		{"missing_burn", "status_damage", "burn_percent", nil},
-		{"missing_boss_burn", "status_damage", "boss_burn_percent", nil},
-		{"zero_burn", "status_damage", "burn_percent", 0},
-		{"invalid_boss_burn", "status_damage", "boss_burn_percent", 101},
 		{"missing_status_effects", "status_effects", "", nil},
-		{"missing_slow_skip", "status_effects", "slow_skip_every_turns", nil},
-		{"slow_skip_every_turn", "status_effects", "slow_skip_every_turns", 1},
+		{"missing_adventure_scaling", "adventure_scaling", "", nil},
+		{"missing_adventure_boss_curve", "adventure_scaling", "boss", nil},
+		{"negative_visit_bonus", "adventure_scaling", "visit_level_bonus", -1},
+		{"overflowing_curve", "adventure_scaling", "regular", map[string]any{
+			"hp":                       map[string]any{"base": 1000, "growth": []any{map[string]any{"to_level": 25, "slope": 0.1}}, "flat_per_level": 1},
+			"hit":                      map[string]any{"base": 2, "growth": []any{map[string]any{"to_level": 45, "slope": 0.05}}, "flat_per_level": 1},
+			"experience_level_percent": 24}},
 	}
 	for key := range baseline["characters"].(map[string]any)["classes"].(map[string]any) {
 		for _, field := range []string{"", "primary", "speed", "endurance"} {
@@ -49,7 +49,7 @@ func TestRareRulesRequiredBalanceConfig(t *testing.T) {
 				t.Fatal(err)
 			}
 			expected := tc.section
-			if tc.section == "status_damage" || tc.section == "status_effects" {
+			if tc.section == "status_effects" || tc.section == "adventure_scaling" {
 				if tc.key == "" {
 					delete(data, tc.section)
 				} else if tc.value == nil {

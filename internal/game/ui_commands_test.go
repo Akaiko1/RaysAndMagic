@@ -8,9 +8,10 @@ import (
 	"ugataima/internal/character"
 	"ugataima/internal/threading"
 
-	"github.com/hajimehoshi/ebiten/v2"
 	"ugataima/internal/graphics"
 	"ugataima/internal/items"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 func commandTestUI(t *testing.T) (*MMGame, *UISystem, *ebiten.Image) {
@@ -83,6 +84,7 @@ func TestDisplayedInputRejectsChangedIdentity(t *testing.T) {
 		}},
 		{"stack quantity", func(g *MMGame, _ *UISystem) { g.party.Inventory[0].Quantity++ }},
 		{"slot binding", func(g *MMGame, _ *UISystem) { it := g.party.Inventory[1]; g.party.Members[0].QuickSlots[0] = &it }},
+		{"second quick row", func(g *MMGame, _ *UISystem) { g.party.Members[0].QuickSecondRow = true }},
 		{"actor selection", func(g *MMGame, _ *UISystem) { g.selectedChar = 1 }},
 		{"roster replacement", func(g *MMGame, _ *UISystem) {
 			g.party.Members[0], g.party.Members[1] = g.party.Members[1], g.party.Members[0]
@@ -91,6 +93,9 @@ func TestDisplayedInputRejectsChangedIdentity(t *testing.T) {
 		{"resize", func(g *MMGame, _ *UISystem) { g.config.Display.ScreenWidth++ }},
 		{"world replacement", func(g *MMGame, _ *UISystem) { g.world = newTestWorldSized(g.config, 8, 8) }},
 		{"party replacement", func(g *MMGame, _ *UISystem) { cp := *g.party; g.party = &cp }},
+		{"gameplay settings page", func(g *MMGame, _ *UISystem) { g.gameplaySettingsPage = gameplayPageBuilds }},
+		{"builds class", func(g *MMGame, _ *UISystem) { g.buildsSettingsClass = 1 }},
+		{"builds roster scroll", func(g *MMGame, _ *UISystem) { g.buildsRosterScroll = 1 }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			g, ui, _ := commandTestUI(t)
@@ -132,7 +137,7 @@ func TestDisplayedDragRejectsChangedSourceAfterAnotherDraw(t *testing.T) {
 			g.party.Inventory = []items.Item{it}
 			g.party.Members[0].Equipment[items.SlotMainHand] = it
 			g.party.Members[0].QuickSlots[0] = &it
-			g.dragSrc, g.dragItem, g.dragActive = kind, it, true
+			g.dragSrc, g.dragItem, g.drag.active = kind, it, true
 			g.dragInvIndex, g.dragEquipChar, g.dragQuickChar, g.dragQuickSlot = 0, 0, 0, 0
 			g.dragEquipSlot = items.SlotMainHand
 			ui.captureDisplayedDrags()
@@ -148,7 +153,7 @@ func TestDisplayedDragRejectsChangedSourceAfterAnotherDraw(t *testing.T) {
 			ui.quickInvDropZone(10, 10, 40, 40)
 			ui.endDisplayedInput()
 			before, _ := json.Marshal(g.party)
-			g.dragDropAt, g.dragCurX, g.dragCurY = 1, 20, 20
+			g.dragDropAt, g.drag.curX, g.drag.curY = 1, 20, 20
 			ui.dispatchDisplayedInput()
 			after, _ := json.Marshal(g.party)
 			if string(before) != string(after) || g.dragSrc != dragNone {
@@ -270,7 +275,7 @@ func TestDisplayedStatHoldKeepsItsActorAndLayout(t *testing.T) {
 			fp.hold()
 			ui.Draw(screen)
 			ui.dispatchDisplayedInput()
-			for i := 0; i < statHoldInitialDelay+statHoldRepeatRate-1; i++ {
+			for i := 0; i < g.framesForSeconds(statHoldDelaySeconds)+g.framesForSeconds(statHoldRepeatSeconds)-1; i++ {
 				ui.dispatchDisplayedInput()
 			}
 			tc.change(g)

@@ -42,6 +42,7 @@ type NPC struct {
 	MinPartyLevel    int
 	NightOnly        bool           // present only at night (see NPCData.NightOnly)
 	RejectsLich      bool           // Light-aligned ward (Mage Tower) - won't speak to a party with a Lich
+	TalkTag          string         // interact tag credited on every conversation (npc_config.go)
 	TownPortal       bool           // makes this NPC's map a Town Portal destination, and the arrival point on it
 	RequiresQuest    string         // service gate: no shop/training until this quest is turned in (see NPCData.RequiresQuest)
 	Training         map[string]int // Target mastery -> gold cost, sourced from NPC YAML.
@@ -167,6 +168,17 @@ type MerchantStockItem struct {
 	CurrencyItem string
 	// GoldCost is charged IN ADDITION to the item currency (scale + gold).
 	GoldCost int
+	// Barter prices the entry in goods instead of any currency.
+	Barter []BarterCost
+	// RequiresQuest keeps the entry off the shelf until that quest is done.
+	RequiresQuest string
+}
+
+// BarterCost is one good of a barter price: Count units of the catalog item.
+type BarterCost struct {
+	Key   string
+	Item  items.Item
+	Count int
 }
 
 // EffectiveCurrency resolves the one currency contract shared by merchant UI

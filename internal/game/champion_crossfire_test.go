@@ -213,8 +213,8 @@ func TestWeaponMasterCrossfireUsesOffHandArcAgainstCaughtParty(t *testing.T) {
 	if want := crossfirePartyByArc[offArc]; hitParty != want {
 		t.Fatalf("off-hand crossfire hit %d party members, want its arc-%d %d", hitParty, offArc, want)
 	}
-	if champ.StunCharChance != offDef.StunChance {
-		t.Fatalf("off-hand crossfire left stun rider %.2f, want the off hand's own %.2f", champ.StunCharChance, offDef.StunChance)
+	if champ.Abilities.Stun.Chance != offDef.StunChance {
+		t.Fatalf("off-hand crossfire left stun rider %.2f, want the off hand's own %.2f", champ.Abilities.Stun.Chance, offDef.StunChance)
 	}
 }
 
@@ -230,7 +230,6 @@ func TestWeaponMasterCrossfireTurnBasedUsesAllActionsAndHands(t *testing.T) {
 
 	champ := monsterPkg.NewMonster3DFromConfig(10*ts+ts/2, 10*ts+ts/2, "weapon_master", cs.game.config)
 	champ.ChampionTier = "impossible"
-	champ.AttacksPerRound = 2
 	bounds := []*monsterPkg.Monster3D{
 		monsterPkg.NewMonster3DFromConfig(11*ts+ts/2, 10*ts+ts/2, "masked_huntress", cs.game.config),
 		monsterPkg.NewMonster3DFromConfig(11*ts+ts/2, 9*ts+ts/2, "masked_huntress", cs.game.config),
@@ -376,9 +375,9 @@ func TestChampionRangedAoESplashesSummonsAndParty(t *testing.T) {
 	bolt := &Arrow{
 		ID: "test_bolt", Active: true, LifeTime: 10, Damage: 80,
 		BowKey: "archmage_staff", DamageType: "fire", SourceName: sorc.Name,
-		SourceMonster: sorc, Owner: ProjectileOwnerMonsterAtBound,
+		SourceMonster: sorc, Owner: ProjectileOwnerMonsterAtActor,
 	}
-	cs.resolveMonsterProjectileVsMonster(bolt, "arrow", target, bolt.ID)
+	cs.resolveMonsterProjectileVsMonster(bolt, target, bolt.ID)
 
 	if target.HitPoints >= 5000 {
 		t.Error("the bolt's direct target must be hit")
@@ -442,9 +441,9 @@ func TestChampionCrossfireAoESparesSourceAndEnemyAllies(t *testing.T) {
 	bolt := &Arrow{
 		ID: "crossfire_aoe", Active: true, LifeTime: 10, Damage: 80,
 		BowKey: "archmage_staff", DamageType: "fire", SourceName: sorc.Name,
-		SourceMonster: sorc, Owner: ProjectileOwnerMonsterAtBound,
+		SourceMonster: sorc, Owner: ProjectileOwnerMonsterAtActor,
 	}
-	cs.resolveMonsterProjectileVsMonster(bolt, "arrow", target, bolt.ID)
+	cs.resolveMonsterProjectileVsMonster(bolt, target, bolt.ID)
 
 	if sorc.HitPoints != sorcHP {
 		t.Errorf("crossfire source HP = %d, want %d", sorc.HitPoints, sorcHP)

@@ -209,3 +209,25 @@ func TestQuickCarriedSaveRestore(t *testing.T) {
 		t.Fatal("carried rule broke reusable quick-slot map")
 	}
 }
+
+// A refused Lich promotion leaves the phylactery in its quick slot: it never
+// slips into the bag on its own.
+func TestQuickSlotPhylacteryStaysWhenNoOneCanTakeIt(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	g := cs.game
+	for _, m := range g.party.Members {
+		m.Promotion = character.PromotionArchmage // already promoted: no Lich path
+	}
+	carryInQuickSlot(t, g, 0, 4, items.CreateItemFromYAML("lich_phylactery"))
+	bag := len(g.party.Inventory)
+	g.useQuickSlot(0, 4)
+	if slot := g.party.Members[0].QuickSlots[4]; slot == nil || slot.Attributes["promotes_lich"] <= 0 {
+		t.Fatalf("the refused phylactery left its slot: %+v", slot)
+	}
+	if len(g.party.Inventory) != bag {
+		t.Fatalf("the bag changed from %d to %d items", bag, len(g.party.Inventory))
+	}
+	if countCombatLog(g, "No one in the party can bind their soul") != 1 {
+		t.Fatal("the refusal was not said")
+	}
+}

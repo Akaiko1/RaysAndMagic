@@ -28,6 +28,29 @@ func NewPreparationBudget(limit int64) *PreparationBudget {
 	return &PreparationBudget{limit: max(int64(1), limit), changed: make(chan struct{})}
 }
 
+// SetLimit changes the bound for later reservations and admits waiters that
+// now fit. Reservations already held are unaffected.
+func (b *PreparationBudget) SetLimit(limit int64) {
+	if b == nil {
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	limit = max(int64(1), limit)
+	if limit > b.limit {
+		close(b.changed)
+		b.changed = make(chan struct{})
+	}
+	b.limit = limit
+}
+
+// Limit is the bound later reservations are held to.
+func (b *PreparationBudget) Limit() int64 {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.limit
+}
+
 func (b *PreparationBudget) Acquire(ctx context.Context, bytes int64) (*PreparationLease, bool) {
 	if b == nil || bytes <= 0 {
 		return nil, true

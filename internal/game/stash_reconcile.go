@@ -28,25 +28,18 @@ func (g *MMGame) ensureStashLoaded() bool {
 		return false
 	}
 	changed := false
-	for i := range s.Slots {
-		if !stash.IsEmpty(s.Slots[i]) {
-			normalizeItemFromConfig(&s.Slots[i])
-			if items.EnsureInstanceID(&s.Slots[i]) {
-				changed = true
-			}
+	s.Each(func(it *items.Item) {
+		normalizeItemFromConfig(it)
+		if items.EnsureInstanceID(it) {
+			changed = true
 		}
-	}
-	for i := range s.CardSlots {
-		if !stash.IsEmpty(s.CardSlots[i]) {
-			normalizeItemFromConfig(&s.CardSlots[i])
-			if items.EnsureInstanceID(&s.CardSlots[i]) {
-				changed = true
-			}
-		}
+	})
+	if returnUnlistedCollectionItems(s) {
+		changed = true
 	}
 	g.stash = s
 	if changed {
-		_ = stash.Save(g.stash) // one-time id migration of the chest file
+		_ = stash.Save(g.stash) // one-time id and unlisted-place migration of the chest file
 	}
 	return true
 }
@@ -97,45 +90,16 @@ func (g *MMGame) stampPartyInstanceIDs() bool {
 		return false
 	}
 	changed := false
-	for i := range g.party.Inventory {
-		if items.EnsureInstanceID(&g.party.Inventory[i]) {
+	for it := range g.party.OwnedItems() {
+		if items.EnsureInstanceID(it) {
 			changed = true
 		}
-	}
-	stampMember := func(m *character.MMCharacter) {
-		if m == nil {
-			return
-		}
-		for i := range m.Inventory {
-			if items.EnsureInstanceID(&m.Inventory[i]) {
-				changed = true
-			}
-		}
-		for slot, it := range m.Equipment {
-			if items.EnsureInstanceID(&it) {
-				m.Equipment[slot] = it
-				changed = true
-			}
-		}
-		for i := range m.QuickSlots {
-			if items.EnsureInstanceID(m.QuickSlots[i]) {
-				changed = true
-			}
-		}
-	}
-	for _, m := range g.party.Members {
-		stampMember(m)
-	}
-	for _, m := range g.party.Reserve {
-		stampMember(m)
-	}
-	for _, m := range g.party.Captive {
-		stampMember(m)
 	}
 	return changed
 }
 
-// reconcilePartyAgainstStash drops chest-owned units from every place a save
+// reconcilePartyAgainstStash drops stash-owned units (chest, legendary
+// collection, card album) from every place a save
 // can carry an item: bag, all rosters' equipment/quick slots, and the card
 // collection and ground containers. Stackable items can contain multiple origins
 // after UI merges, so claims are consumed globally. Zero-ID legacy items
@@ -167,12 +131,7 @@ func reconcilePartyItemsAgainstStash(party *character.Party, cards *[MaxCardSlot
 			owned[it.InstanceID]++
 		}
 	}
-	for i := range shared.Slots {
-		claim(shared.Slots[i])
-	}
-	for i := range shared.CardSlots {
-		claim(shared.CardSlots[i])
-	}
+	shared.Each(func(it *items.Item) { claim(*it) })
 	if len(owned) == 0 {
 		return false
 	}
@@ -187,51 +146,11 @@ func reconcilePartyItemsAgainstStash(party *character.Party, cards *[MaxCardSlot
 		return it, kept
 	}
 
-	// Strip the bag: a slice deletes by rebuilding in place around the removed.
-	bag := party.Inventory[:0]
-	for _, it := range party.Inventory {
-		if kept, ok := afterDedup(it); ok {
-			bag = append(bag, kept)
-		}
-	}
-	party.Inventory = bag
-
-	stripMember := func(m *character.MMCharacter) {
-		if m == nil {
-			return
-		}
-		keptBag := m.Inventory[:0]
-		for _, it := range m.Inventory {
-			if kept, ok := afterDedup(it); ok {
-				keptBag = append(keptBag, kept)
-			}
-		}
-		m.Inventory = keptBag
-		for slot, it := range m.Equipment {
-			if _, kept := afterDedup(it); !kept {
-				delete(m.Equipment, slot)
-			}
-		}
-		for i, qs := range m.QuickSlots {
-			if qs == nil {
-				continue
-			}
-			if kept, ok := afterDedup(*qs); ok {
-				*m.QuickSlots[i] = kept
-			} else {
-				m.QuickSlots[i] = nil
-			}
-		}
-	}
-	for _, m := range party.Members {
-		stripMember(m)
-	}
-	for _, m := range party.Reserve {
-		stripMember(m)
-	}
-	for _, m := range party.Captive {
-		stripMember(m)
-	}
+	party.RetainOwnedItems(func(it *items.Item) bool {
+		kept, ok := afterDedup(*it)
+		*it = kept
+		return ok
+	})
 	for slot := 0; slot < MaxCardSlots; slot++ {
 		if _, kept := afterDedup(cards[slot].item); !kept {
 			cards[slot] = cardSlot{}

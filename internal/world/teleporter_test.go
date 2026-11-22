@@ -3,7 +3,6 @@ package world
 import (
 	"math"
 	"testing"
-	"time"
 )
 
 func TestRegisterTeleportersFromMapData_UsesProperties(t *testing.T) {
@@ -20,8 +19,7 @@ func TestRegisterTeleportersFromMapData_UsesProperties(t *testing.T) {
 
 	tiles := [][]TileType3D{{vType, rType}}
 	reg := &TeleporterRegistry{
-		Teleporters:     make([]TeleporterLocation, 0),
-		LastUsedByGroup: make(map[string]time.Time),
+		Teleporters: make([]TeleporterLocation, 0),
 	}
 	RegisterTeleportersFromMapData(nil, "forest", reg, tiles)
 

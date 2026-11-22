@@ -6,6 +6,50 @@ frames:
   asian: assets/sprites/interface/icon_frames/icon_frame_asian.png
   boss: assets/sprites/interface/icon_frames/icon_frame_boss.png
 icons:
+  icon_weapon_solstice_sun_crucible: boss
+  icon_weapon_solstice_stone_script: boss
+  icon_weapon_solstice_returning_gale: boss
+  icon_item_solstice_everflow_retort: boss
+  icon_item_solstice_aureth_card: boss
+  icon_item_solstice_neressa_card: boss
+  icon_item_solstice_talura_card: boss
+  icon_item_solstice_vaelith_card: boss
+  icon_spell_fire_aura: basic
+  icon_spell_haste: basic
+  icon_spell_shield: basic
+  icon_spell_acid_burst: basic
+  icon_spell_frozen_ground: basic
+  icon_spell_vvoid_beacon: basic
+  icon_spell_slow: basic
+  icon_spell_fate: basic
+  icon_spell_shared_life: basic
+  icon_spell_preservation: basic
+  icon_spell_turn_undead: basic
+  icon_spell_feeblemind: basic
+  icon_spell_berserk: basic
+  icon_spell_mass_fear: basic
+  icon_spell_identify_monster: basic
+  icon_spell_regeneration: basic
+  icon_spell_body_purify: basic
+  icon_spell_protection_from_magic: basic
+  icon_spell_flying_fist: basic
+  icon_spell_dispel_magic: basic
+  icon_spell_destroy_undead: basic
+  icon_spell_prismatic_light: basic
+  icon_spell_celestial_armor: basic
+  icon_spell_shrapmetal: basic
+  icon_spell_vampiric_weapon: basic
+  icon_spell_pain_reflection: basic
+  icon_spell_souldrinker: basic
+  icon_item_raw_amber: basic
+  icon_item_amber_talisman: basic
+  icon_item_ancient_calendar: basic
+  icon_item_personal_medical_kit: asian
+  icon_item_sakura_leaf: asian
+  icon_item_scarlet_crane_do: asian
+  icon_item_night_heron_do: asian
+  icon_item_jade_tortoise_do: asian
+  icon_item_white_fox_do: asian
   icon_weapon_duskneedle: basic
   icon_weapon_shellknocker: basic
   icon_weapon_rainfang: basic
@@ -105,7 +149,7 @@ icons:
   icon_weapon_drakefang_blade: basic
   icon_weapon_elven_bow: basic
   icon_weapon_ember_egg_mace: basic
-  icon_weapon_escapement_mace: basic
+  icon_weapon_escapement_staff: basic
   icon_weapon_gale_war_fan: asian
   icon_weapon_gladius: basic
   icon_weapon_gold_sword: basic
@@ -269,7 +313,7 @@ icons:
   icon_item_masked_hexer_girl_card: basic
   icon_item_masked_huntress_card: basic
   icon_item_masked_serpent_dancer_card: basic
-  icon_item_medusa_card: basic
+  icon_item_jellyfish_card: basic
   icon_item_minotaur_card: basic
   icon_item_minotaur_horn: basic
   icon_item_mirage_salt: basic

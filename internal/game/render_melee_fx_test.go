@@ -1,11 +1,13 @@
 package game
 
 import (
-	"github.com/hajimehoshi/ebiten/v2"
+	"fmt"
 	"image/color"
 	"math"
 	"os"
 	"testing"
+
+	"github.com/hajimehoshi/ebiten/v2"
 
 	"ugataima/internal/config"
 	"ugataima/internal/monster"
@@ -21,33 +23,67 @@ func TestShippedFxStylesResolve(t *testing.T) {
 	if _, err := config.LoadSpellConfig("../../assets/spells.yaml"); err != nil {
 		t.Fatalf("load spells: %v", err)
 	}
-	validateWeaponFxStyles()     // must not panic on shipped content
+	validateWeaponFxStyles() // must not panic on shipped content
+	validateFlaskFxStyles()
 	validateProjectileFxStyles() // must not panic on shipped content
 
-	// The procedural catalog must stay attached to real items, and every
-	// shipped melee weapon must retain its own authored body selection.
+	// The validator above requires a body on every melee weapon. Every body
+	// in the table belongs to one real melee weapon and has geometry within
+	// one draw's 16-bit vertex indices.
 	t.Run("weapon bodies", func(t *testing.T) {
-		for key, model := range weaponBodyModels {
-			var mesh *volumeMesh
-			if isGauntletModel(model) {
-				mesh = gauntletModels.get(model, buildGauntlet)
-			} else {
-				mesh = meleeWeaponMeshes.get(model, buildMeleeWeaponMesh)
+		if len(weaponBodyModels) != len(meleeBodies) {
+			t.Errorf("%d weapons for %d bodies: a key repeats or a row is empty", len(weaponBodyModels), len(meleeBodies))
+		}
+		for body, row := range meleeBodies {
+			if def, ok := config.GlobalWeapons.Weapons[row.key]; !ok || def == nil || def.Graphics == nil || def.Melee == nil {
+				t.Errorf("melee body %d (%q) has no drawable weapon definition", body, row.key)
 			}
-			if len(mesh.faces) == 0 {
-				t.Errorf("melee weapon %q has no 3D geometry", key)
-			}
-			if def, ok := config.GlobalWeapons.Weapons[key]; !ok || def == nil || def.Graphics == nil || def.Melee == nil {
-				t.Errorf("procedural body %q has no drawable weapon definition", key)
+			if faces := len(meleeWeaponMeshes.get(meleeBody(body), buildMeleeWeaponMesh).faces); faces == 0 || faces > maxVolumeMeshFaces {
+				t.Errorf("melee body %q has %d faces, want 1..%d", row.key, faces, maxVolumeMeshFaces)
 			}
 		}
-		for key, def := range config.GlobalWeapons.Weapons {
-			if def.Melee != nil {
-				if _, ok := weaponBodyModels[key]; !ok {
-					t.Errorf("melee weapon %q has no procedural body", key)
-				}
+	})
+
+	// The validator above requires a held model on every held-category ranged
+	// weapon. Each model is authored, has geometry, and fits one draw's
+	// 16-bit vertex indices; posing moves points but never adds faces.
+	t.Run("held ranged bodies", func(t *testing.T) {
+		used := map[string]bool{}
+		for _, def := range config.GlobalWeapons.Weapons {
+			if def.Graphics != nil {
+				used[def.Graphics.HeldModel] = true
 			}
 		}
+		for key, asset := range rangedHeldAssets {
+			if !used[key] {
+				t.Errorf("unused held model %s", key)
+			}
+			if faces := len(rangedHeldRest(key, asset).mesh.faces); faces == 0 || faces > maxVolumeMeshFaces {
+				t.Errorf("held model %s has %d faces, want 1..%d", key, faces, maxVolumeMeshFaces)
+			}
+		}
+	})
+
+	// The other camera volumes - relics, cast objects and lit spell volumes -
+	// fit one draw's 16-bit vertex indices too.
+	t.Run("relic, cast object and spell volumes", func(t *testing.T) {
+		check := func(name string, m *volumeMesh) {
+			if faces := len(m.faces); faces == 0 || faces > maxVolumeMeshFaces {
+				t.Errorf("%s has %d faces, want 1..%d", name, faces, maxVolumeMeshFaces)
+			}
+		}
+		for _, relic := range []relicBody{relicReturningGale, relicEverflowRetort} {
+			check(fmt.Sprintf("relic %d", relic), relicMeshes.get(relic, buildRelicMesh))
+		}
+		for model := castCuirass; model <= castWingTipsBack; model++ {
+			check(fmt.Sprintf("cast object %d", model), castObjectMeshes.get(model, buildCastObject))
+		}
+		for kind := spellFireball; kind <= spellPrismaticRay; kind++ {
+			if isFacetedBolt(kind) || kind == spellHarm || kind == spellFlyingFist {
+				check(fmt.Sprintf("spell volume %d", kind), directionalVolumeMeshes.get(directionalVolumeModel(kind), buildDirectionalVolumeMesh))
+			}
+		}
+		check("shrapmetal", directionalVolumeMeshes.get(spellShrapmetal, buildDirectionalVolumeMesh))
 	})
 
 	// misfit names why the entry cannot show its style; empty = fine.
@@ -180,98 +216,14 @@ func TestEndgameWeaponSetsAuthorBespokeFx(t *testing.T) {
 
 func TestProjectileFxRegistryDefinesSideAndHeadOnRenderers(t *testing.T) {
 	for style, fx := range weaponProjectileFxStyles {
+		if fx.volume != nil {
+			continue // A camera-space volume supplies every view in one renderer.
+		}
 		if fx.side == nil {
 			t.Errorf("projectile FX style %q has no side-on renderer", style)
 		}
 		if fx.headOn == nil {
 			t.Errorf("projectile FX style %q has no head-on renderer", style)
-		}
-	}
-}
-
-// Observe actual signature dispatch, including opacity and size. A bool that
-// production ignores cannot prove the renderer drew the correct projection.
-func TestProjectileFxDispatchSeparatesSizeAndOpacity(t *testing.T) {
-	for _, tc := range []struct {
-		name                     string
-		side, wantSide, wantFace float64
-		independent              bool
-	}{
-		{name: "outgoing", wantFace: 1}, {name: "near axis", side: .02, wantFace: 1},
-		{name: "oblique", side: math.Sqrt(.5), wantSide: .5, wantFace: .5},
-		{name: "lateral", side: 1, wantSide: 1},
-		{name: "eye", side: math.Sqrt(.5), wantFace: 1, independent: true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			r := &Renderer{game: &MMGame{}}
-			style := "clock_pistol"
-			if tc.independent {
-				style = "dragon_eye"
-			}
-			previous := weaponProjectileFxStyles[style]
-			defer func() { weaponProjectileFxStyles[style] = previous }()
-			side, face := 0.0, 0.0
-			calls := 0
-			const size = 20.0
-			const critical = 1.2
-			check := func(got float64) {
-				t.Helper()
-				calls++
-				if math.Abs(got-size*math.Sqrt(critical)) > 1e-9 {
-					t.Errorf("blend changed critical size to %g", got)
-				}
-			}
-			weaponProjectileFxStyles[style] = weaponProjectileFxStyle{
-				side: func(_ *Renderer, _ *ebiten.Image, _, _, s, dx, dy, alpha float64, _ int) {
-					check(s)
-					side = alpha
-					nx, ny := projectilePerpendicular(dx, dy)
-					if math.Abs(math.Hypot(nx, ny)-1) > 1e-9 {
-						t.Error("cross-section shrank")
-					}
-				},
-				headOn: func(_ *Renderer, _ *ebiten.Image, _, _, s, alpha float64, _ int) { check(s); face = alpha }, viewIndependent: previous.viewIndependent,
-			}
-			r.drawWeaponProjectileFxForView(style, nil, 0, 0, size, projectileView{side: tc.side}, critical, 0)
-			wantCalls := 0
-			if tc.wantSide > 0 {
-				wantCalls++
-			}
-			if tc.wantFace > 0 {
-				wantCalls++
-			}
-			if calls != wantCalls || math.Abs(side-tc.wantSide) > 1e-9 || math.Abs(face-tc.wantFace) > 1e-9 {
-				t.Fatalf("calls=%d side=%g face=%g", calls, side, face)
-			}
-		})
-	}
-}
-
-// Drive the projectile pass through the actual presentation/shake scopes.
-// Assert the projection submitted to the spell shader, not a helper return.
-func TestSpellProjectileRenderingIgnoresCameraShake(t *testing.T) {
-	g, _, _, _, _ := mouseCombatHarness(t, false)
-	g.camera.Angle = 0
-	g.camera.ViewDist = 5000
-	g.screenShake = 2.2
-	r := g.gameLoop.renderer
-	dst := ebiten.NewImage(640, 480)
-	defer dst.Deallocate()
-	ts := float64(g.config.GetTileSize())
-	for _, spell := range []string{"fireball", "lightning"} {
-		g.magicProjectiles = []MagicProjectile{{Active: true, X: g.camera.X + ts/4, Y: g.camera.Y, VelX: -3, SpellType: spell, Owner: ProjectileOwnerMonster}}
-		for frame := int64(0); frame < 2; frame++ {
-			g.frameCount = frame
-			undoView := g.swapCameraPose(cameraPose{g.camera.X, g.camera.Y + .7, .02})
-			undoShake := g.beginScreenShakeSwap()
-			r.drawMagicProjectiles(dst)
-			undoShake()
-			undoView()
-			for _, v := range r.weaponMaterialQuad {
-				if v.Custom2 != 1 {
-					t.Fatalf("%s frame %d: shake turned end-on body sideways: %g", spell, frame, v.Custom2)
-				}
-			}
 		}
 	}
 }
@@ -390,6 +342,55 @@ func TestValidateWeaponFxStylesRejectsUnknown(t *testing.T) {
 	validateWeaponFxStyles()
 }
 
+func TestValidateWeaponFxStylesRequiresMeleeBody(t *testing.T) {
+	if _, err := config.LoadWeaponConfig("../../assets/weapons.yaml"); err != nil {
+		t.Fatalf("load weapons: %v", err)
+	}
+	body := weaponBodyModels["katana"]
+	delete(weaponBodyModels, "katana")
+	defer func() {
+		weaponBodyModels["katana"] = body
+		if recover() == nil {
+			t.Fatal("expected panic on a melee weapon without a body")
+		}
+	}()
+	validateWeaponFxStyles()
+}
+
+// A gauntlet body is drawn only by a gauntlet strike: Bronze Cesti without
+// its style would swing an invisible weapon, so the load refuses it.
+func TestValidateWeaponFxStylesRequiresGauntletRoute(t *testing.T) {
+	if _, err := config.LoadWeaponConfig("../../assets/weapons.yaml"); err != nil {
+		t.Fatalf("load weapons: %v", err)
+	}
+	def := config.GlobalWeapons.Weapons["bronze_cesti"]
+	orig := def.Graphics.SlashFx
+	def.Graphics.SlashFx = ""
+	defer func() {
+		def.Graphics.SlashFx = orig
+		if recover() == nil {
+			t.Fatal("expected panic on a gauntlet body without a gauntlet strike")
+		}
+	}()
+	validateWeaponFxStyles()
+}
+
+func TestValidateWeaponFxStylesRequiresHeldModel(t *testing.T) {
+	if _, err := config.LoadWeaponConfig("../../assets/weapons.yaml"); err != nil {
+		t.Fatalf("load weapons: %v", err)
+	}
+	def := config.GlobalWeapons.Weapons["long_bow"]
+	orig := def.Graphics.HeldModel
+	def.Graphics.HeldModel = ""
+	defer func() {
+		def.Graphics.HeldModel = orig
+		if recover() == nil {
+			t.Fatal("expected panic on a bow without held_model")
+		}
+	}()
+	validateWeaponFxStyles()
+}
+
 func TestValidateWeaponFxStylesRejectsUnknownProjectile(t *testing.T) {
 	if _, err := config.LoadWeaponConfig("../../assets/weapons.yaml"); err != nil {
 		t.Fatalf("load weapons: %v", err)
@@ -479,8 +480,9 @@ func TestProjectilePresentationAnchors(t *testing.T) {
 		tx, ty := to.X, to.Y
 		to.X, to.Y = from.X+ts/4, from.Y
 		short := g.combat.continuationLaunch(from, to)
-		wantOffset := visualAnchorFor(to).centerOffset(g, to.X-g.camera.X)
-		if math.Abs(short.screenOffsetY(g, to.X, to.Y)-wantOffset) > 1e-6 {
+		depth := to.X - g.camera.X
+		wantOffset := visualAnchorFor(to).centerOffset(g, depth)
+		if math.Abs(short.eyeDrop(g, to.X, to.Y)*g.viewFocal()/depth-wantOffset) > 1e-6 {
 			t.Fatal("short continuation retained its departure anchor at the target")
 		}
 		to.X, to.Y = tx, ty
@@ -488,12 +490,15 @@ func TestProjectilePresentationAnchors(t *testing.T) {
 		now, prev := sample(x, y), sample(x-vx*3, y-vy*3)
 		wantAngle := math.Atan2(float64(now.screenY-prev.screenY)+float64(now.size-prev.size)/2, float64(now.screenX-prev.screenX))
 		g.arrows = []Arrow{{Active: true, X: x, Y: y, VelX: vx, VelY: vy, BowKey: "hunting_bow", Launch: launch, LifeTime: def.Physics.GetLifetimeFrames(), Owner: ProjectileOwnerPlayer}}
-		r.drawArrows(dst)
+		r.drawArrow(dst, 0)
 		if !g.arrows[0].RenderAngleSet || math.Abs(g.arrows[0].RenderAngle-wantAngle) > 1e-6 {
 			t.Fatalf("wide=%v: shaft diverged from anchored flight: got %g want %g", wide, g.arrows[0].RenderAngle, wantAngle)
 		}
 		original := sample(to.X, to.Y)
 		pierced := launch.piercing(g.combat, to)
+		// A target that dies or walks off after release never steers the shot
+		// sideways, but the shot still arrives at the body height it was aimed
+		// at instead of dropping to eye level (the RT strafing bug).
 		for _, state := range []string{"dead", "moved"} {
 			hp, tx := to.HitPoints, to.X
 			if state == "dead" {
@@ -502,9 +507,12 @@ func TestProjectilePresentationAnchors(t *testing.T) {
 				to.X += ts
 			}
 			p := sample(launch.aimX, launch.aimY)
-			base, _ := r.projectMovingEntity(launch.aimX, launch.aimY, def.Graphics.BaseSize, def.Graphics.MinSize, def.Graphics.MaxSize)
-			if p != base {
-				t.Fatalf("%s target still bends flight", state)
+			base, _ := r.projectMovingEntity(launch.aimX, launch.aimY, 0, def.Graphics.BaseSize, def.Graphics.MinSize, def.Graphics.MaxSize)
+			if p.screenX != base.screenX || p.size != base.size {
+				t.Fatalf("%s target steered the shot sideways", state)
+			}
+			if p.screenY != original.screenY {
+				t.Fatalf("%s target dropped the shot off the aimed body: y %d want %d", state, p.screenY, original.screenY)
 			}
 			to.HitPoints, to.X = hp, tx
 		}
@@ -514,7 +522,7 @@ func TestProjectilePresentationAnchors(t *testing.T) {
 			t.Fatal("piercing kill lost its body anchor")
 		}
 		x, y = launch.aimX+launch.dx*2*ts, launch.aimY+launch.dy*2*ts
-		base, _ := r.projectMovingEntity(x, y, def.Graphics.BaseSize, def.Graphics.MinSize, def.Graphics.MaxSize)
+		base, _ := r.projectMovingEntity(x, y, 0, def.Graphics.BaseSize, def.Graphics.MinSize, def.Graphics.MaxSize)
 		if got := sample(x, y); got != base {
 			t.Fatal("pierce did not return to its physical ray")
 		}
@@ -523,7 +531,7 @@ func TestProjectilePresentationAnchors(t *testing.T) {
 			launch = g.combat.continuationLaunch(from, to)
 			g.magicProjectiles = []MagicProjectile{{Active: true, X: from.X + launch.dx*ts*.5, Y: from.Y + launch.dy*ts*.5, VelX: launch.dx * 2, VelY: launch.dy * 2, SpellType: "firebolt", Launch: launch, Owner: ProjectileOwnerPlayer}}
 			pixels := make([]byte, dst.Bounds().Dx()*dst.Bounds().Dy()*4)
-			runOnDrawFrame(func(_ *ebiten.Image) { dst.Clear(); r.drawMagicProjectiles(dst); dst.ReadPixels(pixels) })
+			runOnDrawFrame(func(_ *ebiten.Image) { dst.Clear(); r.drawMagicProjectile(dst, 0); dst.ReadPixels(pixels) })
 			lit := 0
 			for i := 3; i < len(pixels); i += 4 {
 				if pixels[i] > 0 {
@@ -540,6 +548,54 @@ func TestProjectilePresentationAnchors(t *testing.T) {
 					if pixels[(y*dst.Bounds().Dx()+x)*4+3] > 0 {
 						t.Fatalf("wide=%v: ghost detached to the horizon", wide)
 					}
+				}
+			}
+		}
+	}
+}
+
+// Detailed equipment has intersecting and closely layered surfaces. The depth
+// resolve must select the nearest pixel independently of triangle submission
+// order, then fade the solid once instead of exposing its internal surfaces.
+func TestRangedEquipmentDepthResolve(t *testing.T) {
+	if os.Getenv("RAM_DEBUG_SIM") == "" {
+		t.Skip("GPU readback requires the live Ebitengine debug-sim loop")
+	}
+	quad := func(left, right float64, rgb [3]int) []modelFace {
+		m := weaponMeshBuilder{}
+		a, b, c, d := [3]float64{-.7, -.7, left}, [3]float64{.7, -.7, right}, [3]float64{-.7, .7, left}, [3]float64{.7, .7, right}
+		o := [3]float64{0, 0, 2}
+		m.triangle(a, b, c, o, rgb, meshGlow)
+		m.triangle(c, b, d, o, rgb, meshGlow)
+		return m.faces
+	}
+	r := &Renderer{}
+	t.Cleanup(func() { runOnDrawFrame(func(_ *ebiten.Image) { r.releaseEquipmentLayers() }) })
+	if err := r.ensureWeaponMaterialShaders(); err != nil {
+		t.Fatal(err)
+	}
+	for _, width := range []int{256, 384, 128} {
+		for _, reverse := range []bool{false, true} {
+			for _, fade := range []float64{1, .5} {
+				raw := append(quad(0, 0, [3]int{255, 0, 0}), quad(-.3, .3, [3]int{0, 255, 0})...)
+				if reverse {
+					for i, j := 0, len(raw)-1; i < j; i, j = i+1, j-1 {
+						raw[i], raw[j] = raw[j], raw[i]
+					}
+				}
+				var left, right color.RGBA
+				runOnDrawFrame(func(_ *ebiten.Image) {
+					dst := ebiten.NewImage(width, width)
+					defer dst.Deallocate()
+					tr := volumeTransform{rotation: [3][3]float64{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}}, uvY: 1}
+					r.drawRangedHeldMesh(dst, dst.Bounds().Size(), float64(width)/2, float64(width)/2, float64(width)*.4, fade, tr, compileVolumeMesh(raw))
+
+					left = color.RGBAModel.Convert(dst.At(width*3/8, width/2)).(color.RGBA)
+					right = color.RGBAModel.Convert(dst.At(width*5/8, width/2)).(color.RGBA)
+				})
+				wantAlpha := int(math.Round(255 * fade))
+				if left.G < uint8(float64(wantAlpha)*.7) || left.R > 2 || right.R < uint8(float64(wantAlpha)*.7) || right.G > 2 || math.Abs(float64(int(left.A)-wantAlpha)) > 1 || math.Abs(float64(int(right.A)-wantAlpha)) > 1 {
+					t.Fatalf("width=%d reverse=%v fade=%g left=%v right=%v: nearest surfaces or solid fade lost", width, reverse, fade, left, right)
 				}
 			}
 		}

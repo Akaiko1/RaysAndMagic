@@ -126,7 +126,7 @@ func TestUnequipGuardBlocksOnlyAZeroWeaponSkillCharacter(t *testing.T) {
 // weapon training), and cloth remains a true no-skill armor category.
 func TestUniversalFallbacks(t *testing.T) {
 	weaponless := &MMCharacter{Skills: map[SkillType]*Skill{}, Equipment: make(map[items.EquipSlot]items.Item)}
-	if weaponless.CanEquipWeaponByName("Alien Blaster") {
+	if weaponless.CanEquipWeapon(testWeapon("Alien Blaster")) {
 		t.Error("a character with NO weapon skill at all should not get the universal blaster pass")
 	}
 	if !weaponless.CanEquipArmor(items.CreateItemFromYAML("wizard_robe")) {
@@ -142,14 +142,17 @@ func TestUniversalFallbacks(t *testing.T) {
 	}
 	// Firearms need no training: any trained fighter can fire a blaster
 	// without the Blaster skill - the skill only pays mastery bonuses.
-	if !trained.CanEquipWeaponByName("Alien Blaster") {
+	if !trained.CanEquipWeapon(testWeapon("Alien Blaster")) {
 		t.Error("a blaster must be equippable without the Blaster skill")
 	}
 	trained.Skills[SkillBlaster] = &Skill{Mastery: MasteryNovice}
-	if !trained.CanEquipWeaponByName("Alien Blaster") {
+	if !trained.CanEquipWeapon(testWeapon("Alien Blaster")) {
 		t.Error("Blaster training must keep Blasters equippable")
 	}
 	if !trained.CanEquipArmor(items.CreateItemFromYAML("wizard_robe")) {
 		t.Error("a character with a real armor skill should still get the universal cloth pass")
 	}
 }
+
+// testWeapon is a keyless weapon item, resolved by display name.
+func testWeapon(name string) items.Item { return items.Item{Name: name, Type: items.ItemWeapon} }

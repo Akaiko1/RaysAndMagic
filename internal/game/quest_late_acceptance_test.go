@@ -13,6 +13,7 @@ import (
 
 // A fixed quota never strands a late acceptance: reach the quota or clear its
 // eligible roster. Shipped regional quests and global quests share that rule.
+// The wolf pack's quota of 3 leaves exactly one target at a late last kill.
 func TestLateKillQuestAcceptance(t *testing.T) {
 	for _, id := range []string{"goblin_hunt", "wolf_pack", "global_hunt"} {
 		for _, merged := range []bool{false, true} {

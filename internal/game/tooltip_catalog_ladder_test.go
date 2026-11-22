@@ -61,6 +61,23 @@ func TestCatalogLaddersMatchEveryTier(t *testing.T) {
 	check := func(t *testing.T, catalog string, live func(tier int) string) {
 		t.Helper()
 		for _, line := range strings.Split(catalog, "\n") {
+			// Mechanic prose states its ladders in a sentence, with or without a
+			// labelled duration after them. Compare that complete sentence at
+			// the chosen tier.
+			colon := strings.Index(line, ": ")
+			prose := colon < 0 && tierLadderPattern.MatchString(line)
+			if prose || colon >= 0 && tierLadderPattern.MatchString(line[:colon]) {
+				ladders++
+				for tier := 0; tier < 4; tier++ {
+					expected := tierLadderPattern.ReplaceAllStringFunc(line, func(ladder string) string {
+						return strings.Split(ladder, "/")[tier]
+					})
+					if card := live(tier); !strings.Contains(card, expected) {
+						t.Fatalf("catalog prose tier %d wants %q; live card:\n%s", tier, expected, card)
+					}
+				}
+				continue
+			}
 			label, value, ok := strings.Cut(line, ": ")
 			if !ok || !tierLadderPattern.MatchString(value) {
 				continue
@@ -84,6 +101,27 @@ func TestCatalogLaddersMatchEveryTier(t *testing.T) {
 			check(t, GetSpellTooltipRows(id, nil, nil, true).String(), func(tier int) string {
 				return GetSpellTooltipRows(id, casterAt(tier), cs, true).String()
 			})
+			// The catalog states each authored mechanic ladder its summary
+			// names; check above then holds every live tier to that ladder.
+			def := config.GlobalSpells.Spells[key]
+			if m := def.Mechanic; m != nil {
+				catalog := GetSpellTooltipRows(id, nil, nil, true).String()
+				for placeholder, ladder := range map[string][]int{
+					"{power}": m.PowerByMastery, "{charges}": m.ChargesByMastery, "{projectiles}": m.ProjectilesByMastery,
+					"{extra_actions}": m.ExtraActionsByMastery, "{duration}": def.DurationByMastery,
+				} {
+					if !strings.Contains(m.Summary, placeholder) {
+						continue
+					}
+					parts := make([]string, len(ladder))
+					for i, v := range ladder {
+						parts[i] = strconv.Itoa(v)
+					}
+					if want := strings.Join(parts, "/"); len(ladder) != 4 || !strings.Contains(catalog, want) {
+						t.Fatalf("catalog omits authored %s ladder %v:\n%s", placeholder, ladder, catalog)
+					}
+				}
+			}
 		})
 	}
 	for _, key := range trapKeys {

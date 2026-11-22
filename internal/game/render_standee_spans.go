@@ -84,7 +84,11 @@ func (run standeeClipRun) emit(end int, emit func(int, int, standeeClipSample, s
 // Reciprocal depth, U/depth and projected vertical edges are affine in screen X;
 // the fragment shader reconstructs the same pixel-centre sample from them.
 // Near-plane crossings and clips narrower than three columns use the fallback.
-func (r *Renderer) appendStandeeSurfaceSpans(vertices []ebiten.Vertex, indices []uint32, slab standeeSlab, sf standeeSurface, minX, maxX int, material ebiten.Vertex, sourceOrigin image.Point) ([]ebiten.Vertex, []uint32, bool) {
+//
+// sheet selects the standee_sheet.kage layout: material already addresses the
+// level block, and the strip carries its projected height and U times height.
+// trim cuts each strip down to the rows its art can colour.
+func (r *Renderer) appendStandeeSurfaceSpans(vertices []ebiten.Vertex, indices []uint32, slab standeeSlab, sf standeeSurface, minX, maxX int, material ebiten.Vertex, sourceOrigin image.Point, sheet bool, trim standeeTrim) ([]ebiten.Vertex, []uint32, bool) {
 	if maxX-minX < 2 {
 		return vertices, indices, false
 	}
@@ -114,7 +118,9 @@ func (r *Renderer) appendStandeeSurfaceSpans(vertices []ebiten.Vertex, indices [
 	// Integers encode the layer/filter flags, the fraction keeps the mip blend.
 	// Keep the blend inside each flag interval, away from floor boundaries even
 	// when interpolating constant attributes introduces a few ULPs of error.
-	material.Custom2 = -(1 + 4*material.Custom1 + 2*material.Custom2 + 0.25 + 0.5*material.Custom0)
+	if !sheet {
+		material.Custom2 = -(1 + 4*material.Custom1 + 2*material.Custom2 + 0.25 + 0.5*material.Custom0)
+	}
 	column := func(x int) standeeClipSample {
 		offset := float64(x-minX) + 0.5
 		inv, uq := inv0+invStep*offset, uq0+uqStep*offset
@@ -139,33 +145,86 @@ func (r *Renderer) appendStandeeSurfaceSpans(vertices []ebiten.Vertex, indices [
 		}
 		return standeeClipSample{state: standeeClipClear}
 	}
-	endpoint := func(x int, clip standeeClipSample) (ebiten.Vertex, ebiten.Vertex) {
+	// endpoint is the strip's untrimmed edge at column x: its top and bottom
+	// vertices and the projected height there.
+	endpoint := func(x int, clip standeeClipSample) (hi, lo ebiten.Vertex, height float32) {
 		offset := float64(x - minX)
 		inv := inv0 + invStep*offset
 		top, bottom, height := projection.atInverseDepth(inv)
 		v := material
 		v.DstX = float32(x)
 		v.DstY = top
-		v.SrcX = float32(sourceOrigin.X) + top
-		v.SrcY = float32(sourceOrigin.Y) + height
-		v.Custom0 = float32(inv)
-		v.Custom1 = float32(uq0 + uqStep*offset)
-		lo := v
+		if sheet {
+			v.Custom0 = height
+			v.Custom1 = float32(projection.heightScale * (uq0 + uqStep*offset))
+		} else {
+			v.SrcX = float32(sourceOrigin.X) + top
+			v.SrcY = float32(sourceOrigin.Y) + height
+			v.Custom0 = float32(inv)
+			v.Custom1 = float32(uq0 + uqStep*offset)
+		}
+		lo = v
 		lo.DstY = bottom
 		if clip.state == standeeClipWall {
 			lo.DstY = float32(clip.top)
 		}
-		return v, lo
+		return v, lo, height
+	}
+	// uSpan is the stretch of source U between two columns; it is the whole
+	// art where the surface runs behind the camera plane.
+	uSpan := func(xa, xb float64) (float64, float64) {
+		invA, invB := inv0+invStep*(xa-float64(minX)), inv0+invStep*(xb-float64(minX))
+		if invA <= 0 || invB <= 0 {
+			return 0, 1
+		}
+		return (uq0 + uqStep*(xa-float64(minX))) / invA, (uq0 + uqStep*(xb-float64(minX))) / invB
 	}
 	emit := func(start, end int, left, right standeeClipSample) bool {
 		if left.state == standeeClipHidden {
 			return true
 		}
-		leftTop, leftBottom := endpoint(start, left)
-		rightTop, rightBottom := endpoint(end, right)
-		base := uint32(len(vertices))
-		vertices = append(vertices, leftTop, rightTop, leftBottom, rightBottom)
-		indices = append(indices, base, base+1, base+2, base+1, base+3, base+2)
+		pieces := trim.pieces(end - start)
+		trimmed := pieces > 0
+		pieces = max(pieces, 1)
+		for piece := 0; piece < pieces; piece++ {
+			xa, xb := start+(end-start)*piece/pieces, start+(end-start)*(piece+1)/pieces
+			clipA, clipB := left, right
+			if piece > 0 {
+				clipA.top = left.top + (right.top-left.top)*float64(xa-start)/float64(end-start)
+			}
+			if piece < pieces-1 {
+				clipB.top = left.top + (right.top-left.top)*float64(xb-start)/float64(end-start)
+			}
+			leftTop, leftBottom, heightA := endpoint(xa, clipA)
+			rightTop, rightBottom, heightB := endpoint(xb, clipB)
+			if trimmed {
+				u0, u1 := uSpan(float64(xa)-standeeTrimMargin, float64(xb)+standeeTrimMargin)
+				vTop, vBottom, ok := trim.span(u0, u1, float64(min(heightA, heightB)))
+				if !ok {
+					continue
+				}
+				// The top edge may only err upward, onto transparent rows. A
+				// wall's top stays the bottom edge unless the art ends above
+				// it at both ends: two lines that cross would leave the quad
+				// short of one of them. Art that reaches the frame's edge
+				// keeps that edge to the bit: a recomputed one could move a
+				// pixel centre lying on it to the other side.
+				artA, artB := leftTop.DstY+float32(vBottom)*heightA, rightTop.DstY+float32(vBottom)*heightB
+				if vBottom < 1 && artA <= leftBottom.DstY && artB <= rightBottom.DstY {
+					leftBottom.DstY, rightBottom.DstY = artA, artB
+				}
+				if vTop > 0 {
+					leftTop.DstY = min(leftTop.DstY+float32(vTop)*heightA, leftBottom.DstY)
+					rightTop.DstY = min(rightTop.DstY+float32(vTop)*heightB, rightBottom.DstY)
+				}
+				if leftTop.DstY >= leftBottom.DstY && rightTop.DstY >= rightBottom.DstY {
+					continue
+				}
+			}
+			base := uint32(len(vertices))
+			vertices = append(vertices, leftTop, rightTop, leftBottom, rightBottom)
+			indices = append(indices, base, base+1, base+2, base+1, base+3, base+2)
+		}
 		return true
 	}
 	run := standeeClipRun{start: minX, first: column(minX)}

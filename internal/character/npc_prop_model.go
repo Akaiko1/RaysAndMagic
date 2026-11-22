@@ -3,6 +3,7 @@ package character
 import (
 	"fmt"
 	"math"
+	"ugataima/internal/strictyaml"
 
 	"gopkg.in/yaml.v3"
 )
@@ -61,7 +62,7 @@ func validateNPCPropModel(key string, npc *NPCData) error {
 func (p *NPCPropModel) UnmarshalYAML(node *yaml.Node) error {
 	type plain NPCPropModel
 	var value plain
-	if err := node.Decode(&value); err != nil {
+	if err := strictyaml.DecodeNode(node, &value); err != nil {
 		return err
 	}
 	var colors struct {

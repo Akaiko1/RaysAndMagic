@@ -1,7 +1,6 @@
 package config
 
 import (
-	"bytes"
 	"fmt"
 	"image"
 	"image/color"
@@ -10,8 +9,7 @@ import (
 	"strings"
 
 	"ugataima/internal/spritecatalog"
-
-	"gopkg.in/yaml.v3"
+	"ugataima/internal/strictyaml"
 )
 
 // IconFramesConfig separates reusable frame art from the migrated icon art.
@@ -32,9 +30,7 @@ func LoadIconFrames(path string) error {
 		return err
 	}
 	var cfg IconFramesConfig
-	decoder := yaml.NewDecoder(bytes.NewReader(data))
-	decoder.KnownFields(true)
-	if err := decoder.Decode(&cfg); err != nil {
+	if err := strictyaml.Decode(data, &cfg); err != nil {
 		return err
 	}
 	for _, style := range []string{"basic", "asian", "boss"} {

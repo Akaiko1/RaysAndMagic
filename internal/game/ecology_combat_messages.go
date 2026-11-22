@@ -6,6 +6,7 @@ import (
 	uitext "ugataima/assets/text"
 	"ugataima/internal/config"
 	"ugataima/internal/monster"
+	"ugataima/internal/status"
 )
 
 func quietActorCombat(attacker, target *monster.Monster3D) bool {
@@ -31,14 +32,20 @@ func (g *MMGame) addActorCombatMessage(attacker, target *monster.Monster3D, form
 	if quietActorCombat(attacker, target) {
 		return
 	}
-	tone := logToneNone
+	g.logCombat(actorCombatTone(attacker, target), format, args...)
+}
+
+// actorCombatTone classifies both damage and non-damage actor messages by the
+// party's stake in the fight. Visibility remains quietActorCombat's concern.
+func actorCombatTone(attacker, target *monster.Monster3D) logTone {
 	switch {
 	case monsterIsPartyAlly(attacker):
-		tone = logToneGood
+		return logToneGood
 	case monsterIsPartyAlly(target):
-		tone = logToneBad
+		return logToneBad
+	default:
+		return logToneNone
 	}
-	g.logCombat(tone, format, args...)
 }
 
 // Remote encounters notify the live campaign, sharing one wall-clock cooldown
@@ -50,8 +57,8 @@ func (g *MMGame) notifyCaravanAttack(target *monster.Monster3D) {
 	}
 	owner := g.rewardOwner()
 	// Under attack, leave a scheduled stop instead of waiting out the rest.
-	g.ecology.StopFrames = 0
-	owner.ecology.StopFrames = 0
+	g.ecology.Stop = status.DualClock{}
+	owner.ecology.Stop = status.DualClock{}
 	now := time.Now()
 	if now.Before(owner.caravanAttackAlertUntil) {
 		return

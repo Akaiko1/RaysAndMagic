@@ -86,13 +86,16 @@ func TestHalflingGuileWeighsPiercingShot(t *testing.T) {
 	normal.Race = "human"
 	halfling.Race = "halfling"
 	halfling.EnsureRacialTraits(nil)
-	shooter := &monster.Monster3D{Name: "Arquebusier", HitPoints: 100, MaxHitPoints: 100, DamageMin: 1, DamageMax: 1, PiercingShotChance: 1, PiercingShotTargets: 1}
+	shooter := &monster.Monster3D{Name: "Arquebusier", HitPoints: 100, MaxHitPoints: 100, DamageMin: 1, DamageMax: 1}
+	shot := catalogPartyAttack("piercing_shot")
+	shot.Targets = monster.PartyAttackTargets{Count: 1}
+	armTestPartyAttack(shooter, shot, 1)
 	const trials = 30000
 	halflingHits := 0
 	for i := 0; i < trials; i++ {
 		normal.HitPoints, halfling.HitPoints = 1000, 1000
 		normal.MaxHitPoints, halfling.MaxHitPoints = 1000, 1000
-		if !cs.tryMonsterPiercingShot(shooter) {
+		if !cs.castMonsterPartyAttack(shooter, &shooter.Abilities.PartyAttacks[0]) {
 			t.Fatal("piercing shot should fire at 100% chance")
 		}
 		if halfling.HitPoints < 1000 {
@@ -200,7 +203,7 @@ func TestDarkElfBindingEligibilityThroughMeleeEntry(t *testing.T) {
 			target.BossWarded = tt.invulnerable
 			before := target.HitPoints
 			weapon := attacker.Equipment[items.SlotMainHand]
-			cs.ApplyDamageToMonster(target, 20, weapon.Name, false)
+			cs.ApplyDamageToMonster(target, 20, testWeapon(weapon.Name), false)
 			if target.Bound != tt.wantBound {
 				t.Fatalf("bound = %v, want %v", target.Bound, tt.wantBound)
 			}
@@ -223,14 +226,14 @@ func TestDarkElfBindingDirectHitEntryPoints(t *testing.T) {
 			"spell projectile",
 			func(cs *CombatSystem, caster *character.MMCharacter, target *monster.Monster3D) {
 				p := &MagicProjectile{ID: "racial-spell", Active: true, LifeTime: 10, Damage: 25, SpellType: "firebolt", Attacker: caster}
-				cs.applyProjectileDamage(p, "magic_projectile", target, p.ID)
+				cs.applyProjectileDamage(p, target, p.ID)
 			},
 		},
 		{
 			"weapon projectile",
 			func(cs *CombatSystem, caster *character.MMCharacter, target *monster.Monster3D) {
 				p := &Arrow{ID: "racial-arrow", Active: true, LifeTime: 10, Damage: 25, DamageType: "physical", Attacker: caster, Owner: ProjectileOwnerPlayer}
-				cs.applyProjectileDamage(p, "arrow", target, p.ID)
+				cs.applyProjectileDamage(p, target, p.ID)
 			},
 		},
 		{
@@ -292,18 +295,32 @@ func TestDarkElfBindingDirectHitEntryPoints(t *testing.T) {
 	}
 }
 
-func TestDarkElfBindingPersistentDamageZones(t *testing.T) {
+// A thrown flask is a consumable, not a weapon or spell hit: its burst
+// always deals damage, even with the binding forced to proc.
+func TestDarkElfBindingSkipsFlaskBursts(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	cs.racialProcRoll = func(int) bool { return true }
+	caster := cs.game.party.Members[0]
+	caster.Race = "dark_elf"
+	caster.EnsureRacialTraits(nil)
+	target := newRacialTarget("flask", "beast")
+	target.X, target.Y = 64, 64
+	cs.game.world.Monsters = []*monster.Monster3D{target}
+	cs.detonateFlask(&FlaskProjectile{Active: true, LifeTime: 1, Damage: 25, Key: "harm_flask", Radius: 64, Attacker: caster}, 64, 64)
+	if target.Bound || target.HitPoints >= 1000 {
+		t.Fatalf("flask burst bound=%v HP=%d, want damage and no binding", target.Bound, target.HitPoints)
+	}
+}
+
+// A lingering field is no weapon or spell hit: it never binds, even with the
+// binding forced to proc, and its ticks keep dealing damage.
+func TestDarkElfBindingSkipsPersistentDamageZones(t *testing.T) {
 	tests := []struct {
 		spellID     spells.SpellID
 		monsterType string
-		wantBound   bool
 	}{
-		{"hot_steam", "beast", true},
-		{"hot_steam", "undead", false},
-		{"hot_steam", "formless", false},
-		{"firewall", "beast", true},
-		{"firewall", "undead", false},
-		{"firewall", "formless", false},
+		{"hot_steam", "beast"},
+		{"firewall", "beast"},
 	}
 	for _, tt := range tests {
 		t.Run(string(tt.spellID)+"/"+tt.monsterType, func(t *testing.T) {
@@ -323,27 +340,14 @@ func TestDarkElfBindingPersistentDamageZones(t *testing.T) {
 			if !cs.tryCastPersistentDamageZone(tt.spellID, def, caster).handled() || len(g.persistentDamageZones) == 0 {
 				t.Fatal("persistent zone was not created")
 			}
-			fieldID := g.persistentDamageZones[0].FieldID
-			for i := range g.persistentDamageZones {
-				zone := &g.persistentDamageZones[i]
-				if zone.FieldID == fieldID && zone.CasterName != caster.Name {
-					t.Fatalf("zone cell %d caster = %q, want %q", i, zone.CasterName, caster.Name)
-				}
-			}
 			target := newRacialTarget(tt.monsterType, tt.monsterType)
 			target.ID = "zone-target"
 			target.X, target.Y = g.persistentDamageZones[0].X, g.persistentDamageZones[0].Y
 			g.world.Monsters = []*monster.Monster3D{target}
 			before := target.HitPoints
 			cs.applyZoneEntrySpell(string(tt.spellID))
-			if target.Bound != tt.wantBound {
-				t.Fatalf("bound = %v, want %v", target.Bound, tt.wantBound)
-			}
-			if tt.wantBound && target.HitPoints != before {
-				t.Fatalf("binding zone dealt damage: HP %d -> %d", before, target.HitPoints)
-			}
-			if !tt.wantBound && target.HitPoints >= before {
-				t.Fatalf("immune target did not receive the original zone hit")
+			if target.Bound || target.HitPoints >= before {
+				t.Fatalf("field bound=%v HP %d -> %d, want damage and no binding", target.Bound, before, target.HitPoints)
 			}
 		})
 	}
@@ -376,7 +380,7 @@ func TestWeaponDeathBurstPreservesRacialAttacker(t *testing.T) {
 			before := target.HitPoints
 
 			cs.finishWeaponKill(corpse, &config.WeaponDefinitionConfig{
-				Name: "Test Ember Egg", DeathBurstDamage: 25, DeathBurstRadiusTiles: 2,
+				Name: "Test Ember Egg", DeathBurstMaxHPPct: 25, DeathBurstRadiusTiles: 2,
 			}, attacker)
 
 			if target.Bound != tt.wantBound {
@@ -387,48 +391,6 @@ func TestWeaponDeathBurstPreservesRacialAttacker(t *testing.T) {
 			}
 			if !tt.wantBound && target.HitPoints >= before {
 				t.Fatalf("non-binding death burst dealt no damage: HP %d -> %d", before, target.HitPoints)
-			}
-		})
-	}
-}
-
-func TestPersistentDamageZoneCasterIdentitySaveAndLegacyFallback(t *testing.T) {
-	cs := newTestCombatSystemWithConfig(t)
-	g := cs.game
-	caster := g.party.Members[0]
-	caster.Race = "dark_elf"
-	caster.EnsureRacialTraits(nil)
-	forceRacialProc(cs, t)
-	tile := float64(g.config.GetTileSize())
-
-	tests := []struct {
-		name       string
-		casterName string
-		wantBound  bool
-	}{
-		{"saved caster identity", caster.Name, true},
-		{"legacy save without caster", "", false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			target := newRacialTarget(tt.name, "beast")
-			target.ID = "saved-zone-target"
-			target.X, target.Y = tile, tile
-			g.world.Monsters = []*monster.Monster3D{target}
-			g.persistentDamageZones = restorePersistentDamageZones([]PersistentDamageZoneSave{{
-				SpellID: "hot_steam", CasterName: tt.casterName, X: tile, Y: tile,
-				Radius: tile, FramesLeft: 60, TickDamage: 10, IntervalFrames: 60,
-			}}, "")
-			before := target.HitPoints
-			cs.applyZoneEntrySpell("hot_steam")
-			if target.Bound != tt.wantBound {
-				t.Fatalf("bound = %v, want %v", target.Bound, tt.wantBound)
-			}
-			if tt.wantBound && target.HitPoints != before {
-				t.Fatalf("restored source proc dealt damage: HP %d -> %d", before, target.HitPoints)
-			}
-			if !tt.wantBound && target.HitPoints >= before {
-				t.Fatal("legacy source-free zone did not retain its original damage behavior")
 			}
 		})
 	}
@@ -472,7 +434,7 @@ func assertMasterProvidenceBuff(t *testing.T, g *MMGame, id spells.SpellID) {
 		return
 	}
 	got := g.combatBuffs[0]
-	if got.SpellID != string(id) || got.SourceID != celestialProvidenceSourceID {
+	if got.ID != string(id) || got.SourceID != celestialProvidenceSourceID {
 		t.Fatalf("Providence combat buff = %+v, want %s owned by Providence", got, id)
 	}
 	ref := newTestCombatSystemWithConfig(t)
@@ -490,12 +452,14 @@ func assertMasterProvidenceBuff(t *testing.T, g *MMGame, id spells.SpellID) {
 // Every pool spell is granted at dawn and again at dusk as the Master-tier
 // buff, and the next phase replaces the previous spell instead of stacking.
 func TestCelestialProvidenceRunsAtBothPhaseBoundaries(t *testing.T) {
-	pool := celestialProvidenceBuffPool
-	t.Cleanup(func() { celestialProvidenceBuffPool = pool })
+	var pool []spells.SpellID
+	for _, key := range newTestCombatSystemWithConfig(t).game.config.Characters.ProvidencePool {
+		pool = append(pool, spells.SpellID(key))
+	}
 	for _, id := range pool {
 		t.Run(string(id), func(t *testing.T) {
-			celestialProvidenceBuffPool = []spells.SpellID{id}
 			g := newTestCombatSystemWithConfig(t).game
+			setProvidencePool(g, id)
 			g.party.Members = []*character.MMCharacter{newCelestialHero(t, g.config)}
 			for _, night := range []bool{true, false} {
 				g.applyDayNightPhase(night)
@@ -509,10 +473,10 @@ func TestCelestialProvidenceRunsAtBothPhaseBoundaries(t *testing.T) {
 		}
 		g := newTestCombatSystemWithConfig(t).game
 		g.party.Members = []*character.MMCharacter{newCelestialHero(t, g.config)}
-		celestialProvidenceBuffPool = pool[:1]
+		setProvidencePool(g, pool[0])
 		g.applyDayNightPhase(true)
 		assertMasterProvidenceBuff(t, g, pool[0])
-		celestialProvidenceBuffPool = pool[1:2]
+		setProvidencePool(g, pool[1])
 		g.applyDayNightPhase(false)
 		assertMasterProvidenceBuff(t, g, pool[1])
 		if _, ok := g.statBuffByID(string(pool[0])); ok {
@@ -534,21 +498,21 @@ func TestCelestialProvidenceOwnershipAcrossRecastAndRemoval(t *testing.T) {
 		{
 			name: "stat buff", spellID: "bless",
 			install: func(g *MMGame, source string) {
-				g.addStatBuff(TimedStatBuff{SpellID: "bless", SourceID: source, Frames: 60, Bonuses: character.UniformStatBonuses(8)})
+				g.addStatBuff(TimedStatBuff{SpellID: "bless", SourceID: source, Clock: framesClock(60), Bonuses: character.UniformStatBonuses(8)})
 			},
 			lookup: func(g *MMGame, id string) (string, int, bool) {
 				b, ok := g.statBuffByID(id)
-				return b.SourceID, b.Frames, ok
+				return b.SourceID, b.Clock.Frames, ok
 			},
 		},
 		{
 			name: "combat buff", spellID: "heroism",
 			install: func(g *MMGame, source string) {
-				g.addCombatBuff(TimedCombatBuff{SpellID: "heroism", SourceID: source, Frames: 60, OutBonus: 7})
+				g.addCombatBuff(TimedCombatBuff{ID: "heroism", SourceID: source, Clock: framesClock(60), OutBonus: 7})
 			},
 			lookup: func(g *MMGame, id string) (string, int, bool) {
 				b, ok := g.combatBuffByID(id)
-				return b.SourceID, b.Frames, ok
+				return b.SourceID, b.Clock.Frames, ok
 			},
 		},
 	}
@@ -570,9 +534,9 @@ func TestCelestialProvidenceOwnershipAcrossRecastAndRemoval(t *testing.T) {
 			g.celestialBuffSpellID = tt.spellID
 			tt.install(g, "")
 			if tt.spellID == "bless" {
-				g.statBuffs[0].Frames = 999
+				g.statBuffs[0].Clock = framesClock(999)
 			} else {
-				g.combatBuffs[0].Frames = 999
+				g.combatBuffs[0].Clock = framesClock(999)
 			}
 			g.refreshCelestialProvidence()
 			source, frames, ok := tt.lookup(g, tt.spellID)
@@ -595,11 +559,11 @@ func TestCelestialProvidencePreservesActiveBuffOwnership(t *testing.T) {
 		{
 			name: "manual stat falls back to combat", manualSpellID: "bless", fallbackSpellID: "heroism",
 			installManual: func(g *MMGame) {
-				g.addStatBuff(TimedStatBuff{SpellID: "bless", Frames: 999, Bonuses: character.UniformStatBonuses(10)})
+				g.addStatBuff(TimedStatBuff{SpellID: "bless", Clock: framesClock(999), Bonuses: character.UniformStatBonuses(10)})
 			},
 			manualStillOwned: func(g *MMGame) bool {
 				b, ok := g.statBuffByID("bless")
-				return ok && b.SourceID == "" && b.Frames == 999 && b.Bonuses.Might == 10
+				return ok && b.SourceID == "" && b.Clock.Frames == 999 && b.Bonuses.Might == 10
 			},
 			fallbackOwned: func(g *MMGame) bool {
 				b, ok := g.combatBuffByID("heroism")
@@ -609,11 +573,11 @@ func TestCelestialProvidencePreservesActiveBuffOwnership(t *testing.T) {
 		{
 			name: "manual combat falls back to stat", manualSpellID: "heroism", fallbackSpellID: "bless",
 			installManual: func(g *MMGame) {
-				g.addCombatBuff(TimedCombatBuff{SpellID: "heroism", Frames: 999, OutBonus: 10})
+				g.addCombatBuff(TimedCombatBuff{ID: "heroism", Clock: framesClock(999), OutBonus: 10})
 			},
 			manualStillOwned: func(g *MMGame) bool {
 				b, ok := g.combatBuffByID("heroism")
-				return ok && b.SourceID == "" && b.Frames == 999 && b.OutBonus == 10
+				return ok && b.SourceID == "" && b.Clock.Frames == 999 && b.OutBonus == 10
 			},
 			fallbackOwned: func(g *MMGame) bool {
 				b, ok := g.statBuffByID("bless")
@@ -623,11 +587,8 @@ func TestCelestialProvidencePreservesActiveBuffOwnership(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			oldPool := celestialProvidenceBuffPool
-			celestialProvidenceBuffPool = []spells.SpellID{tt.manualSpellID, tt.fallbackSpellID}
-			t.Cleanup(func() { celestialProvidenceBuffPool = oldPool })
-
 			g := newTestCombatSystemWithConfig(t).game
+			setProvidencePool(g, tt.manualSpellID, tt.fallbackSpellID)
 			g.party.Members = []*character.MMCharacter{newCelestialHero(t, g.config)}
 			tt.installManual(g)
 
@@ -651,20 +612,17 @@ func TestCelestialProvidencePreservesActiveBuffOwnership(t *testing.T) {
 	}
 
 	t.Run("all choices already player-owned", func(t *testing.T) {
-		oldPool := celestialProvidenceBuffPool
-		celestialProvidenceBuffPool = []spells.SpellID{"bless", "heroism"}
-		t.Cleanup(func() { celestialProvidenceBuffPool = oldPool })
-
 		g := newTestCombatSystemWithConfig(t).game
+		setProvidencePool(g, "bless", "heroism")
 		g.party.Members = []*character.MMCharacter{newCelestialHero(t, g.config)}
-		g.addStatBuff(TimedStatBuff{SpellID: "bless", Frames: 999, Bonuses: character.UniformStatBonuses(10)})
-		g.addCombatBuff(TimedCombatBuff{SpellID: "heroism", Frames: 999, OutBonus: 10})
+		g.addStatBuff(TimedStatBuff{SpellID: "bless", Clock: framesClock(999), Bonuses: character.UniformStatBonuses(10)})
+		g.addCombatBuff(TimedCombatBuff{ID: "heroism", Clock: framesClock(999), OutBonus: 10})
 
 		g.refreshCelestialProvidence()
 		bless, blessOK := g.statBuffByID("bless")
 		heroism, heroismOK := g.combatBuffByID("heroism")
-		if !blessOK || bless.SourceID != "" || bless.Frames != 999 ||
-			!heroismOK || heroism.SourceID != "" || heroism.Frames != 999 {
+		if !blessOK || bless.SourceID != "" || bless.Clock.Frames != 999 ||
+			!heroismOK || heroism.SourceID != "" || heroism.Clock.Frames != 999 {
 			t.Fatalf("all-blocked Providence changed manual buffs: bless=%+v heroism=%+v", bless, heroism)
 		}
 		if g.celestialBuffSpellID != "" {
@@ -675,11 +633,11 @@ func TestCelestialProvidencePreservesActiveBuffOwnership(t *testing.T) {
 
 func TestCelestialProvidenceSourcePersistsAndMigrates(t *testing.T) {
 	stat := restoreStatBuffs(buildStatBuffSaves([]TimedStatBuff{{
-		SpellID: "bless", SourceID: celestialProvidenceSourceID, Frames: 42,
+		SpellID: "bless", SourceID: celestialProvidenceSourceID, Clock: framesClock(42),
 		Bonuses: character.UniformStatBonuses(8),
 	}}))
 	combat := restoreCombatBuffs(buildCombatBuffSaves([]TimedCombatBuff{{
-		SpellID: "heroism", SourceID: celestialProvidenceSourceID, Frames: 42, OutBonus: 7,
+		ID: "heroism", SourceID: celestialProvidenceSourceID, Clock: framesClock(42), OutBonus: 7,
 	}}))
 	if len(stat) != 1 || stat[0].SourceID != celestialProvidenceSourceID ||
 		len(combat) != 1 || combat[0].SourceID != celestialProvidenceSourceID {
@@ -691,8 +649,8 @@ func TestCelestialProvidenceSourcePersistsAndMigrates(t *testing.T) {
 		stat   []TimedStatBuff
 		combat []TimedCombatBuff
 	}{
-		{"legacy stat", []TimedStatBuff{{SpellID: "bless", Frames: 42}}, nil},
-		{"legacy combat", nil, []TimedCombatBuff{{SpellID: "heroism", Frames: 42}}},
+		{"legacy stat", []TimedStatBuff{{SpellID: "bless", Clock: framesClock(42)}}, nil},
+		{"legacy combat", nil, []TimedCombatBuff{{ID: "heroism", Clock: framesClock(42)}}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -701,7 +659,7 @@ func TestCelestialProvidenceSourcePersistsAndMigrates(t *testing.T) {
 			if len(tt.stat) != 0 {
 				g.celestialBuffSpellID = tt.stat[0].SpellID
 			} else {
-				g.celestialBuffSpellID = tt.combat[0].SpellID
+				g.celestialBuffSpellID = tt.combat[0].ID
 			}
 			g.restoreCelestialProvidenceOwnership(0)
 			if len(g.statBuffs) != 0 && g.statBuffs[0].SourceID != celestialProvidenceSourceID {
@@ -715,7 +673,7 @@ func TestCelestialProvidenceSourcePersistsAndMigrates(t *testing.T) {
 
 	t.Run("source-aware player recast", func(t *testing.T) {
 		g := newTestCombatSystemWithConfig(t).game
-		g.statBuffs = []TimedStatBuff{{SpellID: "bless", Frames: 42}}
+		g.statBuffs = []TimedStatBuff{{SpellID: "bless", Clock: framesClock(42)}}
 		g.celestialBuffSpellID = "bless"
 		g.restoreCelestialProvidenceOwnership(timedBuffSourceSaveVersion)
 		if g.statBuffs[0].SourceID != "" {
@@ -728,14 +686,14 @@ func TestCelestialProvidenceCannotBeDispelledAsAnOrdinaryCast(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	g := cs.game
 	g.addStatBuff(TimedStatBuff{
-		SpellID: "bless", SourceID: celestialProvidenceSourceID, Frames: 60,
+		SpellID: "bless", SourceID: celestialProvidenceSourceID, Clock: framesClock(60),
 		Bonuses: character.UniformStatBonuses(8),
 	})
 	g.addCombatBuff(TimedCombatBuff{
-		SpellID: "heroism", SourceID: celestialProvidenceSourceID, Frames: 60, OutBonus: 7,
+		ID: "heroism", SourceID: celestialProvidenceSourceID, Clock: framesClock(60), OutBonus: 7,
 	})
-	dispeller := &monster.Monster3D{Name: "Dispeller", DispelChance: 1}
-	cs.applyMonsterHitRiders(dispeller, "", heroHitTarget{cs, g.party.Members[0]})
+	dispeller := &monster.Monster3D{Name: "Dispeller", Abilities: monster.Abilities{Dispel: monster.ChanceAbility{Chance: 1}}}
+	cs.applyMonsterHitRiders(dispeller, "", heroHitTarget{cs, g.party.Members[0]}, true)
 	if len(g.statBuffs) != 1 || len(g.combatBuffs) != 1 {
 		t.Fatalf("phase-bound buffs entered the monster dispel pool: stat=%d combat=%d", len(g.statBuffs), len(g.combatBuffs))
 	}
@@ -745,7 +703,7 @@ func TestCelestialProvidenceCannotBeDispelledAsAnOrdinaryCast(t *testing.T) {
 
 	// A player recast of the same spell replaces ownership and becomes normally
 	// dispellable again.
-	g.addCombatBuff(TimedCombatBuff{SpellID: "heroism", Frames: 90, OutBonus: 3})
+	g.addCombatBuff(TimedCombatBuff{ID: "heroism", Clock: framesClock(90), OutBonus: 3})
 	if !g.removeCombatBuff("heroism") {
 		t.Fatal("player-owned recast was incorrectly protected from dispel")
 	}
@@ -764,4 +722,14 @@ func TestCharacterSavePersistsRaceAndRacialSkill(t *testing.T) {
 	if restored.Race != member.Race || restored.Skills[character.SkillDarkElfBinding] == nil {
 		t.Fatalf("race save round trip = race %q skills %+v", restored.Race, restored.Skills)
 	}
+}
+
+// setProvidencePool gives g its own config whose Providence pool is ids.
+func setProvidencePool(g *MMGame, ids ...spells.SpellID) {
+	cfg := *g.config
+	cfg.Characters.ProvidencePool = nil
+	for _, id := range ids {
+		cfg.Characters.ProvidencePool = append(cfg.Characters.ProvidencePool, string(id))
+	}
+	g.config = &cfg
 }

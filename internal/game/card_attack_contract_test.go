@@ -34,14 +34,12 @@ func TestCardThornsMonsterDamageRoutes(t *testing.T) {
 							g.cardSlots[0].key = "vengeful_ningyo_card"
 						}
 						m := mkTestMonster("Caster", 1000)
-						m.FireburstDamageMin, m.FireburstDamageMax, m.InfernoDamage, m.TrapVolleyDamage = 100, 100, 100, 100
+						armTestTrapVolley(m, 100)
 						switch route {
 						case "melee", "projectile":
-							cs.monsterHitCharacter(m, ch, m.Name, hitFromMonster(m, 100, "fire", route == "melee", 0, false, false))
-						case "fireburst":
-							cs.applyMonsterFireburst(m)
-						case "inferno":
-							cs.applyMonsterInferno(m)
+							cs.monsterHitCharacter(m, ch, m.Name, hitFromMonster(m, 100, "fire", false, 0, route == "melee", false))
+						case "fireburst", "inferno": // party attacks by catalog key
+							castTestPartyAttack(cs, m, catalogPartyAttack(route), 100)
 						case "boss trap":
 							g.detonateBossFireTrap(m)
 						case "environment", "friendly splash":
@@ -94,12 +92,7 @@ func TestCardThornsSpecialKillAndMeleeBoundaries(t *testing.T) {
 					}
 					m := mkTestMonster("Caster", hp)
 					m.ID = "special-reflection"
-					m.FireburstDamageMin, m.FireburstDamageMax, m.InfernoDamage = 100, 100, 100
-					if route == "fireburst" {
-						cs.applyMonsterFireburst(m)
-					} else {
-						cs.applyMonsterInferno(m)
-					}
+					castTestPartyAttack(cs, m, catalogPartyAttack(route), 100)
 					if lethal {
 						if m.IsAlive() || len(g.deadMonsterIDs) != 1 {
 							t.Fatalf("reflected kill must be finalized once: alive=%v kills=%v", m.IsAlive(), g.deadMonsterIDs)
@@ -184,7 +177,7 @@ func TestSpecialReflectionUsesMitigatedDamage(t *testing.T) {
 	g.cardSlots[0].key = "vengeful_ningyo_card"
 	g.combatBuffs = []TimedCombatBuff{{ResistPct: 50, InReduce: 10}}
 	m := mkTestMonster("Caster", 1000)
-	dealt := cs.damagePartyMemberPartsFromSource(0, ch, damagecalc.Parts{Normal: 100, True: 20}, monsterPkg.DamageFire.String(), true, m)
+	dealt, _ := cs.damagePartyMemberPartsFromSource(0, ch, damagecalc.Parts{Normal: 100, True: 20}, monsterPkg.DamageFire.String(), true, m)
 	if dealt != 50 || 1000-m.HitPoints != dealt*g.cardThornsPct()/100 {
 		t.Fatalf("wrong mitigation/reflection: received=%d reflected=%d", dealt, 1000-m.HitPoints)
 	}
@@ -210,10 +203,9 @@ func TestCardReflectionRestoredCollection(t *testing.T) {
 				ch.Luck = 0
 				ch.BuffBonuses = character.StatBonuses{}
 				ch.HitPoints, ch.MaxHitPoints = 1000, 1000
-				g.combatBuffs = restoreCombatBuffs(buildCombatBuffSaves([]TimedCombatBuff{{SpellID: "fire_shield", Frames: 600, ResistSchool: "fire", ResistSchoolPct: 50}}))
+				g.combatBuffs = restoreCombatBuffs(buildCombatBuffSaves([]TimedCombatBuff{{ID: "fire_shield", Clock: framesClock(600), ResistSchool: "fire", ResistSchoolPct: 50}}))
 				m := mkTestMonster("Restored target", 1000)
-				m.InfernoDamage = 100
-				cs.applyMonsterInferno(m)
+				castTestPartyAttack(cs, m, catalogPartyAttack("inferno"), 100)
 				received := 1000 - ch.HitPoints
 				if received <= 0 || m.HitPoints == 1000 || 1000-m.HitPoints != received*g.cardThornsPct()/100 {
 					t.Fatalf("restore lost thorns: received=%d reflected=%d", received, 1000-m.HitPoints)

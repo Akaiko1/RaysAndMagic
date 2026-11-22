@@ -1,7 +1,8 @@
 package game
 
 import (
-	"fmt"
+	"cmp"
+	"maps"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -12,83 +13,102 @@ import (
 	"ugataima/internal/quests"
 )
 
+// catalogLegendaryFinds returns n catalog items the legendary statistic
+// counts (the Legendary Showcase's list), in key order.
+func catalogLegendaryFinds(t *testing.T, n int) []items.Item {
+	t.Helper()
+	var out []items.Item
+	for _, key := range sortedMapKeys(config.GlobalItems.Items) {
+		if it, err := items.TryCreateItemFromYAML(key); err == nil && legendaryStampKey(it) != "" {
+			if out = append(out, it); len(out) == n {
+				return out
+			}
+		}
+	}
+	t.Fatalf("the catalog has fewer than %d legendary finds", n)
+	return nil
+}
+
+// Chest loot counts only what a treasure chest yields. A crate counts by its
+// treasure_chest flag alone (the counter reads nothing else of it), so one
+// chest and one other prop from the catalog stand for every crate; combat
+// mode is never read on this path.
 func TestProfileCollectingChestSources(t *testing.T) {
-	crateTestGame(t) // loads the crate catalog for the source list
-	sources := append(sortedMapKeys(config.GlobalLoots.Crates), "encounter", "monster", "sealed", "gold only")
-	chests, props := 0, 0
-	for _, crate := range config.GlobalLoots.Crates {
-		if crate.TreasureChest {
-			chests++
+	crateTestGame(t) // loads the crate and NPC catalogs once
+	var chest, prop string
+	for _, key := range sortedMapKeys(config.GlobalLoots.Crates) {
+		if config.GlobalLoots.Crates[key].TreasureChest {
+			chest = cmp.Or(chest, key)
 		} else {
-			props++
+			prop = cmp.Or(prop, key)
 		}
 	}
-	if chests == 0 || props == 0 {
-		t.Fatalf("crate catalog has %d chests and %d props, want both kinds", chests, props)
+	if chest == "" || prop == "" {
+		t.Fatalf("crate catalog has chest %q and prop %q, want both kinds", chest, prop)
 	}
-	for _, tb := range []bool{false, true} {
-		for _, source := range sources {
-			t.Run(fmt.Sprintf("%s/TB=%v", source, tb), func(t *testing.T) {
-				g := crateTestGame(t)
-				profilePath := attachStatisticsProfile(t, g)
-				g.turnBasedMode = tb
-				loot := []items.Item{{Name: "Test Relic", Type: items.ItemTrinket, Rarity: "legendary", Quantity: 3}, {Name: "Test Card", Type: items.ItemCard, Rarity: "legendary", Quantity: 2}}
-				want := int64(5)
-				switch source {
-				case "encounter", "sealed", "gold only":
-					payload := loot
-					if source == "gold only" {
-						payload = nil
-						want = 0
-					}
-					g.addGroundContainer(GroundContainer{Kind: ContainerKindTreasureChest, Items: payload, Gold: 10})
-					if source == "sealed" {
-						want = 0
-					} else {
-						g.pickupGroundContainerAt(0)
-						g.pickupGroundContainerAt(0)
-					}
-				case "monster":
+	for _, source := range []string{chest, prop, "encounter", "monster", "sealed", "gold only"} {
+		t.Run(source, func(t *testing.T) {
+			g, _, _ := tbBehaviorGame(t, 12, 12)
+			g.turnBasedMode = false
+			profilePath := attachStatisticsProfile(t, g)
+			relic := catalogLegendaryFinds(t, 1)[0]
+			relic.Quantity = 3
+			loot := []items.Item{relic, {Name: "Test Card", Type: items.ItemCard, Rarity: "legendary", Quantity: 2}}
+			want := int64(5)
+			switch source {
+			case "encounter", "sealed", "gold only":
+				payload := loot
+				if source == "gold only" {
+					payload = nil
 					want = 0
-					g.addLootBagDrop(g.camera.X, g.camera.Y, loot, 0)
+				}
+				g.addGroundContainer(GroundContainer{Kind: ContainerKindTreasureChest, Items: payload, Gold: 10})
+				if source == "sealed" {
+					want = 0
+				} else {
 					g.pickupGroundContainerAt(0)
-				default:
-					// Only a treasure chest's loot counts as chest loot.
-					crate := config.GetCrateConfig(source)
-					if !crate.TreasureChest {
-						want = 0
-					}
-					// Force a deterministic catalog reward while retaining authored provenance
-					// and driving the real one-shot interaction guard.
-					copy := *crate
-					copy.Rolls, copy.LootTable, copy.TrapDamage, copy.TrapIgnite, copy.FreeRest = 2, "", 0, false, false
-					copy.RollSources = []config.CrateRollSource{{Pool: "catalog", ItemType: "consumable", Weight: 100}}
-					config.GlobalLoots.Crates[source] = &copy
-					t.Cleanup(func() { config.GlobalLoots.Crates[source] = crate })
-					npc := spawnCrate(t, g, source, g.camera.X+64, g.camera.Y)
-					g.useLootCrate(npc)
-					g.useLootCrate(npc)
-					if want > 0 {
-						want = 2
-					}
+					g.pickupGroundContainerAt(0)
 				}
-				d := &g.playerProfile.Data
-				if d.Counters["chest_loot"] != want {
-					t.Fatalf("chest units=%d want %d", d.Counters["chest_loot"], want)
+			case "monster":
+				want = 0
+				g.addLootBagDrop(g.camera.X, g.camera.Y, loot, 0)
+				g.pickupGroundContainerAt(0)
+			default:
+				// Only a treasure chest's loot counts as chest loot.
+				crate := config.GetCrateConfig(source)
+				if !crate.TreasureChest {
+					want = 0
 				}
-				var ranked int64
-				for _, e := range d.Top("chest_loot") {
-					ranked += e.Count
+				// Force a deterministic catalog reward while retaining authored provenance
+				// and driving the real one-shot interaction guard.
+				copy := *crate
+				copy.Rolls, copy.LootTable, copy.TrapDamage, copy.TrapIgnite, copy.FreeRest = 2, "", 0, false, false
+				copy.RollSources = []config.CrateRollSource{{Pool: "catalog", ItemType: "consumable", Weight: 100}}
+				config.GlobalLoots.Crates[source] = &copy
+				t.Cleanup(func() { config.GlobalLoots.Crates[source] = crate })
+				npc := spawnCrate(t, g, source, g.camera.X+64, g.camera.Y)
+				g.useLootCrate(npc)
+				g.useLootCrate(npc)
+				if want > 0 {
+					want = 2
 				}
-				if ranked != want {
-					t.Fatalf("chest ranking=%d want %d", ranked, want)
-				}
-				if source == "encounter" && (d.Counters["cards_found"] != 2 || d.Counters["legendary_loot"] != 3 || d.Counters["loot"] != 5) {
-					t.Fatal("chest provenance double-counted loot or mixed cards with legendaries")
-				}
-				assertProfileMetricsPersist(t, g.playerProfile, profilePath)
-			})
-		}
+			}
+			d := &g.playerProfile.Data
+			if d.Counters["chest_loot"] != want {
+				t.Fatalf("chest units=%d want %d", d.Counters["chest_loot"], want)
+			}
+			var ranked int64
+			for _, e := range d.Top("chest_loot") {
+				ranked += e.Count
+			}
+			if ranked != want {
+				t.Fatalf("chest ranking=%d want %d", ranked, want)
+			}
+			if source == "encounter" && (d.Counters["cards_found"] != 2 || d.Counters["legendary_loot"] != 3 || d.Counters["loot"] != 5) {
+				t.Fatal("chest provenance double-counted loot or mixed cards with legendaries")
+			}
+			assertProfileMetricsPersist(t, g.playerProfile, profilePath)
+		})
 	}
 }
 
@@ -143,7 +163,7 @@ func TestProfileQuestTurnInDetails(t *testing.T) {
 				if source == "npc" {
 					(&InputHandler{game: g}).handleTurnInQuest("test")
 				} else {
-					h.ui.claimQuestReward("test")
+					h.ui.game.claimQuestReward("test", nil)
 				}
 			}
 			want := int64(1)
@@ -180,5 +200,83 @@ func TestProfileSectionsStayWithinThree(t *testing.T) {
 				t.Fatalf("%v clips tab %s", res, page.title)
 			}
 		}
+	}
+}
+
+// The collecting statistics follow the current catalog: when the profile
+// opens they are rebuilt from the complete loot ranking, so an item demoted
+// since it was found and a quest item an older rule counted (a dragon
+// statuette) leave Legendary loot with their units, an item that is a
+// legendary find now joins it, total loot stays, the repair persists, and a
+// newly found statuette never counts.
+func TestProfileLegendaryLootFollowsCatalogRarity(t *testing.T) {
+	g := crateTestGame(t)
+	demoted, err := items.TryCreateItemFromYAML("diamond")
+	if err != nil || demoted.Rarity == "legendary" {
+		t.Fatalf("fixture: diamond must exist below legendary (%v, %q)", err, demoted.Rarity)
+	}
+	statuette, err := items.TryCreateItemFromYAML("black_dragon_statuette")
+	if err != nil || statuette.Type != items.ItemQuest || statuette.Rarity != "legendary" {
+		t.Fatalf("fixture: the black dragon statuette must be a legendary quest item (%v)", err)
+	}
+	finds := catalogLegendaryFinds(t, 2)
+	still, promoted := finds[0], finds[1]
+	card := items.Item{Name: "Test Card", Type: items.ItemCard}
+	path := filepath.Join(t.TempDir(), "profile.json")
+	legacy, err := playerprofile.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.playerProfile = legacy
+	still.Quantity = 1
+	g.recordProfileLoot([]items.Item{still})
+	// As older rules recorded them, each with its loot ranking entry: the
+	// diamond before its rebalance and the statuette as legendary loot, the
+	// promoted find as ordinary loot.
+	for _, old := range []struct {
+		it        items.Item
+		n         int64
+		legendary bool
+	}{{demoted, 2, true}, {statuette, 1, true}, {promoted, 3, false}, {card, 2, false}} {
+		key, icon := profileItemKey(old.it), itemTooltipIconName(old.it)
+		legacy.Data.Add("loot", old.n)
+		legacy.Data.Rank("loot", key, old.it.Name, icon, old.n)
+		if old.legendary {
+			legacy.Data.Add("legendary_loot", old.n)
+			legacy.Data.Rank("legendary_loot", key, old.it.Name, icon, old.n)
+		}
+		if old.it.Type == items.ItemCard {
+			legacy.Data.Add("cards_found", old.n)
+			legacy.Data.Rank("cards_found", key, old.it.Name, icon, old.n)
+		}
+	}
+	if err := legacy.Close(); err != nil {
+		t.Fatal(err)
+	}
+	g.playerProfile = nil
+	g.openPlayerProfile(path)
+	t.Cleanup(func() { g.playerProfile.Close() })
+	d := &g.playerProfile.Data
+	ranked := d.Rankings["legendary_loot"]
+	if d.Counters["legendary_loot"] != 4 || len(ranked) != 2 || ranked[profileItemKey(still)].Count != 1 || ranked[profileItemKey(promoted)].Count != 3 {
+		t.Fatalf("legendary loot after the catalog change: %d units, ranking %v", d.Counters["legendary_loot"], ranked)
+	}
+	if d.Counters["loot"] != 9 {
+		t.Fatalf("the repair must leave total loot alone, got %d", d.Counters["loot"])
+	}
+	if d.Counters["cards_found"] != 2 || d.Rankings["cards_found"][profileItemKey(card)].Count != 2 {
+		t.Fatalf("the rebuild lost the cards found: %d units, ranking %v", d.Counters["cards_found"], d.Rankings["cards_found"])
+	}
+	repaired := playerprofile.Data{Counters: maps.Clone(d.Counters), Rankings: maps.Clone(d.Rankings)}
+	assertProfileMetricsPersist(t, g.playerProfile, path)
+	g.playerProfile = nil
+	g.openPlayerProfile(path) // a second open finds nothing to repair
+	d = &g.playerProfile.Data
+	if !reflect.DeepEqual(d.Counters, repaired.Counters) || !reflect.DeepEqual(d.Rankings, repaired.Rankings) {
+		t.Fatal("a second profile open changed the repaired statistics")
+	}
+	g.recordProfileLoot([]items.Item{statuette})
+	if d.Counters["legendary_loot"] != 4 || d.Counters["loot"] != 10 {
+		t.Fatalf("a found statuette: legendary loot %d, loot %d; want 4 and 10", d.Counters["legendary_loot"], d.Counters["loot"])
 	}
 }

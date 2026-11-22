@@ -1,19 +1,5 @@
 monsters:
   solstice_ember_elemental:
-    telegraphed_attack:
-      name: "Burning Strip"
-      kind: "strike"
-      school: "fire"
-      shape: "lane"
-      range: 5
-      cooldown_seconds: 8
-      cooldown_rounds: 3
-      warning_seconds: 1.25
-      warning_rounds: 1
-      damage_percent: 90
-      duration_seconds: 4
-      duration_rounds: 2
-      sustain_damage: 8
     name: "Ember Elemental"
     level: 24
     max_hit_points: 1330
@@ -24,8 +10,6 @@ monsters:
     alert_radius: 3.2
     attack_radius: 5
     speed: 1
-    gold_min: 15
-    gold_max: 40
     sprite: "solstice_ember_elemental"
     letter: "a"
     size_class: "person"
@@ -36,18 +20,24 @@ monsters:
     boss: false
     projectile_spell: "firebolt"
     ranged_attack_range: 5
+    abilities:
+      phase_shift: {range_tiles: 5, cooldown_seconds: 9}
+      telegraph:
+        name: "Burning Strip"
+        kind: "strike"
+        school: "fire"
+        shape: "lane"
+        range: 5
+        cooldown_seconds: 8
+        cooldown_rounds: 3
+        warning_seconds: 1.25
+        warning_rounds: 1
+        damage_percent: 90
+        riders: true
+        duration_seconds: 6
+        sustain_percent: 17
+
   solstice_cinder_hound:
-    telegraphed_attack:
-      name: "Cinder Charge"
-      kind: "charge"
-      school: "fire"
-      shape: "lane"
-      range: 3
-      cooldown_seconds: 8
-      cooldown_rounds: 3
-      warning_seconds: 1.25
-      warning_rounds: 1
-      damage_percent: 115
     name: "Cinder Hound"
     level: 23
     max_hit_points: 1160
@@ -57,9 +47,7 @@ monsters:
     damage_max: 54
     alert_radius: 3.2
     attack_radius: 1
-    speed: 1
-    gold_min: 15
-    gold_max: 40
+    speed: 3
     sprite: "solstice_cinder_hound"
     letter: "b"
     size_class: "medium"
@@ -68,18 +56,22 @@ monsters:
       fire: 40
       water: -20
     boss: false
+    abilities:
+      phase_shift: {range_tiles: 5, cooldown_seconds: 9}
+      telegraph:
+        name: "Cinder Charge"
+        kind: "charge"
+        school: "fire"
+        shape: "lane"
+        range: 3
+        cooldown_seconds: 8
+        cooldown_rounds: 3
+        warning_seconds: 1.25
+        warning_rounds: 1
+        damage_percent: 115
+        riders: true
+
   solstice_kiln_automaton:
-    telegraphed_attack:
-      name: "Heat Discharge"
-      kind: "strike"
-      school: "fire"
-      shape: "burst"
-      range: 2
-      cooldown_seconds: 10
-      cooldown_rounds: 4
-      warning_seconds: 1.25
-      warning_rounds: 1
-      damage_percent: 110
     name: "Kiln Automaton"
     level: 25
     max_hit_points: 1650
@@ -90,8 +82,6 @@ monsters:
     alert_radius: 3.2
     attack_radius: 1
     speed: 1
-    gold_min: 15
-    gold_max: 40
     sprite: "solstice_kiln_automaton"
     letter: "c"
     size_class: "person"
@@ -101,10 +91,27 @@ monsters:
       fire: 40
       water: -20
     boss: false
+    abilities:
+      phase_shift: {range_tiles: 5, cooldown_seconds: 9}
+      telegraph:
+        name: "Heat Discharge"
+        kind: "strike"
+        school: "fire"
+        shape: "burst"
+        range: 2
+        cooldown_seconds: 10
+        cooldown_rounds: 4
+        warning_seconds: 1.25
+        warning_rounds: 1
+        damage_percent: 110
+        riders: true
+
   solstice_aureth:
     type: "formless"
-    enrage_at_hp: 787
-    enrage_cooldown_mult: 0.8
+    abilities:
+      summon: {cooldown_seconds: 12, monsters: ["solstice_ember_elemental"], count: 1, max: 1}
+      push: {cooldown_seconds: 9}
+      enrage: {at_hp: 787, cooldown_mult: 0.8}
     name: "Aureth"
     level: 27
     max_hit_points: 3150
@@ -115,8 +122,6 @@ monsters:
     alert_radius: 3.2
     attack_radius: 5
     speed: 1
-    gold_min: 15
-    gold_max: 40
     sprite: "solstice_aureth"
     letter: "m"
     size_class: "person"
@@ -127,18 +132,8 @@ monsters:
     boss: true
     projectile_spell: "firebolt"
     ranged_attack_range: 5
+
   solstice_tide_elemental:
-    telegraphed_attack:
-      name: "Slowing Wave"
-      kind: "slow"
-      school: "water"
-      shape: "cone"
-      range: 5
-      cooldown_seconds: 9
-      cooldown_rounds: 3
-      warning_seconds: 1.25
-      warning_rounds: 1
-      damage_percent: 90
     name: "Tide Elemental"
     level: 24
     max_hit_points: 1300
@@ -149,8 +144,6 @@ monsters:
     alert_radius: 3.2
     attack_radius: 5
     speed: 1
-    gold_min: 15
-    gold_max: 40
     sprite: "solstice_tide_elemental"
     letter: "a"
     size_class: "person"
@@ -161,18 +154,23 @@ monsters:
     boss: false
     projectile_spell: "ice_bolt"
     ranged_attack_range: 5
+    abilities:
+      phase_shift: {range_tiles: 5, cooldown_seconds: 9}
+      telegraph:
+        name: "Slowing Wave"
+        kind: "slow"
+        school: "water"
+        shape: "cone"
+        range: 5
+        cooldown_seconds: 9
+        cooldown_rounds: 3
+        warning_seconds: 1.25
+        warning_rounds: 1
+        damage_percent: 90
+        riders: true
+        duration_seconds: 9
+
   solstice_cistern_eel:
-    telegraphed_attack:
-      name: "Coiled Frost"
-      kind: "slow"
-      school: "water"
-      shape: "burst"
-      range: 2
-      cooldown_seconds: 10
-      cooldown_rounds: 4
-      warning_seconds: 1.25
-      warning_rounds: 1
-      damage_percent: 110
     name: "Cistern Eel"
     level: 23
     max_hit_points: 1120
@@ -182,9 +180,7 @@ monsters:
     damage_max: 52
     alert_radius: 3.2
     attack_radius: 1
-    speed: 1
-    gold_min: 15
-    gold_max: 40
+    speed: 2.5
     sprite: "solstice_cistern_eel"
     letter: "b"
     size_class: "medium"
@@ -193,20 +189,23 @@ monsters:
       water: 40
       fire: -20
     boss: false
+    abilities:
+      phase_shift: {range_tiles: 5, cooldown_seconds: 9}
+      telegraph:
+        name: "Coiled Frost"
+        kind: "slow"
+        school: "water"
+        shape: "burst"
+        range: 2
+        cooldown_seconds: 10
+        cooldown_rounds: 4
+        warning_seconds: 1.25
+        warning_rounds: 1
+        damage_percent: 110
+        riders: true
+        duration_seconds: 9
+
   solstice_flow_automaton:
-    telegraphed_attack:
-      name: "Circulation Shield"
-      kind: "shield"
-      school: "water"
-      shape: "target"
-      range: 3
-      cooldown_seconds: 12
-      cooldown_rounds: 4
-      warning_seconds: 1.25
-      warning_rounds: 1
-      damage_percent: 0
-      duration_seconds: 6
-      duration_rounds: 2
     name: "Flow Automaton"
     level: 25
     max_hit_points: 1570
@@ -217,8 +216,6 @@ monsters:
     alert_radius: 3.2
     attack_radius: 1
     speed: 1
-    gold_min: 15
-    gold_max: 40
     sprite: "solstice_flow_automaton"
     letter: "c"
     size_class: "person"
@@ -228,20 +225,40 @@ monsters:
       water: 40
       fire: -20
     boss: false
+    abilities:
+      phase_shift: {range_tiles: 5, cooldown_seconds: 9}
+      telegraph:
+        name: "Circulation Shield"
+        kind: "shield"
+        school: "water"
+        shape: "target"
+        range: 3
+        cooldown_seconds: 12
+        cooldown_rounds: 4
+        warning_seconds: 1.25
+        warning_rounds: 1
+        damage_percent: 0
+        duration_seconds: 6
+
   solstice_neressa:
     type: "formless"
-    telegraphed_attack:
-      name: "Undertow Lance"
-      kind: "slow"
-      school: "water"
-      shape: "lane"
-      range: 7
-      cooldown_seconds: 9
-      cooldown_rounds: 3
-      warning_seconds: 1.25
-      warning_rounds: 1
-      damage_percent: 100
-      below_hp_percent: 25
+    abilities:
+      telegraph:
+        name: "Undertow Lance"
+        kind: "slow"
+        school: "water"
+        shape: "lane"
+        range: 7
+        cooldown_seconds: 9
+        cooldown_rounds: 3
+        warning_seconds: 1.25
+        warning_rounds: 1
+        damage_percent: 100
+        riders: true
+        duration_seconds: 9
+        below_hp_percent: 25
+      summon: {cooldown_seconds: 12, monsters: ["solstice_tide_elemental"], count: 1, max: 1}
+      push: {cooldown_seconds: 9}
     name: "Neressa"
     level: 27
     max_hit_points: 3150
@@ -251,9 +268,7 @@ monsters:
     damage_max: 58
     alert_radius: 3.2
     attack_radius: 5
-    speed: 1
-    gold_min: 15
-    gold_max: 40
+    speed: 2.4
     sprite: "solstice_neressa"
     letter: "m"
     size_class: "person"
@@ -264,18 +279,8 @@ monsters:
     boss: true
     projectile_spell: "ice_bolt"
     ranged_attack_range: 5
+
   solstice_jade_elemental:
-    telegraphed_attack:
-      name: "Anchor Roots"
-      kind: "root"
-      school: "earth"
-      shape: "target"
-      range: 5
-      cooldown_seconds: 10
-      cooldown_rounds: 4
-      warning_seconds: 1.25
-      warning_rounds: 1
-      damage_percent: 75
     name: "Jade Elemental"
     level: 24
     max_hit_points: 1390
@@ -286,8 +291,6 @@ monsters:
     alert_radius: 3.2
     attack_radius: 5
     speed: 1
-    gold_min: 15
-    gold_max: 40
     sprite: "solstice_jade_elemental"
     letter: "a"
     size_class: "person"
@@ -298,18 +301,23 @@ monsters:
     boss: false
     projectile_spell: "rock_blast"
     ranged_attack_range: 5
+    abilities:
+      phase_shift: {range_tiles: 5, cooldown_seconds: 9}
+      telegraph:
+        name: "Anchor Roots"
+        kind: "root"
+        school: "earth"
+        shape: "target"
+        range: 5
+        cooldown_seconds: 10
+        cooldown_rounds: 4
+        warning_seconds: 1.25
+        warning_rounds: 1
+        damage_percent: 75
+        riders: true
+        duration_seconds: 6
+
   solstice_shardback_burrower:
-    telegraphed_attack:
-      name: "Shard Cone"
-      kind: "strike"
-      school: "earth"
-      shape: "cone"
-      range: 3
-      cooldown_seconds: 9
-      cooldown_rounds: 3
-      warning_seconds: 1.25
-      warning_rounds: 1
-      damage_percent: 110
     name: "Shardback Burrower"
     level: 23
     max_hit_points: 1220
@@ -320,8 +328,6 @@ monsters:
     alert_radius: 3.2
     attack_radius: 1
     speed: 1
-    gold_min: 15
-    gold_max: 40
     sprite: "solstice_shardback_burrower"
     letter: "b"
     size_class: "medium"
@@ -330,18 +336,22 @@ monsters:
       earth: 40
       air: -20
     boss: false
+    abilities:
+      phase_shift: {range_tiles: 5, cooldown_seconds: 9}
+      telegraph:
+        name: "Shard Cone"
+        kind: "strike"
+        school: "earth"
+        shape: "cone"
+        range: 3
+        cooldown_seconds: 9
+        cooldown_rounds: 3
+        warning_seconds: 1.25
+        warning_rounds: 1
+        damage_percent: 110
+        riders: true
+
   solstice_anchor_automaton:
-    telegraphed_attack:
-      name: "Ground Shock"
-      kind: "strike"
-      school: "earth"
-      shape: "burst"
-      range: 2
-      cooldown_seconds: 12
-      cooldown_rounds: 4
-      warning_seconds: 1.25
-      warning_rounds: 1
-      damage_percent: 110
     name: "Anchor Automaton"
     level: 25
     max_hit_points: 1740
@@ -352,8 +362,6 @@ monsters:
     alert_radius: 3.2
     attack_radius: 1
     speed: 1
-    gold_min: 15
-    gold_max: 40
     sprite: "solstice_anchor_automaton"
     letter: "c"
     size_class: "person"
@@ -363,20 +371,36 @@ monsters:
       earth: 40
       air: -20
     boss: false
+    abilities:
+      phase_shift: {range_tiles: 5, cooldown_seconds: 9}
+      telegraph:
+        name: "Ground Shock"
+        kind: "strike"
+        school: "earth"
+        shape: "burst"
+        range: 2
+        cooldown_seconds: 12
+        cooldown_rounds: 4
+        warning_seconds: 1.25
+        warning_rounds: 1
+        damage_percent: 110
+        riders: true
+
   solstice_talura:
     type: "formless"
+    abilities:
+      summon: {cooldown_seconds: 12, monsters: ["solstice_jade_elemental"], count: 1, max: 1}
+      push: {cooldown_seconds: 9}
     name: "Talura"
     level: 28
     max_hit_points: 3480
-    armor_class: 48
+    armor_class: 95  # an armoured boss: the load brace strips more than half of it
     experience: 4000
     damage_min: 40
     damage_max: 60
     alert_radius: 3.2
     attack_radius: 5
     speed: 1
-    gold_min: 15
-    gold_max: 40
     sprite: "solstice_talura"
     letter: "m"
     size_class: "person"
@@ -387,19 +411,22 @@ monsters:
     boss: true
     projectile_spell: "rock_blast"
     ranged_attack_range: 5
+
   solstice_gale_elemental:
     flying: true
-    telegraphed_attack:
-      name: "Pressure Front"
-      kind: "push"
-      school: "air"
-      shape: "lane"
-      range: 5
-      cooldown_seconds: 10
-      cooldown_rounds: 4
-      warning_seconds: 1.25
-      warning_rounds: 1
-      damage_percent: 80
+    abilities:
+      telegraph:
+        name: "Pressure Front"
+        kind: "push"
+        school: "air"
+        shape: "lane"
+        range: 5
+        cooldown_seconds: 10
+        cooldown_rounds: 4
+        warning_seconds: 1.25
+        warning_rounds: 1
+        damage_percent: 80
+        riders: true
     name: "Gale Elemental"
     level: 24
     max_hit_points: 1270
@@ -409,9 +436,7 @@ monsters:
     damage_max: 56
     alert_radius: 3.2
     attack_radius: 5
-    speed: 1
-    gold_min: 15
-    gold_max: 40
+    speed: 2.8
     sprite: "solstice_gale_elemental"
     letter: "a"
     size_class: "person"
@@ -422,21 +447,24 @@ monsters:
     boss: false
     projectile_spell: "lightning"
     ranged_attack_range: 5
+
   solstice_storm_kite:
     projectile_spell: "sparks"
     ranged_attack_range: 4
     flying: true
-    telegraphed_attack:
-      name: "Storm Dive"
-      kind: "charge"
-      school: "air"
-      shape: "lane"
-      range: 3
-      cooldown_seconds: 10
-      cooldown_rounds: 4
-      warning_seconds: 1.25
-      warning_rounds: 1
-      damage_percent: 110
+    abilities:
+      telegraph:
+        name: "Storm Dive"
+        kind: "charge"
+        school: "air"
+        shape: "lane"
+        range: 3
+        cooldown_seconds: 10
+        cooldown_rounds: 4
+        warning_seconds: 1.25
+        warning_rounds: 1
+        damage_percent: 110
+        riders: true
     name: "Storm Kite"
     level: 23
     max_hit_points: 1100
@@ -446,9 +474,7 @@ monsters:
     damage_max: 52
     alert_radius: 3.2
     attack_radius: 1
-    speed: 1
-    gold_min: 15
-    gold_max: 40
+    speed: 3.2
     sprite: "solstice_storm_kite"
     letter: "b"
     size_class: "medium"
@@ -457,19 +483,22 @@ monsters:
       air: 40
       earth: -20
     boss: false
+
   solstice_transfer_automaton:
     flying: true
-    telegraphed_attack:
-      name: "Charged Core"
-      kind: "strike"
-      school: "air"
-      shape: "target"
-      range: 5
-      cooldown_seconds: 10
-      cooldown_rounds: 4
-      warning_seconds: 1.25
-      warning_rounds: 1
-      damage_percent: 120
+    abilities:
+      telegraph:
+        name: "Charged Core"
+        kind: "strike"
+        school: "air"
+        shape: "target"
+        range: 5
+        cooldown_seconds: 10
+        cooldown_rounds: 4
+        warning_seconds: 1.25
+        warning_rounds: 1
+        damage_percent: 120
+        riders: true
     name: "Transfer Automaton"
     level: 25
     max_hit_points: 1520
@@ -480,8 +509,6 @@ monsters:
     alert_radius: 3.2
     attack_radius: 1
     speed: 1
-    gold_min: 15
-    gold_max: 40
     sprite: "solstice_transfer_automaton"
     letter: "c"
     size_class: "person"
@@ -491,8 +518,12 @@ monsters:
       air: 40
       earth: -20
     boss: false
+
   solstice_vaelith:
     type: "formless"
+    abilities:
+      summon: {cooldown_seconds: 12, monsters: ["solstice_gale_elemental"], count: 1, max: 1}
+      push: {cooldown_seconds: 9}
     flying: true
     name: "Vaelith"
     level: 28
@@ -503,9 +534,7 @@ monsters:
     damage_max: 60
     alert_radius: 3.2
     attack_radius: 5
-    speed: 1
-    gold_min: 15
-    gold_max: 40
+    speed: 2.8
     sprite: "solstice_vaelith"
     letter: "m"
     size_class: "person"
@@ -516,18 +545,8 @@ monsters:
     boss: true
     projectile_spell: "lightning"
     ranged_attack_range: 5
+
   solstice_sunscarab:
-    telegraphed_attack:
-      name: "Solar Burst"
-      kind: "strike"
-      school: "fire"
-      shape: "burst"
-      range: 2
-      cooldown_seconds: 10
-      cooldown_rounds: 4
-      warning_seconds: 1.25
-      warning_rounds: 1
-      damage_percent: 100
     name: "Sunscarab"
     level: 22
     max_hit_points: 1000
@@ -538,24 +557,25 @@ monsters:
     alert_radius: 3
     attack_radius: 1
     speed: 1
-    gold_min: 10
-    gold_max: 25
     sprite: "solstice_sunscarab"
     letter: "a"
     size_class: "person"
     biomes: ["jungle"]
+    abilities:
+      telegraph:
+        name: "Solar Burst"
+        kind: "strike"
+        school: "fire"
+        shape: "burst"
+        range: 2
+        cooldown_seconds: 10
+        cooldown_rounds: 4
+        warning_seconds: 1.25
+        warning_rounds: 1
+        damage_percent: 100
+        riders: true
+
   solstice_rain_serpent:
-    telegraphed_attack:
-      name: "Coldwater Spit"
-      kind: "slow"
-      school: "water"
-      shape: "target"
-      range: 4
-      cooldown_seconds: 9
-      cooldown_rounds: 3
-      warning_seconds: 1.25
-      warning_rounds: 1
-      damage_percent: 90
     name: "Rain Serpent"
     level: 22
     max_hit_points: 1000
@@ -565,27 +585,29 @@ monsters:
     damage_max: 50
     alert_radius: 3
     attack_radius: 4
-    speed: 1
-    gold_min: 10
-    gold_max: 25
+    speed: 2.4
     sprite: "solstice_rain_serpent"
     letter: "c"
     size_class: "person"
     biomes: ["jungle"]
     projectile_spell: "ice_bolt"
     ranged_attack_range: 4
+    abilities:
+      telegraph:
+        name: "Coldwater Spit"
+        kind: "slow"
+        school: "water"
+        shape: "target"
+        range: 4
+        cooldown_seconds: 9
+        cooldown_rounds: 3
+        warning_seconds: 1.25
+        warning_rounds: 1
+        damage_percent: 90
+        riders: true
+        duration_seconds: 9
+
   solstice_rootbound_sentinel:
-    telegraphed_attack:
-      name: "Binding Roots"
-      kind: "root"
-      school: "earth"
-      shape: "target"
-      range: 3
-      cooldown_seconds: 12
-      cooldown_rounds: 4
-      warning_seconds: 1.25
-      warning_rounds: 1
-      damage_percent: 70
     name: "Rootbound Sentinel"
     level: 23
     max_hit_points: 1200
@@ -596,25 +618,40 @@ monsters:
     alert_radius: 3
     attack_radius: 1
     speed: 1
-    gold_min: 10
-    gold_max: 25
     sprite: "solstice_rootbound_sentinel"
     letter: "e"
     size_class: "person"
     biomes: ["jungle"]
+    abilities:
+      telegraph:
+        name: "Binding Roots"
+        kind: "root"
+        school: "earth"
+        shape: "target"
+        range: 3
+        cooldown_seconds: 12
+        cooldown_rounds: 4
+        warning_seconds: 1.25
+        warning_rounds: 1
+        damage_percent: 70
+        riders: true
+        duration_seconds: 6
+
   solstice_dusk_moth:
     flying: true
-    telegraphed_attack:
-      name: "Receding Spark"
-      kind: "retreat"
-      school: "air"
-      shape: "target"
-      range: 4
-      cooldown_seconds: 8
-      cooldown_rounds: 3
-      warning_seconds: 1.25
-      warning_rounds: 1
-      damage_percent: 100
+    abilities:
+      telegraph:
+        name: "Receding Spark"
+        kind: "retreat"
+        school: "air"
+        shape: "target"
+        range: 4
+        cooldown_seconds: 8
+        cooldown_rounds: 3
+        warning_seconds: 1.25
+        warning_rounds: 1
+        damage_percent: 100
+        riders: true
     name: "Dusk Moth"
     level: 22
     max_hit_points: 1000
@@ -624,9 +661,7 @@ monsters:
     damage_max: 50
     alert_radius: 3
     attack_radius: 4
-    speed: 1
-    gold_min: 10
-    gold_max: 25
+    speed: 2.4
     sprite: "solstice_dusk_moth"
     letter: "q"
     size_class: "person"
@@ -651,8 +686,6 @@ monsters:
     alert_radius: 4
     attack_radius: 1  # 1 tile (melee range)
     speed: 1.5
-    gold_min: 1
-    gold_max: 10
     sprite: "goblin"
     letter: "g"
     size_class: medium
@@ -667,17 +700,15 @@ monsters:
     experience: 65
     damage_min: 15
     damage_max: 25
-    attacks_per_round: 2
     attack_cooldown_multiplier: 0.5
     alert_radius: 5
     attack_radius: 1  # 1 tile (melee range)
     speed: 1.2
-    gold_min: 5
-    gold_max: 25
     sprite: "orc"
     letter: "o"
     size_class: person
     resistances: {}
+
   wolf:
     name: "Wolf"
     banding: true
@@ -689,9 +720,7 @@ monsters:
     damage_max: 9
     alert_radius: 4
     attack_radius: 1  # 1 tile (melee range)
-    speed: 2.0
-    gold_min: 0
-    gold_max: 5
+    speed: 2.5
     sprite: "wolf"
     letter: "w"
     size_class: medium
@@ -708,8 +737,6 @@ monsters:
     alert_radius: 4  # Minimum aggro range
     attack_radius: 1  # 1 tile (melee range)
     speed: 1.8
-    gold_min: 5
-    gold_max: 20
     sprite: "bear"
     letter: "b"
     size_class: person
@@ -725,10 +752,8 @@ monsters:
     damage_max: 5
     alert_radius: 4  # Minimum aggro range
     attack_radius: 1  # 1 tile (melee range)
-    speed: 1.8
-    gold_min: 0
-    gold_max: 5
-    sprite: "forest_spider"
+    speed: 2.4
+    sprite: "spider"
     letter: "s"
     size_class: medium
     resistances: {}
@@ -746,8 +771,6 @@ monsters:
     alert_radius: 4  # Minimum aggro range
     attack_radius: 1  # 1 tile (melee range)
     speed: 1.2
-    gold_min: 2
-    gold_max: 10
     sprite: "skeleton"
     letter: "k"
     size_class: person
@@ -765,13 +788,11 @@ monsters:
     experience: 220
     damage_min: 17
     damage_max: 25
-    poison_chance: 0.20
-    poison_duration_seconds: 20
+    abilities:
+      poison: {chance: 0.20, duration_seconds: 21}
     alert_radius: 4
     attack_radius: 1
     speed: 1.0
-    gold_min: 15
-    gold_max: 55
     sprite: "mummy"
     letter: "m"
     size_class: person
@@ -791,13 +812,10 @@ monsters:
     experience: 532
     damage_min: 24
     damage_max: 38
-    attacks_per_round: 2
     attack_cooldown_multiplier: 0.5
     alert_radius: 5
     attack_radius: 1
     speed: 1.4
-    gold_min: 60
-    gold_max: 160
     sprite: "minotaur"
     letter: "n"
     size_class: large
@@ -819,8 +837,6 @@ monsters:
     alert_radius: 7
     attack_radius: 5
     speed: 1.7
-    gold_min: 120
-    gold_max: 260
     sprite: "isis"
     letter: "i"
     size_class: person
@@ -838,13 +854,11 @@ monsters:
     experience: 300
     damage_min: 15
     damage_max: 30
-    poison_chance: 0.33
-    poison_duration_seconds: 23
+    abilities:
+      poison: {chance: 0.33, duration_seconds: 24}
     alert_radius: 4
     attack_radius: 1  # 1 tile (melee range)
     speed: 1.3
-    gold_min: 20
-    gold_max: 70
     sprite: "troll"
     letter: "l"
     size_class: huge
@@ -854,7 +868,7 @@ monsters:
 
   dragon:
     type: "dragon"
-    name: "Dragon"
+    name: "Black Dragon"
     level: 23
     max_hit_points: 1650
     armor_class: 52
@@ -862,15 +876,14 @@ monsters:
     damage_min: 42
     damage_max: 66
     true_damage: 12  # follows the attack school; resistance applies, armor/flat/dodge do not
-    dragon_breath_chance: 0.33
-    dragon_breath_damage_type: "fire"
+    abilities:
+      party_attacks:
+        - {key: dragon_breath, name: "Dragon Breath", trigger: attack, delivery: spell, school: fire, chance: 0.33, damage_percent: 100, targets: all, riders: true}
     alert_radius: 5
     attack_radius: 2  # 2 tiles (breath weapon/bite)
     projectile_spell: "firebolt"
     ranged_attack_range: 3
     speed: 3.75
-    gold_min: 500
-    gold_max: 1500
     sprite: "dragon"
     flying: true
     letter: "d"
@@ -879,7 +892,8 @@ monsters:
       fire: 90
       physical: 10
       air: 75
-    walkable_tile_overrides:
+    # Flight does not clear opaque terrain; every desert dragon names the dunes.
+    walkable_tile_overrides: &dragon_dune_flight
       - "desert_dune"
       - "large_dune"
 
@@ -889,7 +903,7 @@ monsters:
   # the ordinary dragons. They differ only in element (resists/projectile/proc).
   dragon_red:
     type: "dragon"
-    name: "Dragon"
+    name: "Red Dragon"
     level: 23
     max_hit_points: 1650
     armor_class: 52
@@ -897,17 +911,17 @@ monsters:
     damage_min: 42
     damage_max: 66
     true_damage: 10  # follows the attack school; resistance applies, armor/flat/dodge do not
-    dragon_breath_chance: 0.33
-    dragon_breath_damage_type: "dark"
-    ignite_chance: 0.30           # 30% to set a character ablaze
-    ignite_duration_seconds: 30   # burn DoT (3x poison strength), stacks with poison
+    abilities:
+      ignite:
+        chance: 0.30  # 30% to set a character ablaze
+        duration_seconds: 30  # burn DoT (3x poison strength), stacks with poison
+      party_attacks:
+        - {key: dragon_breath, name: "Dragon Breath", trigger: attack, delivery: spell, school: dark, chance: 0.33, damage_percent: 100, targets: all, riders: true}
     alert_radius: 5
     attack_radius: 2
     projectile_spell: "darkbolt"
     ranged_attack_range: 3
     speed: 3.75
-    gold_min: 500
-    gold_max: 1500
     sprite: "dragon_red"
     flying: true
     letter: "r"
@@ -917,10 +931,11 @@ monsters:
       dark: 90
       physical: 10
       fire: 40
+    walkable_tile_overrides: *dragon_dune_flight
 
   dragon_green:
     type: "dragon"
-    name: "Dragon"
+    name: "Green Dragon"
     banding: true
     level: 25
     max_hit_points: 2030
@@ -930,15 +945,13 @@ monsters:
     damage_max: 58
     true_damage: 10  # follows the attack school; resistance applies, armor/flat/dodge do not
     attack_cooldown_multiplier: 0.6  # attacks fast
-    dragon_breath_chance: 0.33
-    dragon_breath_damage_type: "earth"
-    poison_chance: 0.33
-    poison_duration_seconds: 45
+    abilities:
+      poison: {chance: 0.33, duration_seconds: 45}
+      party_attacks:
+        - {key: dragon_breath, name: "Dragon Breath", trigger: attack, delivery: spell, school: earth, chance: 0.33, damage_percent: 100, targets: all, riders: true}
     alert_radius: 5
     attack_radius: 2
     speed: 3.75
-    gold_min: 500
-    gold_max: 1500
     sprite: "dragon_green"
     flying: true
     letter: "e"
@@ -948,10 +961,11 @@ monsters:
       earth: 90
       physical: 25
       fire: -25                # nature dragon: vulnerable to fire
+    walkable_tile_overrides: *dragon_dune_flight
 
   dragon_gold:
     type: "dragon"
-    name: "Dragon"
+    name: "Gold Dragon"
     level: 23
     max_hit_points: 1590       # a bit squishier but faster + longer reach
     armor_class: 52
@@ -960,18 +974,17 @@ monsters:
     damage_max: 63
     true_damage: 10  # follows the attack school; resistance applies, armor/flat/dodge do not
     attack_cooldown_multiplier: 0.85
-    dragon_breath_chance: 0.33
-    dragon_breath_damage_type: "air"
-    stun_char_chance: 0.10        # 10% to stun the struck character
-    stun_char_seconds: 4          # RT stun duration
-    stun_char_turns: 2            # TB stun duration
+    abilities:
+      stun:
+        chance: 0.10  # 10% to stun the struck character
+        seconds: 6  # whole 3 s rounds, the same span in TB
+      party_attacks:
+        - {key: dragon_breath, name: "Dragon Breath", trigger: attack, delivery: spell, school: air, chance: 0.33, damage_percent: 100, targets: all, riders: true}
     alert_radius: 6
     attack_radius: 2
     projectile_spell: "lightning"
     ranged_attack_range: 4
     speed: 4.5                  # storm dragon: fast
-    gold_min: 500
-    gold_max: 1500
     sprite: "dragon_gold"
     flying: true
     letter: "y"
@@ -981,15 +994,16 @@ monsters:
       air: 90
       physical: 10
       water: -25               # vulnerable to water/ice
+    walkable_tile_overrides: *dragon_dune_flight
 
   # -- Elder Dragons (ELITE) ------------------------------------------------
   # Summoned ONLY by the four desert statues (dragon_statue_*). Dedicated elder
-  # sprites, ~1.5x HP/XP and harder hits. All named "Elder
-  # Dragon" -> type "elder_dragon", which the dragon_slayer quest matches (base
-  # wild "Dragon"s never count). No letter/biome: never map-placed or wild-spawned.
+  # sprites, ~1.5x HP/XP and harder hits. Named by color; the dragon_slayer
+  # quest lists all four (wild dragons never count). No letter/biome: never
+  # map-placed or wild-spawned.
   elder_dragon:
     type: "dragon"
-    name: "Elder Dragon"
+    name: "Elder Black Dragon"
     level: 30
     max_hit_points: 3600
     armor_class: 55
@@ -998,15 +1012,14 @@ monsters:
     damage_max: 76
     true_damage: 18
     attack_cooldown_multiplier: 0.75
-    dragon_breath_chance: 0.33
-    dragon_breath_damage_type: "fire"
+    abilities:
+      party_attacks:
+        - {key: dragon_breath, name: "Dragon Breath", trigger: attack, delivery: spell, school: fire, chance: 0.33, damage_percent: 100, targets: all, riders: true}
     alert_radius: 5
     attack_radius: 2
     projectile_spell: "firebolt"
     ranged_attack_range: 4
     speed: 3.75
-    gold_min: 1000
-    gold_max: 2500
     sprite: "elder_dragon"
     flying: true
     size_class: huge
@@ -1014,10 +1027,11 @@ monsters:
       fire: 100
       physical: 10
       air: 75
+    walkable_tile_overrides: *dragon_dune_flight
 
   elder_dragon_red:
     type: "dragon"
-    name: "Elder Dragon"
+    name: "Elder Red Dragon"
     level: 29
     max_hit_points: 3400
     armor_class: 55
@@ -1026,17 +1040,15 @@ monsters:
     damage_max: 72
     true_damage: 15
     attack_cooldown_multiplier: 0.75
-    dragon_breath_chance: 0.33
-    dragon_breath_damage_type: "dark"
-    ignite_chance: 0.35
-    ignite_duration_seconds: 40
+    abilities:
+      ignite: {chance: 0.35, duration_seconds: 42}
+      party_attacks:
+        - {key: dragon_breath, name: "Dragon Breath", trigger: attack, delivery: spell, school: dark, chance: 0.33, damage_percent: 100, targets: all, riders: true}
     alert_radius: 5
     attack_radius: 2
     projectile_spell: "darkbolt"
     ranged_attack_range: 4
     speed: 3.75
-    gold_min: 1000
-    gold_max: 2500
     sprite: "elder_dragon_red"
     flying: true
     size_class: huge
@@ -1044,10 +1056,11 @@ monsters:
       dark: 100
       physical: 10
       fire: 40
+    walkable_tile_overrides: *dragon_dune_flight
 
   elder_dragon_green:
     type: "dragon"
-    name: "Elder Dragon"
+    name: "Elder Green Dragon"
     level: 31
     max_hit_points: 3500
     armor_class: 72
@@ -1056,15 +1069,13 @@ monsters:
     damage_max: 76
     true_damage: 15
     attack_cooldown_multiplier: 0.55
-    dragon_breath_chance: 0.33
-    dragon_breath_damage_type: "earth"
-    poison_chance: 0.40
-    poison_duration_seconds: 60
+    abilities:
+      poison: {chance: 0.40, duration_seconds: 60}
+      party_attacks:
+        - {key: dragon_breath, name: "Dragon Breath", trigger: attack, delivery: spell, school: earth, chance: 0.33, damage_percent: 100, targets: all, riders: true}
     alert_radius: 5
     attack_radius: 2
     speed: 3.75
-    gold_min: 1000
-    gold_max: 2500
     sprite: "elder_dragon_green"
     flying: true
     size_class: huge
@@ -1072,10 +1083,11 @@ monsters:
       earth: 100
       physical: 25
       fire: -25
+    walkable_tile_overrides: *dragon_dune_flight
 
   elder_dragon_gold:
     type: "dragon"
-    name: "Elder Dragon"
+    name: "Elder Gold Dragon"
     level: 29
     max_hit_points: 3300
     armor_class: 55
@@ -1084,18 +1096,15 @@ monsters:
     damage_max: 70
     true_damage: 15
     attack_cooldown_multiplier: 0.65
-    dragon_breath_chance: 0.33
-    dragon_breath_damage_type: "air"
-    stun_char_chance: 0.10
-    stun_char_seconds: 4
-    stun_char_turns: 2
+    abilities:
+      stun: {chance: 0.10, seconds: 6}
+      party_attacks:
+        - {key: dragon_breath, name: "Dragon Breath", trigger: attack, delivery: spell, school: air, chance: 0.33, damage_percent: 100, targets: all, riders: true}
     alert_radius: 6
     attack_radius: 2
     projectile_spell: "lightning"
     ranged_attack_range: 5
     speed: 4.5
-    gold_min: 1000
-    gold_max: 2500
     sprite: "elder_dragon_gold"
     flying: true
     size_class: huge
@@ -1103,6 +1112,7 @@ monsters:
       air: 100
       physical: 10
       water: -25
+    walkable_tile_overrides: *dragon_dune_flight
 
   # Forest-specific monsters
   forest_orc:
@@ -1117,13 +1127,12 @@ monsters:
     alert_radius: 5
     attack_radius: 1  # 1 tile (melee range)
     speed: 1.4
-    gold_min: 8
-    gold_max: 33
     sprite: "forest_orc"
     letter: "f"
     size_class: person
     resistances:
       earth: 25
+
   dire_wolf:
     name: "Dire Wolf"
     level: 20
@@ -1134,9 +1143,7 @@ monsters:
     damage_max: 48
     alert_radius: 4  # Minimum aggro range
     attack_radius: 1  # 1 tile (melee range)
-    speed: 2.5
-    gold_min: 50
-    gold_max: 500
+    speed: 3
     sprite: "dire_wolf"
     letter: "u"
     size_class: medium
@@ -1154,9 +1161,7 @@ monsters:
     attack_radius: 1  # 1 tile (melee range)
     projectile_spell: "alien_dark_bolt"
     ranged_attack_range: 4
-    speed: 2.0
-    gold_min: 60
-    gold_max: 180
+    speed: 2.4
     sprite: "alien"
     letter: "x"
     size_class: person
@@ -1175,9 +1180,7 @@ monsters:
     damage_max: 46
     alert_radius: 5
     attack_radius: 1
-    speed: 2.0
-    gold_min: 50
-    gold_max: 500
+    speed: 2.6
     sprite: "giant_spider"
     size_class: large
     resistances: {}
@@ -1193,15 +1196,14 @@ monsters:
     damage_max: 9
     alert_radius: 4  # Minimum aggro range
     attack_radius: 1  # 1 tile (melee range)
-    speed: 2.0
-    gold_min: 1
-    gold_max: 9
+    speed: 2.5
     sprite: "forest_spider"
     letter: "i"
     size_class: medium
     resistances: {}
     walkable_tile_overrides:
       - "thicket"
+
   treant:
     name: "Treant"
     level: 8
@@ -1213,8 +1215,6 @@ monsters:
     alert_radius: 6  # 3 tiles
     attack_radius: 1  # 1 tile (melee range, but large creature)
     speed: 0.8
-    gold_min: 50
-    gold_max: 100
     sprite: "treant"
     letter: "t"
     size_class: huge
@@ -1223,6 +1223,7 @@ monsters:
       water: 50
       fire: -25     # Vulnerable to fire
       physical: 30
+
   pixie:
     name: "Pixie"
     level: 2
@@ -1232,16 +1233,14 @@ monsters:
     experience: 50
     damage_min: 15
     damage_max: 15
-    fireburst_chance: 0.33
-    fireburst_damage_min: 6
-    fireburst_damage_max: 18
+    abilities:
+      party_attacks:
+        - {key: fireburst, name: "Fireburst", trigger: attack, delivery: spell, school: fire, chance: 0.33, damage_percent: 80, targets: all, riders: true}
     alert_radius: 4  # Minimum aggro range
     attack_radius: 1  # 1 tile (melee range)
     projectile_spell: "firebolt"
     ranged_attack_range: 3
     speed: 3.0         # Very fast
-    gold_min: 5
-    gold_max: 25
     sprite: "pixie"
     flying: true
     letter: "p"
@@ -1253,6 +1252,7 @@ monsters:
     resistances:
       spirit: 50
       mind: 75
+
   desert_dervish:
     name: "Desert Dervish"
     level: 24
@@ -1266,9 +1266,7 @@ monsters:
     attack_radius: 2
     projectile_weapon: "throwing_knife"
     ranged_attack_range: 2
-    speed: 1.8
-    gold_min: 80
-    gold_max: 160
+    speed: 2.6
     sprite: "desert_dervish"
     letter: "q"
     biomes: ["desert"]
@@ -1291,16 +1289,16 @@ monsters:
     projectile_weapon: "throwing_knife"
     ranged_attack_range: 2
     speed: 1.6
-    gold_min: 8
-    gold_max: 25
     sprite: "bandit"
     letter: "n"       # Bandit
     size_class: person
     resistances: {}
 
   # Water-specific monsters
-  medusa:
-    name: "Medusa"
+  jellyfish:
+    name: "Jellyfish"
+    legacy_keys: ["medusa"]
+    legacy_names: ["Medusa"]
     level: 11
     max_hit_points: 360
     armor_class: 38
@@ -1312,9 +1310,7 @@ monsters:
     projectile_spell: "lightning"
     ranged_attack_range: 4
     speed: 1.4
-    gold_min: 25
-    gold_max: 80
-    sprite: "medusa"
+    sprite: "jellyfish"
     letter: "m"
     biomes: ["water"]
     flying: true
@@ -1333,13 +1329,10 @@ monsters:
     experience: 280
     damage_min: 17
     damage_max: 23
-    attacks_per_round: 4
     attack_cooldown_multiplier: 0.25
     alert_radius: 5
     attack_radius: 1
     speed: 1.5
-    gold_min: 20
-    gold_max: 65
     sprite: "octopus"
     letter: "o"
     biomes: ["water"]
@@ -1369,16 +1362,17 @@ monsters:
     perfect_dodge: 20
     alert_radius: 6
     attack_radius: 1
-    speed: 2.3
-    gold_min: 5
-    gold_max: 25
+    speed: 3
     sprite: "puma"
     letter: "c"
     size_class: medium
     biomes: ["highlands"]
-    pounce_range_tiles: 4         # leaps to melee from up to 4 tiles
-    pounce_cooldown_seconds: 4
+    abilities:
+      pounce:
+        range_tiles: 4  # leaps to melee from up to 4 tiles
+        cooldown_seconds: 4
     resistances: {}
+
   # L7 - ranged elf. Dangerous from afar, light dodge, low HP.
   elf_archer:
     name: "Elf Archer"
@@ -1395,13 +1389,12 @@ monsters:
     alert_radius: 7
     attack_radius: 5
     speed: 1.6
-    gold_min: 30
-    gold_max: 70
     sprite: "elf_archer"
     letter: "h"
     size_class: person
     biomes: ["highlands"]
     resistances: {}
+
   # L9 - armored elf knight. High AC + physical resist, melee bruiser.
   elf_swordsman:
     name: "Elf Swordsman"
@@ -1416,14 +1409,13 @@ monsters:
     attack_radius: 1
     speed: 1.5
     passive_until_attacked: true   # elf warriors won't aggro unless struck (or a Lich is in the party)
-    gold_min: 40
-    gold_max: 100
     sprite: "elf_swordsman"
     letter: "j"
     size_class: person
     biomes: ["highlands"]
     resistances:
       physical: 30
+
   # L10 - brute. Huge HP, hits hard, slow; resists physical, burns to fire.
   mountain_troll:
     name: "Mountain Troll"
@@ -1436,8 +1428,6 @@ monsters:
     alert_radius: 4
     attack_radius: 1
     speed: 1.1
-    gold_min: 50
-    gold_max: 150
     sprite: "mountain_troll"
     letter: "v"
     size_class: huge
@@ -1445,6 +1435,7 @@ monsters:
     resistances:
       physical: 40
       fire: -25
+
   # L11 - glass-cannon caster. Strong fire projectile, squishy, magic-resistant.
   archmage:
     name: "Archmage"
@@ -1460,8 +1451,6 @@ monsters:
     attack_radius: 5
     passive_until_attacked: true   # archmages stay neutral unless attacked (or a Lich is in the party)
     speed: 1.5
-    gold_min: 100
-    gold_max: 250
     sprite: "archmage"
     letter: "z"
     size_class: person
@@ -1469,6 +1458,7 @@ monsters:
     resistances:
       fire: 50
       dark: 30
+
   # L12 - undead caster mini-boss (top of the 6-12 band, below dragons). Dark
   # bolts, heavy dark/physical resist, vulnerable to fire (undead burns).
   lich:
@@ -1485,8 +1475,6 @@ monsters:
     alert_radius: 7
     attack_radius: 5
     speed: 1.4
-    gold_min: 200
-    gold_max: 500
     sprite: "lich"
     letter: "q"
     size_class: person
@@ -1498,6 +1486,7 @@ monsters:
       physical: 40
       fire: -25
       light: -50     # undead: vulnerable to light
+
   revenant:
     type: "undead"
     name: "Revenant"
@@ -1511,8 +1500,6 @@ monsters:
     alert_radius: 6
     attack_radius: 1
     speed: 1.3
-    gold_min: 80
-    gold_max: 180
     sprite: "revenant"
     letter: "r"
     size_class: person
@@ -1542,8 +1529,6 @@ monsters:
     alert_radius: 11
     attack_radius: 11
     speed: 1.1
-    gold_min: 0
-    gold_max: 0
     sprite: "frost_elemental"
     size_class: person
     biomes: []
@@ -1557,6 +1542,7 @@ monsters:
 
   lich_king:
     type: "undead"
+    elite: true
     name: "Lich King"
     level: 21
     max_hit_points: 950
@@ -1569,8 +1555,6 @@ monsters:
     alert_radius: 8
     attack_radius: 6
     speed: 1.2
-    gold_min: 400
-    gold_max: 900
     sprite: "lich_king"
     letter: "k"
     size_class: person
@@ -1584,7 +1568,7 @@ monsters:
       light: -50
 
   # --- Culverts (Seabright sewers). Mobs tuned for party L5-8; the Golden Thief
-  # Bug is the boss (see ignores_armor / inferno_chance / teleport_* / passive_until_quest). ---
+  # Bug is the boss (see abilities melt_armor / inferno / teleport and passive_until_quest). ---
   rat:
     name: "Sewer Rat"
     banding: true
@@ -1596,9 +1580,7 @@ monsters:
     damage_max: 19
     alert_radius: 4
     attack_radius: 1
-    speed: 1.9
-    gold_min: 2
-    gold_max: 10
+    speed: 2.4
     sprite: "rat"
     letter: "r"
     size_class: small
@@ -1616,10 +1598,8 @@ monsters:
     damage_max: 17
     alert_radius: 5
     attack_radius: 1
-    speed: 2.3
+    speed: 3
     flying: true
-    gold_min: 1
-    gold_max: 6
     sprite: "bat"
     letter: "v"
     size_class: small
@@ -1637,11 +1617,9 @@ monsters:
     damage_max: 20
     alert_radius: 4
     attack_radius: 1
-    speed: 1.5
-    poison_chance: 0.12
-    poison_duration_seconds: 25
-    gold_min: 10
-    gold_max: 40
+    speed: 2.6
+    abilities:
+      poison: {chance: 0.12, duration_seconds: 27}
     sprite: "thief_bug"
     letter: "t"
     size_class: medium
@@ -1662,17 +1640,14 @@ monsters:
     damage_max: 18
     alert_radius: 6
     attack_radius: 1
-    speed: 1.8
+    speed: 3
     attack_cooldown_multiplier: 0.5
-    attacks_per_round: 2
-    gold_min: 1500
-    gold_max: 3000
-    ignores_armor: true
-    inferno_chance: 0.10
-    inferno_damage: 28
-    inferno_range_tiles: 8   # nova reaches this far in BOTH modes; melee range still lets it replace a normal hit
-    teleport_at_hp: 300
-    teleport_chance: 0.10
+    abilities:
+      melt_armor: {chance: 1.0}
+      # nova reaches this far in BOTH modes; melee range still lets it replace a normal hit
+      party_attacks:
+        - {key: inferno, name: "Inferno", trigger: nova, delivery: spell, school: fire, chance: 0.10, damage_percent: 200, targets: all, riders: false, range_tiles: 8}
+      teleport: {at_hp: 300, chance: 0.10}
     passive_until_quest: "culverts_valves"
     evade_radius_tiles: 3
     boss_cooldown_seconds: 1
@@ -1700,15 +1675,14 @@ monsters:
     experience: 760
     damage_min: 32
     damage_max: 49
-    piercing_shot_chance: 0.50
-    piercing_shot_targets: 2
+    abilities:
+      party_attacks:
+        - {key: piercing_shot, name: "Piercing Shot", trigger: attack, delivery: shot, school: physical, chance: 0.50, damage_percent: 100, targets: 2, riders: true, ignore_armor: true}
     projectile_weapon: "tanegashima"
     ranged_attack_range: 6
     alert_radius: 8
     attack_radius: 6
     speed: 1.3
-    gold_min: 80
-    gold_max: 180
     sprite: "ashigaru_firelock"
     letter: "a"
     size_class: person
@@ -1721,6 +1695,7 @@ monsters:
 
   ronin_marksman:
     type: "undead"
+    elite: true
     name: "Ronin Marksman"
     level: 15
     max_hit_points: 640
@@ -1729,15 +1704,14 @@ monsters:
     experience: 1200
     damage_min: 37
     damage_max: 56
-    piercing_shot_chance: 0.25
-    piercing_shot_targets: 2
+    abilities:
+      party_attacks:
+        - {key: piercing_shot, name: "Piercing Shot", trigger: attack, delivery: shot, school: physical, chance: 0.25, damage_percent: 100, targets: 2, riders: true, ignore_armor: true}
     projectile_weapon: "tanegashima"
     ranged_attack_range: 7
     alert_radius: 9
     attack_radius: 7
     speed: 1.4
-    gold_min: 220
-    gold_max: 450
     sprite: "ronin_marksman"
     letter: "m"
     size_class: person
@@ -1758,16 +1732,12 @@ monsters:
     experience: 880
     damage_min: 26
     damage_max: 40
-    attacks_per_round: 2
-    attack_cooldown_multiplier: 0.6
-    ally_heal_chance: 0.15
-    ally_heal_amount: 200
-    ally_heal_radius_tiles: 2.0
+    attack_cooldown_multiplier: 0.5
+    abilities:
+      ally_heal: {chance: 0.15, amount: 200, radius_tiles: 2.0}
     attack_radius: 1
     alert_radius: 7
     speed: 1.7
-    gold_min: 120
-    gold_max: 280
     sprite: "ningyo"
     letter: "n"
     size_class: person
@@ -1780,6 +1750,7 @@ monsters:
 
   vengeful_ningyo:
     type: "undead"
+    elite: true
     name: "Vengeful Ningyo"
     level: 19
     max_hit_points: 740
@@ -1788,16 +1759,12 @@ monsters:
     experience: 1280
     damage_min: 32
     damage_max: 48
-    attacks_per_round: 2          # elite inherits the base ningyo's double strike
-    attack_cooldown_multiplier: 0.6
-    ally_heal_chance: 0.15
-    ally_heal_amount: 200
-    ally_heal_radius_tiles: 2.0
+    attack_cooldown_multiplier: 0.5  # elite inherits the base ningyo's double strike
+    abilities:
+      ally_heal: {chance: 0.15, amount: 200, radius_tiles: 2.0}
     attack_radius: 1
     alert_radius: 8
     speed: 1.9
-    gold_min: 260
-    gold_max: 560
     sprite: "vengeful_ningyo"
     letter: "e"
     size_class: person
@@ -1823,19 +1790,12 @@ monsters:
     damage_max: 48
     attack_radius: 1
     alert_radius: 12  # boss: senses the party from further than a normal mob (not map-wide)
-    speed: 1.6
-    gold_min: 4000
-    gold_max: 6000
-    ignores_armor: true
+    speed: 2.4
+    abilities:
+      melt_armor: {chance: 1.0}
+      summon: {chance: 0.18, first_guaranteed: true, monsters: ["ashigaru_firelock", "ningyo"], count: 2, max: 4}
+      enrage: {at_hp: 580, damage_mult: 1.5, cooldown_mult: 0.6}
     passive_until_quest: "castle_armory"
-    summon_chance: 0.18
-    summon_first_guaranteed: true
-    summon_monsters: ["ashigaru_firelock", "ningyo"]
-    summon_count: 2
-    summon_max: 4
-    enrage_at_hp: 580
-    enrage_damage_mult: 1.5
-    enrage_cooldown_mult: 0.6
     sprite: "old_samurai"
     letter: "s"
     size_class: huge
@@ -1861,8 +1821,6 @@ monsters:
     attack_radius: 1
     alert_radius: 7
     speed: 1.6
-    gold_min: 40
-    gold_max: 140
     sprite: "kappa"
     letter: "k"
     size_class: person
@@ -1881,13 +1839,10 @@ monsters:
     experience: 960
     damage_min: 30
     damage_max: 48
-    attacks_per_round: 2          # a hopping flurry of tongue and rib strikes
-    attack_cooldown_multiplier: 0.7
+    attack_cooldown_multiplier: 0.5  # a hopping flurry of tongue and rib strikes
     attack_radius: 1
     alert_radius: 6               # ambusher: springs from the bamboo at close range
     speed: 2.0
-    gold_min: 60
-    gold_max: 160
     sprite: "kasa_obake"
     letter: "u"
     size_class: person
@@ -1907,15 +1862,14 @@ monsters:
     experience: 1120
     damage_min: 36
     damage_max: 52
-    attacks_per_round: 2
-    attack_cooldown_multiplier: 0.7
+    attack_cooldown_multiplier: 0.5
     attack_radius: 1
     alert_radius: 7               # short leash keeps Kuroha's overlook out of camp aggro
-    speed: 2.1
-    pounce_range_tiles: 4         # wing-dive onto the party
-    pounce_cooldown_seconds: 5
-    gold_min: 70
-    gold_max: 170
+    speed: 3
+    abilities:
+      pounce:
+        range_tiles: 4  # wing-dive onto the party
+        cooldown_seconds: 5
     sprite: "karasu_tengu"
     letter: "t"
     size_class: person
@@ -1938,13 +1892,11 @@ monsters:
     ranged_attack_range: 6
     attack_radius: 5
     alert_radius: 8
-    speed: 1.5
-    ally_heal_chance: 0.20
-    ally_heal_amount: 100
-    ally_heal_radius_tiles: 4
-    dispel_chance: 0.10           # 10% to strip a random active party buff on hit
-    gold_min: 90
-    gold_max: 200
+    speed: 2.4
+    abilities:
+      dispel:
+        chance: 0.10  # 10% to strip a random active party buff on hit
+      ally_heal: {chance: 0.20, amount: 100, radius_tiles: 4}
     sprite: "kitsune_onmyoji"
     letter: "f"
     size_class: person
@@ -1968,22 +1920,14 @@ monsters:
     experience: 4000
     damage_min: 38
     damage_max: 58
-    poison_chance: 0.35
-    poison_duration_seconds: 60
+    abilities:
+      poison: {chance: 0.35, duration_seconds: 60}
+      # Calls her fox retainers to the web (shared boss summon kit).
+      summon: {chance: 0.18, first_guaranteed: true, monsters: ["kitsune_onmyoji"], count: 2, max: 2}
+      enrage: {at_hp: 840, damage_mult: 1.4, cooldown_mult: 0.7}
     attack_radius: 1
     alert_radius: 12  # boss: senses the party from further than a normal mob (not map-wide)
-    speed: 1.8
-    enrage_at_hp: 840
-    enrage_damage_mult: 1.4
-    enrage_cooldown_mult: 0.7
-    # Calls her fox retainers to the web (shared boss summon kit).
-    summon_chance: 0.18
-    summon_first_guaranteed: true
-    summon_monsters: ["kitsune_onmyoji"]
-    summon_count: 2
-    summon_max: 2
-    gold_min: 4500
-    gold_max: 7000
+    speed: 2.8
     sprite: "sakura_jorogumo"
     letter: "j"
     size_class: huge
@@ -2005,15 +1949,12 @@ monsters:
     experience: 880
     damage_min: 32
     damage_max: 48
-    attacks_per_round: 2          # fast predator: rapid claw swipes (tier L18-24 cadence)
-    attack_cooldown_multiplier: 0.6
+    attack_cooldown_multiplier: 0.5  # fast predator: rapid claw swipes (tier L18-24 cadence)
     attack_radius: 1
     alert_radius: 8
-    speed: 2.2
-    pounce_range_tiles: 4
-    pounce_cooldown_seconds: 5
-    gold_min: 30
-    gold_max: 110
+    speed: 2.8
+    abilities:
+      pounce: {range_tiles: 4, cooldown_seconds: 5}
     sprite: "ocelot"
     letter: "o"
     size_class: medium
@@ -2032,8 +1973,6 @@ monsters:
     attack_radius: 1
     alert_radius: 6
     speed: 1.5
-    gold_min: 30
-    gold_max: 90
     sprite: "jungle_goblin"
     letter: "j"
     size_class: medium
@@ -2058,10 +1997,8 @@ monsters:
     attack_radius: 5
     alert_radius: 8
     speed: 1.6
-    poison_chance: 0.3
-    poison_duration_seconds: 58
-    gold_min: 60
-    gold_max: 160
+    abilities:
+      poison: {chance: 0.3, duration_seconds: 60}
     sprite: "masked_huntress"
     letter: "h"
     size_class: person
@@ -2081,15 +2018,12 @@ monsters:
     experience: 1640
     damage_min: 30
     damage_max: 46
-    attacks_per_round: 2          # whirling blades
-    attack_cooldown_multiplier: 0.7
+    attack_cooldown_multiplier: 0.5  # whirling blades
     attack_radius: 1
     alert_radius: 7
-    speed: 1.9
-    poison_chance: 0.4
-    poison_duration_seconds: 60
-    gold_min: 80
-    gold_max: 180
+    speed: 2.5
+    abilities:
+      poison: {chance: 0.4, duration_seconds: 60}
     sprite: "masked_serpent_dancer"
     letter: "d"
     size_class: person
@@ -2108,17 +2042,15 @@ monsters:
     experience: 2120
     damage_min: 43
     damage_max: 65
-    dispel_chance: 0.10           # 10% to strip a random active party buff on hit
+    abilities:
+      dispel:
+        chance: 0.10  # 10% to strip a random active party buff on hit
+      ally_heal: {chance: 0.25, amount: 80, radius_tiles: 5}
     projectile_spell: "darkbolt"
     ranged_attack_range: 6
     attack_radius: 5
     alert_radius: 8
     speed: 1.5
-    ally_heal_chance: 0.25
-    ally_heal_amount: 80
-    ally_heal_radius_tiles: 5
-    gold_min: 100
-    gold_max: 220
     sprite: "masked_hexer_girl"
     letter: "x"
     size_class: person
@@ -2141,21 +2073,14 @@ monsters:
     damage_max: 67
     attack_radius: 1
     alert_radius: 10  # boss: senses the party from further than a normal mob (not map-wide)
-    speed: 1.5
-    pounce_range_tiles: 3
-    pounce_cooldown_seconds: 6
-    fireburst_chance: 0.15
-    fireburst_damage_min: 30
-    fireburst_damage_max: 50
-    # Rallies a pair of Masked Huntress escorts (shared boss summon kit): first is
-    # guaranteed, refills the pair via chance once both die (cap 2 live).
-    summon_chance: 0.18
-    summon_first_guaranteed: true
-    summon_monsters: ["masked_huntress"]
-    summon_count: 2
-    summon_max: 2
-    gold_min: 300
-    gold_max: 700
+    speed: 2.6
+    abilities:
+      pounce: {range_tiles: 3, cooldown_seconds: 6}
+      party_attacks:
+        - {key: fireburst, name: "Fireburst", trigger: attack, delivery: spell, school: fire, chance: 0.15, damage_percent: 69, targets: all, riders: true}
+      # Rallies a pair of Masked Huntress escorts (shared boss summon kit): first is
+      # guaranteed, refills the pair via chance once both die (cap 2 live).
+      summon: {chance: 0.18, first_guaranteed: true, monsters: ["masked_huntress"], count: 2, max: 2}
     sprite: "gorilla_titan"
     letter: "g"
     size_class: huge
@@ -2165,8 +2090,8 @@ monsters:
 
   # Boss: warlord of the lost city. Holds his plaza, INVULNERABLE, while any idol
   # (warlord_idol) lives - break all idols and he ACTIVATES as a normal aggressive
-  # boss. No seal/quest (pure wilderness). Ignores armor; enrages below
-  # enrage_at_hp once active (enrage is HP-driven, not the ward).
+  # boss. No seal/quest (pure wilderness). Melts armor; enrages below
+  # abilities.enrage.at_hp once active (enrage is HP-driven, not the ward).
   orc_hero_boss:
     type: "formless"
     name: "Orc Warlord"
@@ -2181,22 +2106,15 @@ monsters:
     attack_radius: 1
     alert_radius: 14  # boss: senses the party from further than a normal mob (not map-wide)
     speed: 1.7
-    ignores_armor: true
+    abilities:
+      melt_armor: {chance: 1.0}
+      # Calls masked Amazon retainers to the fight (shared boss summon kit).
+      summon: {chance: 0.20, first_guaranteed: true, monsters: ["masked_huntress", "masked_hexer_girl"], count: 2, max: 4}
+      enrage: {at_hp: 960, damage_mult: 1.5, cooldown_mult: 0.6}
     warded_by_idols: true
-    enrage_at_hp: 960
-    enrage_damage_mult: 1.5
-    enrage_cooldown_mult: 0.6
-    # Calls masked Amazon retainers to the fight (shared boss summon kit).
-    summon_chance: 0.20
-    summon_first_guaranteed: true
-    summon_monsters: ["masked_huntress", "masked_hexer_girl"]
-    summon_count: 2
-    summon_max: 4
     # Revenge: when the Warlord dies, every human on the map (Amazons, NOT goblins
     # or beasts) flies into a relentless map-wide hunt for the party - a surprise.
     death_rallies_type: "human"
-    gold_min: 5000
-    gold_max: 8000
     sprite: "orc_warlord"
     letter: "w"
     size_class: huge
@@ -2220,8 +2138,6 @@ monsters:
     alert_radius: 0
     speed: 0
     warlord_idol: true
-    gold_min: 0
-    gold_max: 0
     sprite: "deep_jungle_idol"
     letter: "i"
     size_class: large
@@ -2249,8 +2165,6 @@ monsters:
     attack_radius: 5
     alert_radius: 9
     speed: 1.7
-    gold_min: 0
-    gold_max: 0
     sprite: hobbit_archer
     letter: "a"
     size_class: person
@@ -2271,8 +2185,6 @@ monsters:
     attack_radius: 2
     alert_radius: 9
     speed: 1.8
-    gold_min: 0
-    gold_max: 0
     sprite: weapon_master
     letter: "w"
     size_class: person
@@ -2293,8 +2205,6 @@ monsters:
     attack_radius: 5
     alert_radius: 9
     speed: 1.9
-    gold_min: 0
-    gold_max: 0
     sprite: dark_elf_sorceress
     letter: "s"
     size_class: person
@@ -2316,8 +2226,6 @@ monsters:
     attack_radius: 5
     alert_radius: 9
     speed: 1.5
-    gold_min: 0
-    gold_max: 0
     sprite: druid_enemy
     letter: "d"
     size_class: person
@@ -2341,8 +2249,6 @@ monsters:
     alert_radius: 4
     attack_radius: 1.2
     speed: 1.1
-    gold_min: 30
-    gold_max: 80
     sprite: "dust_slime"
     letter: "b"
     size_class: person
@@ -2365,8 +2271,6 @@ monsters:
     projectile_weapon: "oak_staff"
     ranged_attack_range: 4
     speed: 1.5
-    gold_min: 40
-    gold_max: 110
     sprite: "possessed_tome"
     letter: "k"
     size_class: person
@@ -2385,13 +2289,10 @@ monsters:
     damage_max: 79
     alert_radius: 7
     attack_radius: 1.2
-    attacks_per_round: 2
-    attack_cooldown_multiplier: 0.7
+    attack_cooldown_multiplier: 0.5
     rally_on_aggro_tiles: 15   # the bell: wakes every horror within 15 tiles, once
     rally_max_targets: 4       # but never starts a whole-floor chain at once
     speed: 2.2
-    gold_min: 60
-    gold_max: 150
     sprite: "alarm_clock"
     letter: "l"
     size_class: person
@@ -2410,13 +2311,10 @@ monsters:
     damage_max: 84
     alert_radius: 4
     attack_radius: 1.4
-    attacks_per_round: 2
-    stun_char_chance: 0.15
-    stun_char_seconds: 2
-    stun_char_turns: 1
+    attack_cooldown_multiplier: 0.5
+    abilities:
+      stun: {chance: 0.15, seconds: 3}
     speed: 1.0
-    gold_min: 90
-    gold_max: 220
     sprite: "grandfather_clock"
     letter: "g"
     size_class: person
@@ -2435,19 +2333,16 @@ monsters:
     experience: 0
     damage_min: 48
     damage_max: 66
-    poison_chance: 0.25
-    poison_duration_seconds: 30
+    abilities:
+      poison: {chance: 0.25, duration_seconds: 30}
     alert_radius: 12
     attack_radius: 1
     speed: 1.25
-    gold_min: 0
-    gold_max: 0
     sprite: "mummy"
     size_class: person
     resistances: { mind: 100, body: 65, fire: -25, dark: 60, light: -60 }
 
   enforcer_alien:
-    type: "formless"
     name: "Enforcer Alien"
     level: 35
     max_hit_points: 2240
@@ -2461,9 +2356,7 @@ monsters:
     attack_radius: 1
     projectile_spell: "alien_dark_bolt"
     ranged_attack_range: 5
-    speed: 2.0
-    gold_min: 0
-    gold_max: 0
+    speed: 2.6
     sprite: "alien"
     size_class: person
     resistances: { fire: 35, dark: 45, physical: -35 }
@@ -2490,29 +2383,17 @@ monsters:
     attack_radius: 2
     speed: 0
     animate_when_idle: true
-    gold_min: 3000
-    gold_max: 6000
     boss: true
     passive_until_attacked: true
     projectile_spell: "fireball"
     ranged_attack_range: 11
-    inferno_chance: 0.22
-    inferno_damage: 150
-    inferno_range_tiles: 7
-    ignite_chance: 0.15
-    ignite_duration_seconds: 30
-    summon_chance: 0.25
-    summon_monsters: ["dragon"]
-    summon_count: 1
-    summon_max: 3
-    enrage_at_hp: 1920
-    enrage_damage_mult: 1.5
-    enrage_cooldown_mult: 0.6
-    trap_volley_count: 20
-    trap_volley_radius_tiles: 15
-    trap_volley_interval_seconds: 10
-    trap_volley_interval_turns: 3
-    trap_volley_damage: 40
+    abilities:
+      trap_volley: {count: 20, radius_tiles: 15, interval_seconds: 10, interval_turns: 3, damage_percent: 48, riders: true}
+      ignite: {chance: 0.15, duration_seconds: 30}
+      party_attacks:
+        - {key: inferno, name: "Inferno", trigger: nova, delivery: spell, school: fire, chance: 0.22, damage_percent: 176, targets: all, riders: false, range_tiles: 7}
+      summon: {chance: 0.25, monsters: ["dragon"], count: 1, max: 3}
+      enrage: {at_hp: 1920, damage_mult: 1.5, cooldown_mult: 0.6}
     sprite: "dragon_brood_mother"
     size_class: huge
     resistances: { fire: 100, dark: 50, physical: 30, mind: 60, water: -25 }
@@ -2532,24 +2413,15 @@ monsters:
     alert_radius: 12
     attack_radius: 1
     speed: 1.3
-    gold_min: 5000
-    gold_max: 8000
     boss: true
-    ignores_armor: true
+    abilities:
+      stun: {chance: 0.15, seconds: 6}
+      melt_armor: {chance: 1.0}
+      teleport: {at_hp: 1720, chance: 0.15}
+      summon: {chance: 0.22, monsters: ["deathbound_mummy"], count: 2, max: 4}
+      enrage: {at_hp: 1800, damage_mult: 1.5, cooldown_mult: 0.6}
     projectile_spell: "darkbolt"
     ranged_attack_range: 6
-    teleport_at_hp: 1720
-    teleport_chance: 0.15
-    stun_char_chance: 0.15
-    stun_char_seconds: 6
-    stun_char_turns: 2
-    summon_chance: 0.22
-    summon_monsters: ["deathbound_mummy"]
-    summon_count: 2
-    summon_max: 4
-    enrage_at_hp: 1800
-    enrage_damage_mult: 1.5
-    enrage_cooldown_mult: 0.6
     sprite: "ancient_god_of_death"
     size_class: huge
     resistances: { dark: 100, mind: 100, body: 75, physical: 35, light: -80 }
@@ -2570,27 +2442,17 @@ monsters:
     true_damage: 20
     alert_radius: 14
     attack_radius: 1
-    speed: 1.9
-    attacks_per_round: 2
+    speed: 3.2
     attack_cooldown_multiplier: 0.5
-    gold_min: 6000
-    gold_max: 9000
     boss: true
     aggro_whole_map: true
     projectile_spell: "lightning"
     ranged_attack_range: 5
-    teleport_at_hp: 2170
-    teleport_chance: 0.20
-    stun_char_chance: 0.20
-    stun_char_seconds: 6
-    stun_char_turns: 2
-    summon_chance: 0.10
-    summon_monsters: ["enforcer_alien"]
-    summon_count: 2
-    summon_max: 4
-    enrage_at_hp: 1920
-    enrage_damage_mult: 1.4
-    enrage_cooldown_mult: 0.7
+    abilities:
+      stun: {chance: 0.20, seconds: 6}
+      teleport: {at_hp: 2170, chance: 0.20}
+      summon: {chance: 0.10, monsters: ["enforcer_alien"], count: 2, max: 4}
+      enrage: {at_hp: 1920, damage_mult: 1.4, cooldown_mult: 0.7}
     sprite: "alien_enforcer"
     size_class: huge
     # Grey armour with small neon accents: colour the slab side by the outline.
@@ -2609,7 +2471,7 @@ monsters:
     damage_max: 0
     alert_radius: 5
     attack_radius: 1
-    speed: 2.1
+    speed: 2.5
     sprite: "ring_tailed_lemur"
     size_class: small
     biomes: [jungle]
@@ -2633,7 +2495,7 @@ monsters:
     damage_max: 0
     alert_radius: 5
     attack_radius: 1
-    speed: 2.25
+    speed: 2.6
     sprite: "red_ruffed_lemur"
     size_class: small
     biomes: [jungle]
@@ -2657,7 +2519,7 @@ monsters:
     damage_max: 0
     alert_radius: 5
     attack_radius: 1
-    speed: 1.8
+    speed: 3.2
     sprite: "desert_rabbit"
     size_class: small
     biomes: [desert]
@@ -2676,7 +2538,7 @@ monsters:
     damage_max: 9
     alert_radius: 5
     attack_radius: 1
-    speed: 2.07
+    speed: 2.8
     sprite: "fennec"
     size_class: small
     biomes: [desert]
@@ -2751,9 +2613,8 @@ monsters:
   bronze_gatekeeper:
     banding: true
     band_group: unbroken_trial
-    root_party_chance: 0.07
-    root_party_seconds: 2
-    root_party_turns: 1
+    abilities:
+      root_party: {chance: 0.07, seconds: 3}
     name: Bronze Gatekeeper
     level: 20
     max_hit_points: 950
@@ -2764,8 +2625,6 @@ monsters:
     alert_radius: 5
     attack_radius: 1
     speed: 0.8
-    gold_min: 0
-    gold_max: 0
     sprite: bronze_gatekeeper
     size_class: person
     biomes:
@@ -2776,8 +2635,8 @@ monsters:
   gale_novice:
     banding: true
     band_group: unbroken_trial
-    rear_blink_chance: 0.07
-    rear_blink_range_tiles: 4
+    abilities:
+      rear_blink: {chance: 0.07, range_tiles: 4}
     name: Gale Novice
     level: 15
     max_hit_points: 470
@@ -2788,8 +2647,6 @@ monsters:
     alert_radius: 5
     attack_radius: 4
     speed: 1.6
-    gold_min: 0
-    gold_max: 0
     sprite: gale_novice
     size_class: person
     biomes:

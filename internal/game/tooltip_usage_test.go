@@ -52,7 +52,7 @@ func TestItemUsageKindsAndAuthoredOverrides(t *testing.T) {
 		fixture      func(*config.ItemDefinitionConfig) bool
 		want, absent []string
 	}{
-		{"medusa_card", func(d *config.ItemDefinitionConfig) bool { return d.Type == "card" && !authored(d) },
+		{"jellyfish_card", func(d *config.ItemDefinitionConfig) bool { return d.Type == "card" && !authored(d) },
 			u.Card, []string{u.ActivateInventory, u.Trinket}},
 		{"health_potion", func(d *config.ItemDefinitionConfig) bool { return d.Type == "consumable" && !authored(d) },
 			[]string{u.ActivateInventory, u.ConsumedOnUse}, nil},

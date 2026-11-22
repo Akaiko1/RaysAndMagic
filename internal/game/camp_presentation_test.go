@@ -4,11 +4,12 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/hajimehoshi/ebiten/v2"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/game/keytracker"
 	"ugataima/internal/world"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 // One shared rest rule serves the paid camp, tavern and authored campfire.
@@ -31,7 +32,7 @@ func TestRestCuresLivingConditions(t *testing.T) {
 					}
 					m.PoisonFramesRemaining, m.BurnFramesRemaining = 900, 900
 					m.RestoreDoTTickTimers(30, 40)
-					m.StunFramesRemaining, m.StunTurnsRemaining, m.StunRate = 240, 2, 120
+					m.Stun.Frames, m.Stun.Turns, m.Stun.Rate = 240, 2, 120
 					if terminal != character.ConditionNormal {
 						m.AddCondition(terminal)
 						m.HitPoints = 0
@@ -53,11 +54,11 @@ func TestRestCuresLivingConditions(t *testing.T) {
 						return
 					}
 					p, b := m.DoTTickTimers()
-					if len(m.Conditions) != 0 || p != 0 || b != 0 || m.PoisonFramesRemaining != 0 || m.BurnFramesRemaining != 0 || m.StunFramesRemaining != 0 || m.StunTurnsRemaining != 0 || m.StunRate != 0 {
+					if len(m.Conditions) != 0 || p != 0 || b != 0 || m.PoisonFramesRemaining != 0 || m.BurnFramesRemaining != 0 || m.Stun.Frames != 0 || m.Stun.Turns != 0 || m.Stun.Rate != 0 {
 						t.Fatal("rest retained a condition or its hidden timer")
 					}
 					for i := 0; i < 240; i++ {
-						m.UpdateWithMode(false)
+						m.UpdateWithMode(character.PartyClock{})
 					}
 					m.TickPoisonTurn(240, 120)
 					m.TickBurnTurn(240, 120)

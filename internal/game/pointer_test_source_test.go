@@ -8,6 +8,8 @@ import "testing"
 type fakePointer struct {
 	x, y                        int
 	pressed, justPress, justRel bool
+	rightJust                   bool
+	shift                       bool // Shift held: a drag carries one unit
 }
 
 // installFakePointer swaps the pointer seam for the duration of a test.
@@ -16,27 +18,39 @@ func installFakePointer(t *testing.T) *fakePointer {
 	fp := &fakePointer{}
 	prevPos, prevPressed := pointerPosition, pointerLeftPressed
 	prevJustPress, prevJustRel := pointerLeftJustPressed, pointerLeftJustRelease
-	prevRight, prevCancel := pointerRightJustPress, pointerCancelJustPress
+	prevRight, prevCancel, prevShift := pointerRightJustPress, pointerCancelJustPress, shiftModifierHeld
+	shiftModifierHeld = func() bool { return fp.shift }
 	pointerPosition = func() (int, int) { return fp.x, fp.y }
 	pointerLeftPressed = func() bool { return fp.pressed }
 	pointerLeftJustPressed = func() bool { return fp.justPress }
 	pointerLeftJustRelease = func() bool { return fp.justRel }
-	pointerRightJustPress = func() bool { return false }
+	pointerRightJustPress = func() bool { return fp.rightJust }
 	pointerCancelJustPress = func() bool { return false }
 	t.Cleanup(func() {
 		pointerPosition, pointerLeftPressed = prevPos, prevPressed
 		pointerLeftJustPressed, pointerLeftJustRelease = prevJustPress, prevJustRel
-		pointerRightJustPress, pointerCancelJustPress = prevRight, prevCancel
+		pointerRightJustPress, pointerCancelJustPress, shiftModifierHeld = prevRight, prevCancel, prevShift
 	})
 	return fp
 }
 
 func (fp *fakePointer) moveTo(x, y int) { fp.x, fp.y = x, y }
 
-func (fp *fakePointer) press()   { fp.pressed, fp.justPress, fp.justRel = true, true, false }
-func (fp *fakePointer) hold()    { fp.pressed, fp.justPress, fp.justRel = true, false, false }
-func (fp *fakePointer) release() { fp.pressed, fp.justPress, fp.justRel = false, false, true }
-func (fp *fakePointer) idle()    { fp.pressed, fp.justPress, fp.justRel = false, false, false }
+func (fp *fakePointer) press() {
+	fp.pressed, fp.justPress, fp.justRel, fp.rightJust = true, true, false, false
+}
+func (fp *fakePointer) hold() {
+	fp.pressed, fp.justPress, fp.justRel, fp.rightJust = true, false, false, false
+}
+func (fp *fakePointer) release() {
+	fp.pressed, fp.justPress, fp.justRel, fp.rightJust = false, false, true, false
+}
+func (fp *fakePointer) idle() {
+	fp.pressed, fp.justPress, fp.justRel, fp.rightJust = false, false, false, false
+}
+func (fp *fakePointer) rightPress() {
+	fp.pressed, fp.justPress, fp.justRel, fp.rightJust = false, false, false, true
+}
 
 // Every seam hook must default to a device read, or production input silently
 // dies; reading each one in a headless test must not panic.
@@ -49,6 +63,7 @@ func TestPointerSeamDefaultsToTheDevice(t *testing.T) {
 		"left press":   func() { pointerLeftJustPressed() },
 		"left release": func() { pointerLeftJustRelease() },
 		"right press":  func() { pointerRightJustPress() },
+		"shift held":   func() { shiftModifierHeld() },
 	} {
 		t.Run(name, func(t *testing.T) {
 			defer func() {

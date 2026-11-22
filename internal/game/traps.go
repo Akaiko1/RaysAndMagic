@@ -3,11 +3,14 @@ package game
 import (
 	"fmt"
 	"math"
+	uitext "ugataima/assets/text"
+	"ugataima/internal/status"
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
 	monsterPkg "ugataima/internal/monster"
+	"ugataima/internal/world"
 )
 
 // Trap mechanics (thief trap book). A placed trap is a one-shot tile device:
@@ -31,7 +34,7 @@ type PlacedTrap struct {
 	TileX, TileY int
 	X, Y         float64                // tile center (render/VFX anchor)
 	Owner        *character.MMCharacter // scaling + per-owner limit; nil after failed save resolve
-	FramesLeft   int                    // armed lifetime; the trap despawns at 0
+	Life         status.DualClock       // armed lifetime; the trap despawns when it runs out
 }
 
 // trapAt returns the index of the trap occupying a tile on the current world, or -1.
@@ -74,17 +77,14 @@ func trapDamageAtTier(def *config.TrapDefinitionConfig, tier int) int {
 	return def.DamageBase + tier*character.TrapperDamagePerTier
 }
 
-// trapControlDuration returns the mastery-extended control duration of a trap
-// in TB turns and RT seconds (whichever pair the trap carries - stun or root).
-func trapControlDuration(baseTurns, baseSeconds int, owner *character.MMCharacter) (turns, seconds int) {
-	if owner == nil {
-		return baseTurns, baseSeconds
+// trapControlRounds is a control trap's stun or root length in whole rounds at
+// a Trapper tier: its authored seconds plus the tier's bonus rounds (0 when the
+// trap carries no such control).
+func trapControlRounds(baseSeconds, tier int) int {
+	if baseSeconds <= 0 {
+		return 0
 	}
-	return trapControlDurationAtTier(baseTurns, baseSeconds, owner.SkillTier(character.SkillTrapper))
-}
-
-func trapControlDurationAtTier(baseTurns, baseSeconds, tier int) (turns, seconds int) {
-	return baseTurns + character.TrapperTurnBonus(tier), baseSeconds + tier*character.TrapperSecondsPerTier
+	return config.CombatRounds(baseSeconds) + character.TrapperRoundBonus(tier)
 }
 
 // equipTrap puts a trap into the character's quick slot. Refuses unknown keys
@@ -96,17 +96,17 @@ func equipTrap(char *character.MMCharacter, key string) bool {
 		return false
 	}
 	it, _ := config.TrapItem(key)
-	char.Equipment[items.SlotSpell] = it
+	char.Equipment[items.SlotQuickAction] = it
 	return true
 }
 
 // equippedTrapKey returns the trap key armed in the quick slot, if any.
 func equippedTrapKey(char *character.MMCharacter) (string, bool) {
-	it, ok := char.Equipment[items.SlotSpell]
+	it, ok := char.Equipment[items.SlotQuickAction]
 	if !ok || it.Type != items.ItemTrap {
 		return "", false
 	}
-	return string(it.SpellEffect), true
+	return it.Trap, true
 }
 
 // availableTraps returns the trap keys the character can use, in book order.
@@ -158,7 +158,7 @@ func (cs *CombatSystem) trapRefusal(caster *character.MMCharacter, def *config.T
 	if caster.Level < def.Level {
 		return fmt.Sprintf("%s needs level %d for %s.", caster.Name, def.Level, def.Name)
 	}
-	if spCost := cs.effectiveSpellCost(caster, def.SPCost); caster.SpellPoints < spCost {
+	if spCost := caster.MeditatedSPCost(def.SPCost); caster.SpellPoints < spCost {
 		return fmt.Sprintf("%s's %s fizzles! (Not enough SP: %d/%d)", caster.Name, def.Name, caster.SpellPoints, spCost)
 	}
 	if cs.game.ownerTrapCount(caster) >= MaxTrapsPerOwner {
@@ -186,7 +186,7 @@ func (cs *CombatSystem) placeTrapByKey(caster *character.MMCharacter, trapKey st
 	if msg := cs.trapRefusal(caster, def); msg != "" {
 		return refuse(msg)
 	}
-	spCost := cs.effectiveSpellCost(caster, def.SPCost)
+	spCost := caster.MeditatedSPCost(def.SPCost)
 
 	tileX, tileY, ok := cs.pickTrapTile()
 	if !ok {
@@ -199,12 +199,13 @@ func (cs *CombatSystem) placeTrapByKey(caster *character.MMCharacter, trapKey st
 	caster.SpellPoints -= spCost
 	ts := float64(cs.game.config.GetTileSize())
 	cx, cy := TileCenterFromTile(tileX, tileY, ts)
-	cs.game.traps = append(cs.game.traps, PlacedTrap{
+	trap := PlacedTrap{
 		Key: trapKey, MapKey: currentMapKey(),
 		TileX: tileX, TileY: tileY, X: cx, Y: cy, Owner: caster,
-		FramesLeft: def.LifetimeSeconds * cs.game.config.GetTPS(),
-	})
-	cs.game.logCombat(logToneGood, "%s arms a %s!", logHeroName(caster), logAbility(def.Name))
+	}
+	trap.Life.Arm(def.LifetimeSeconds, cs.game.config.GetTPS())
+	cs.game.traps = append(cs.game.traps, trap)
+	cs.game.logCombatLine(logToneGood, uitext.Text("combat.arms_a", logSlot, logSlot), logHeroName(caster), logAbility(def.Name))
 	// A trap thrown under a monster's feet fires immediately (TB has no
 	// per-frame sweep; in RT the next frame's sweep would catch it anyway).
 	cs.sweepTrapTriggers()
@@ -274,14 +275,20 @@ func (cs *CombatSystem) nearestPulledFlankMonster() *monsterPkg.Monster3D {
 	return best
 }
 
-// monsterOnTile returns a living monster occupying the tile, or nil.
+// monsterOnTile returns a living monster a trap can catch on the tile, or nil.
 func (cs *CombatSystem) monsterOnTile(tileX, tileY int) *monsterPkg.Monster3D {
-	ts := float64(cs.game.config.GetTileSize())
-	for _, m := range cs.game.world.Monsters {
-		if m == nil || !m.IsAlive() || isPurePartySummon(m) {
-			continue
-		}
-		if TileIndex(m.X, ts) == tileX && TileIndex(m.Y, ts) == tileY {
+	return livingMonsterOnTile(cs.game.world, tileX, tileY, float64(cs.game.config.GetTileSize()),
+		func(m *monsterPkg.Monster3D) bool { return !isPurePartySummon(m) })
+}
+
+// livingMonsterOnTile is the first living monster of w standing on tile
+// (tx, ty) that accept takes (nil takes any).
+func livingMonsterOnTile(w *world.World3D, tx, ty int, ts float64, accept func(*monsterPkg.Monster3D) bool) *monsterPkg.Monster3D {
+	if w == nil {
+		return nil
+	}
+	for _, m := range w.Monsters {
+		if m != nil && m.IsAlive() && TileIndex(m.X, ts) == tx && TileIndex(m.Y, ts) == ty && (accept == nil || accept(m)) {
 			return m
 		}
 	}
@@ -292,6 +299,27 @@ func (cs *CombatSystem) monsterOnTile(tileX, tileY int) *monsterPkg.Monster3D {
 // is standing on. RT runs it each frame; TB runs it after monster moves and
 // right after placement.
 func (cs *CombatSystem) sweepTrapTriggers() {
+	cs.fireTraps(func(t PlacedTrap) *monsterPkg.Monster3D { return cs.monsterOnTile(t.TileX, t.TileY) })
+}
+
+// springTrapsUnder fires the current map's traps on the monster's own tile.
+func (cs *CombatSystem) springTrapsUnder(m *monsterPkg.Monster3D) {
+	if m == nil || !m.IsAlive() {
+		return
+	}
+	tileSize := float64(cs.game.config.GetTileSize())
+	tx, ty := TileIndex(m.X, tileSize), TileIndex(m.Y, tileSize)
+	cs.fireTraps(func(t PlacedTrap) *monsterPkg.Monster3D {
+		if t.TileX == tx && t.TileY == ty {
+			return m
+		}
+		return nil
+	})
+}
+
+// fireTraps fires every current-map trap whose victim is found and drops it
+// (traps are one-shot).
+func (cs *CombatSystem) fireTraps(victimOf func(PlacedTrap) *monsterPkg.Monster3D) {
 	if len(cs.game.traps) == 0 {
 		return
 	}
@@ -299,7 +327,7 @@ func (cs *CombatSystem) sweepTrapTriggers() {
 	for i := range cs.game.traps {
 		t := cs.game.traps[i]
 		if mapKeyOnCurrentWorld(t.MapKey) {
-			if victim := cs.monsterOnTile(t.TileX, t.TileY); victim != nil {
+			if victim := victimOf(t); victim != nil {
 				cs.fireTrap(&t, victim)
 				continue // one-shot: drop the trap
 			}
@@ -320,49 +348,34 @@ func (cs *CombatSystem) fireTrap(t *PlacedTrap, victim *monsterPkg.Monster3D) {
 	if !ok {
 		return
 	}
-	cs.game.logCombat(logToneGood, "%s springs under %s!", logAbility(def.Name), logMonsterName(victim))
+	cs.game.logCombatLine(logToneGood, uitext.Text("combat.springs_under", logSlot, logSlot), logAbility(def.Name), logMonsterName(victim))
 	cs.game.startTrapBurst(*t)
 
-	boundVictim := false
 	if dmg := trapDamage(def, t.Owner); dmg > 0 {
 		if def.AoeRadiusTiles > 0 {
-			hurts := func(m *monsterPkg.Monster3D) bool { return !isPurePartySummon(m) }
-			cs.forEachAreaVictim(cs.pointBlast(t.X, t.Y, def.AoeRadiusTiles), hurts, func(m *monsterPkg.Monster3D) {
-				if cs.tryDarkElfBindInstead(t.Owner, m) {
-					boundVictim = boundVictim || m == victim
-					return
-				}
+			cs.forEachAreaVictim(cs.pointBlast(t.X, t.Y, def.AoeRadiusTiles), partyAreaHurts, func(m *monsterPkg.Monster3D) {
 				cs.applyTrapDamage(m, dmg, def.Element, def.Name)
 			})
 		} else {
-			if cs.tryDarkElfBindInstead(t.Owner, victim) {
-				boundVictim = true
-			} else {
-				cs.applyTrapDamage(victim, dmg, def.Element, def.Name)
-			}
+			cs.applyTrapDamage(victim, dmg, def.Element, def.Name)
 		}
 	}
 
-	if boundVictim {
-		return
-	}
-	if def.DamageBase <= 0 && cs.tryDarkElfBindInstead(t.Owner, victim) {
-		return
-	}
 	// A sealed / idol-warded boss is immune to indirect damage (gated inside
 	// applyTrapDamage) - and to its control riders too. Skip stun/root for it.
 	if victim.IsDamageInvulnerable() {
 		return
 	}
 
-	turnsStun, secsStun := trapControlDuration(def.StunTurns, def.StunSeconds, t.Owner)
-	if def.StunTurns > 0 {
-		cs.applyStunDR(victim, turnsStun, secsStun*cs.game.config.GetTPS(), true) // announces stun/resist
+	tier := 0
+	if t.Owner != nil {
+		tier = t.Owner.SkillTier(character.SkillTrapper)
 	}
-
-	turnsRoot, secsRoot := trapControlDuration(def.RootTurns, def.RootSeconds, t.Owner)
-	if def.RootTurns > 0 {
-		cs.applyMonsterRoot(victim, turnsRoot, secsRoot*cs.game.config.GetTPS())
+	if rounds := trapControlRounds(def.StunSeconds, tier); rounds > 0 {
+		cs.applyStunDR(victim, rounds, true) // announces stun/resist
+	}
+	if rounds := trapControlRounds(def.RootSeconds, tier); rounds > 0 {
+		cs.applyMonsterRoot(victim, rounds)
 	}
 }
 
@@ -372,24 +385,35 @@ func (cs *CombatSystem) applyTrapDamage(m *monsterPkg.Monster3D, dmg int, elemen
 	if isPurePartySummon(m) || m.IsDamageInvulnerable() {
 		return // transparent summon or invulnerable boss: no damage, FX, or aggro
 	}
-	// Traps use the shared party packet builder so physical conversion stays one
-	// hit and soak is paid once. Weapon/attack-only target modifiers do not apply;
-	// this preserves the pre-refactor trap formula. Trap control stays undodgeable.
-	packet := cs.newPartyMonsterDamagePacket(dmg, 0, element, 0, true)
-	packet = cs.elementalBuffPacket(packet)
-	actual := cs.applyMonsterDamagePacket(m, packet, monsterDamageOptions{}).Total()
-	cs.reportIndirectHit(m, actual, sourceName)
+	// Weapon/attack-only target modifiers do not apply; this preserves the
+	// pre-refactor trap formula. Trap control stays undodgeable.
+	packet, _ := cs.trapDamagePacket(dmg, element)
+	cs.reportIndirectHit(m, cs.applyMonsterDamagePacket(m, packet, monsterDamageOptions{}), sourceName, normalizeDamageTypeStr(element))
 	cs.finishIndirectKill(m)
+}
+
+// trapDamagePacket is a trap hit before the target's defenses, the one its
+// card names: the shared party packet builder, so physical conversion stays
+// one hit and soak is paid once, then the party's per-school buffs, with what
+// they added by school.
+func (cs *CombatSystem) trapDamagePacket(dmg int, element string) (monsterDamagePacket, []character.DamageShare) {
+	return cs.elementalBuffGain(cs.newPartyMonsterDamagePacket(dmg, 0, element, 0, true), nil)
 }
 
 // reportIndirectHit shows a trap/zone hit exactly like a weapon hit minus the
 // view kick: flash, sparks, and a log line with damage and remaining HP. Kill
 // credit stays with finishIndirectKill, which the caller runs next.
-func (cs *CombatSystem) reportIndirectHit(m *monsterPkg.Monster3D, dealt int, sourceName string) {
+func (cs *CombatSystem) reportIndirectHit(m *monsterPkg.Monster3D, dealt monsterPkg.DealtDamage, sourceName, school string) {
 	cs.markMonsterHit(m)
 	cs.spawnHitSparks(m)
-	cs.game.logCombat(logToneGood, "%s takes %s damage from %s! %s",
-		logMonsterName(m), logDamage(dealt, ""), logAbility(sourceName), logHP(m.HitPoints, m.MaxHitPoints))
+	cs.game.reportDamage(logToneGood, damageLog{
+		Source: logAbility(sourceName),
+		Target: monsterLogTarget(m),
+		Amount: dealt.Total(),
+		School: school,
+		Shares: dealtShares(dealt),
+		Kind:   damageLogIndirect,
+	})
 }
 
 // finishIndirectKill handles a monster death from an autonomous source (trap,
@@ -405,10 +429,12 @@ func (cs *CombatSystem) finishIndirectKill(m *monsterPkg.Monster3D) {
 // Gameplay lifetimes and trigger sweeps retain their TB/RT clock rules.
 func (gl *GameLoop) updateTraps() {
 	g := gl.game
-	g.advanceTrapLifetimes(g.combatFrameElapsed())
+	if !g.turnBasedMode {
+		g.advanceTrapLifetimes(false)
+	}
 	w := 0
 	for _, burst := range g.trapBursts {
-		if float64(g.frameCount-burst.born) >= trapBurstSeconds*float64(g.config.GetTPS()) {
+		if g.frameCount-burst.born >= int64(g.framesForSeconds(trapBurstSeconds)) {
 			continue
 		}
 		g.trapBursts[w] = burst
@@ -420,16 +446,13 @@ func (gl *GameLoop) updateTraps() {
 	}
 }
 
-// Lifetime is gameplay time on every map. Shader animation uses presentation
-// time independently, including while the party is thinking in TB mode.
-func (g *MMGame) advanceTrapLifetimes(elapsed int) {
-	if elapsed <= 0 {
-		return
-	}
+// Lifetime is gameplay time on every map: a frame or a turn per tick. Shader
+// animation uses presentation time independently, including while the party
+// is thinking in TB mode.
+func (g *MMGame) advanceTrapLifetimes(turn bool) {
 	w := 0
 	for _, t := range g.traps {
-		t.FramesLeft = max(0, t.FramesLeft-elapsed)
-		if t.FramesLeft == 0 {
+		if t.Life.Tick(turn) || !t.Life.Active() {
 			continue
 		}
 		g.traps[w] = t
@@ -449,7 +472,7 @@ type TrapSave struct {
 	X          float64 `json:"x"`
 	Y          float64 `json:"y"`
 	Owner      string  `json:"owner,omitempty"`
-	FramesLeft int     `json:"frames_left,omitempty"`
+	FramesLeft int     `json:"frames_left,omitempty" ticks:"frames"`
 }
 
 func buildTrapSaves(traps []PlacedTrap) []TrapSave {
@@ -458,7 +481,7 @@ func buildTrapSaves(traps []PlacedTrap) []TrapSave {
 	}
 	out := make([]TrapSave, len(traps))
 	for i, t := range traps {
-		ts := TrapSave{Key: t.Key, MapKey: t.MapKey, TileX: t.TileX, TileY: t.TileY, X: t.X, Y: t.Y, FramesLeft: t.FramesLeft}
+		ts := TrapSave{Key: t.Key, MapKey: t.MapKey, TileX: t.TileX, TileY: t.TileY, X: t.X, Y: t.Y, FramesLeft: t.Life.Frames}
 		if t.Owner != nil {
 			ts.Owner = t.Owner.Name
 		}
@@ -489,12 +512,12 @@ func restoreTraps(saves []TrapSave, party *character.Party) []PlacedTrap {
 		left := s.FramesLeft
 		if left <= 0 { // legacy save without lifetime: re-arm fresh
 			if def, ok := config.GetTrapDefinition(s.Key); ok && config.GlobalConfig != nil {
-				left = def.LifetimeSeconds * config.GlobalConfig.GetTPS()
+				left = def.LifetimeSeconds * config.GetTargetTPS()
 			}
 		}
 		out[i] = PlacedTrap{
 			Key: s.Key, MapKey: s.MapKey, TileX: s.TileX, TileY: s.TileY,
-			X: s.X, Y: s.Y, Owner: byName[s.Owner], FramesLeft: left,
+			X: s.X, Y: s.Y, Owner: byName[s.Owner], Life: status.FromFrames(left, config.GetTargetTPS()),
 		}
 	}
 	return out

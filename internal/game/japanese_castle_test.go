@@ -6,7 +6,6 @@ import (
 	"ugataima/internal/character"
 	"ugataima/internal/collision"
 	"ugataima/internal/config"
-	"ugataima/internal/items"
 	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/quests"
 	"ugataima/internal/world"
@@ -83,21 +82,21 @@ func TestSamuraiBoss_DormantUntilArmoryQuest(t *testing.T) {
 	if boss == nil {
 		t.Fatal("old_samurai monster missing")
 	}
-	// Config shape: dormant (no evade radius), summons, enrages, ignores armor.
+	// Config shape: dormant (no evade radius), summons, enrages, melts armor.
 	if boss.PassiveUntilQuest != "castle_armory" {
 		t.Errorf("boss should gate on castle_armory, got %q", boss.PassiveUntilQuest)
 	}
 	if boss.EvadeRadiusTiles != 0 {
 		t.Errorf("samurai must be dormant (evade_radius 0), got %v", boss.EvadeRadiusTiles)
 	}
-	if len(boss.SummonMonsters) == 0 {
+	if len(boss.Abilities.Summon.Monsters) == 0 {
 		t.Error("samurai should summon adds")
 	}
-	if boss.EnrageAtHP <= 0 {
+	if boss.Abilities.Enrage.AtHP <= 0 {
 		t.Error("samurai should enrage below an HP threshold")
 	}
-	if !boss.IgnoresArmor {
-		t.Error("samurai should ignore armor")
+	if boss.Abilities.MeltArmor.Chance <= 0 {
+		t.Error("samurai should melt armor")
 	}
 	if !boss.IsBoss() {
 		t.Error("samurai must be recognized as a boss")
@@ -109,7 +108,7 @@ func TestSamuraiBoss_DormantUntilArmoryQuest(t *testing.T) {
 		t.Fatal("boss must be dormant while castle_armory is unfinished")
 	}
 	prevX, prevY := boss.X, boss.Y
-	if !cs.updateBoss(boss, true, true, true) {
+	if !cs.updateBoss(boss, true) {
 		t.Error("a dormant boss should consume its action (hold, no normal attack)")
 	}
 	if boss.X != prevX || boss.Y != prevY {
@@ -261,9 +260,9 @@ func TestSamuraiSummonRespectsCapAndOccupiedTiles(t *testing.T) {
 
 	bossX, bossY := TileCenterFromTile(4, 6, tile)
 	boss := monsterPkg.NewMonster3DFromConfig(bossX, bossY, "old_samurai", cs.game.config)
-	boss.SummonMonsters = []string{"ashigaru_firelock"}
-	boss.SummonCount = 2
-	boss.SummonMax = 4
+	boss.Abilities.Summon.Monsters = []string{"ashigaru_firelock"}
+	boss.Abilities.Summon.Count = 2
+	boss.Abilities.Summon.Max = 4
 	cs.game.registerSpawnedMonster(boss)
 
 	if !cs.summonSpawnOccupied(cs.game.camera.X, cs.game.camera.Y) {
@@ -324,15 +323,15 @@ func TestBossFirstSummonGuaranteedThenUsesChance(t *testing.T) {
 	bossX, bossY := TileCenterFromTile(4, 6, tile)
 	boss := monsterPkg.NewMonster3DFromConfig(bossX, bossY, "old_samurai", cs.game.config)
 	boss.PassiveUntilQuest = ""
-	boss.SummonChance = 0
-	boss.SummonFirstGuaranteed = true
-	boss.SummonMonsters = []string{"ashigaru_firelock"}
-	boss.SummonCount = 2
-	boss.SummonMax = 4
+	boss.Abilities.Summon.Chance = 0
+	boss.Abilities.Summon.FirstGuaranteed = true
+	boss.Abilities.Summon.Monsters = []string{"ashigaru_firelock"}
+	boss.Abilities.Summon.Count = 2
+	boss.Abilities.Summon.Max = 4
 	cs.game.registerSpawnedMonster(boss)
 
-	if !cs.updateBoss(boss, true, true, true) {
-		t.Fatal("first summon should be guaranteed even when summon_chance is 0")
+	if !cs.updateBoss(boss, true) {
+		t.Fatal("first summon should be guaranteed even when its summon chance is 0")
 	}
 	if !boss.SummonFirstDone {
 		t.Fatal("first successful summon must latch SummonFirstDone")
@@ -340,8 +339,8 @@ func TestBossFirstSummonGuaranteedThenUsesChance(t *testing.T) {
 	if got := cs.countLiveSummons(boss); got != 2 {
 		t.Fatalf("first summon count = %d, want 2", got)
 	}
-	if cs.updateBoss(boss, true, true, true) {
-		t.Fatal("second summon should use summon_chance after the first guaranteed summon")
+	if cs.updateBoss(boss, true) {
+		t.Fatal("second summon should use the summon chance after the first guaranteed summon")
 	}
 	if got := cs.countLiveSummons(boss); got != 2 {
 		t.Fatalf("second no-proc changed summon count to %d, want 2", got)
@@ -357,16 +356,14 @@ func TestAshigaruPiercingShotHitsTwoLivingPartyMembers(t *testing.T) {
 	}
 
 	ashigaru := &monsterPkg.Monster3D{
-		Name:                "Ashigaru Arquebusier",
-		HitPoints:           100,
-		MaxHitPoints:        100,
-		DamageMin:           20,
-		DamageMax:           20,
-		PiercingShotChance:  1,
-		PiercingShotTargets: 2,
+		Name:         "Ashigaru Arquebusier",
+		HitPoints:    100,
+		MaxHitPoints: 100,
+		DamageMin:    20,
+		DamageMax:    20,
 	}
 
-	if !cs.tryMonsterPiercingShot(ashigaru) {
+	if !castTestPartyAttack(cs, ashigaru, catalogPartyAttack("piercing_shot"), 20) {
 		t.Fatal("piercing shot should fire at 100% chance")
 	}
 
@@ -389,14 +386,12 @@ func TestNingyoAllyHealChoosesNearbyWoundedMonster(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	tile := float64(cs.game.config.GetTileSize())
 	healer := &monsterPkg.Monster3D{
-		Name:                 "Miyabi Ningyo",
-		X:                    0,
-		Y:                    0,
-		HitPoints:            100,
-		MaxHitPoints:         500,
-		AllyHealChance:       1,
-		AllyHealAmount:       200,
-		AllyHealRadiusPixels: 2 * tile,
+		Name:         "Miyabi Ningyo",
+		X:            0,
+		Y:            0,
+		HitPoints:    100,
+		MaxHitPoints: 500,
+		Abilities:    monsterPkg.Abilities{AllyHeal: monsterPkg.AllyHealAbility{Chance: 1, Amount: 200, RadiusTiles: 2}},
 	}
 	near := &monsterPkg.Monster3D{
 		Name:         "Nearby Ally",
@@ -430,15 +425,15 @@ func TestNingyoAllyHealChoosesNearbyWoundedMonster(t *testing.T) {
 
 // Regression: every weapon's display name must resolve to its YAML key via the
 // real name index, not a naive lower+underscore transform - otherwise
-// flavor-named weapons (commas, "of the ...") fail CanEquipWeaponByName and are
+// flavor-named weapons (commas, "of the ...") fail CanEquipWeapon and are
 // unequippable. Bug: Nyra (thief, has dagger) couldn't equip "Kage-kunai, the
 // Twin Shadows" because the transform yielded "kage-kunai,_the_twin_shadows".
 func TestFancyNamedWeapons_ResolveAndEquip(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t) // sets up the weapon bridge (name index)
 
 	for key, def := range config.GlobalWeapons.Weapons {
-		if got := items.GetWeaponKeyByName(def.Name); got != key {
-			t.Errorf("GetWeaponKeyByName(%q) = %q, want %q", def.Name, got, key)
+		if got := config.CatalogKey(testWeapon(def.Name)); got != key {
+			t.Errorf("keyless %q resolves to %q, want %q", def.Name, got, key)
 		}
 	}
 
@@ -454,7 +449,7 @@ func TestFancyNamedWeapons_ResolveAndEquip(t *testing.T) {
 	}
 	var daggerUser *character.MMCharacter
 	for _, m := range cs.game.party.Members {
-		if m != nil && m.CanEquipWeaponByName(basic.Name) {
+		if m != nil && m.CanEquipWeapon(testWeapon(basic.Name)) {
 			daggerUser = m
 			break
 		}
@@ -462,7 +457,7 @@ func TestFancyNamedWeapons_ResolveAndEquip(t *testing.T) {
 	if daggerUser == nil {
 		t.Fatal("no dagger-skilled party member found (expected the thief)")
 	}
-	if !daggerUser.CanEquipWeaponByName(kunai.Name) {
+	if !daggerUser.CanEquipWeapon(testWeapon(kunai.Name)) {
 		t.Errorf("a dagger user must be able to equip %q (fancy name -> kage_kunai)", kunai.Name)
 	}
 }

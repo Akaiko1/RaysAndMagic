@@ -37,6 +37,7 @@ func (g *MMGame) logicalCameraPose() cameraPose {
 }
 func (g *MMGame) resetCameraPresentation() {
 	g.cameraPresentation = cameraPresentation{epoch: g.cameraPresentation.epoch + 1}
+	g.viewStep = stepGlide{}
 	// A discontinuous view change cannot transfer a press or held target to
 	// the replacement scene. Ordinary movement preserves the displayed pose.
 	if gl := g.gameLoop; gl != nil {
@@ -56,7 +57,7 @@ func (g *MMGame) cameraInterpolationAllowed() bool {
 	return !g.turnBasedMode && g.cameraPresentationAllowed()
 }
 func (g *MMGame) cameraPresentationAllowed() bool {
-	return g.cameraSceneLive() && !g.cameraLoadingStall()
+	return g.cameraSceneLive() && !g.loadingStall()
 }
 
 // cameraSceneLive reports the in-game scene on screen and not paused by an
@@ -65,9 +66,10 @@ func (g *MMGame) cameraSceneLive() bool {
 	return g.camera != nil && g.config != nil && g.appScreen == AppScreenInGame && !g.gameplayPausedByOverlay()
 }
 
-// cameraLoadingStall is a frame held for resource loading: the same scene
-// resumes from the same pose, so it is a pause, not a discontinuity.
-func (g *MMGame) cameraLoadingStall() bool {
+// loadingStall is a frame held for resource loading: the same scene resumes
+// from the same pose, so it is a pause, not a discontinuity. Every clock of
+// something the player watches stands still on it.
+func (g *MMGame) loadingStall() bool {
 	return g.gameLoop != nil && g.gameLoop.loading != nil && g.gameLoop.loading.awaitingFrame
 }
 
@@ -76,7 +78,7 @@ func (g *MMGame) finishCameraTick(before cameraPose, epoch uint64, started time.
 		g.resetCameraPresentation()
 		return
 	}
-	if g.cameraLoadingStall() {
+	if g.loadingStall() {
 		// Restart interpolation only. The displayed pick frame and a held mouse
 		// attack survive: streaming while walking used to block the hold until
 		// release, so an attack held toward a monster never fired.
@@ -145,6 +147,9 @@ func (g *MMGame) beginRenderCameraSwap(now time.Time) func() {
 	pose := g.renderCameraPose(now)
 	if g.turnBasedMode {
 		pose.angle = g.viewAngleRender
+		if x, y, moving := g.viewStepPos(); moving {
+			pose.x, pose.y = x, y
+		}
 	}
 	g.cameraPresentation.presented, g.cameraPresentation.presentedValid = pose, true
 	return g.swapCameraPose(pose)

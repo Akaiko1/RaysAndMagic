@@ -2,6 +2,34 @@ package game
 
 import "time"
 
+// dragDeadZone is the cursor travel (px, either axis) that turns a held press
+// into a drag; anything shorter stays a click.
+const dragDeadZone = 5
+
+// dragGesture is the one press -> drag recogniser behind every drag surface.
+type dragGesture struct {
+	armed, active  bool // button held since press / travelled past the dead zone
+	startX, startY int  // press point (source hit-test)
+	curX, curY     int  // live cursor (drop target, carried icon)
+}
+
+func (d *dragGesture) press(x, y int) {
+	*d = dragGesture{armed: true, startX: x, startY: y, curX: x, curY: y}
+}
+
+// follow tracks a held press and reports the step it becomes a drag.
+func (d *dragGesture) follow(x, y int) bool {
+	if !d.armed {
+		return false
+	}
+	d.curX, d.curY = x, y
+	if d.active || absInt(x-d.startX) <= dragDeadZone && absInt(y-d.startY) <= dragDeadZone {
+		return false
+	}
+	d.active = true
+	return true
+}
+
 // Sample pointer edges once, then let the displayed dispatcher own actions.
 func (ui *UISystem) updateMouseState() {
 	ui.syncPointerScreen()
@@ -41,7 +69,7 @@ func (ui *UISystem) recognizeGameplayPointer(now int64) (bool, bool) {
 	suppressLeftClick := false
 	if inputLayer == modalLayerNone {
 		suppressLeftClick = ui.updateQuickDrag()
-	} else if !ui.game.dragPickedUp && (ui.game.dragArmed || ui.game.dragActive) {
+	} else if !ui.game.dragPickedUp && (ui.game.drag.armed || ui.game.drag.active) {
 		// Ownership lost mid-gesture: the release edge is a one-tick event and
 		// would be missed while the updater is skipped, leaving an armed/active
 		// drag to resurrect when the layer returns. Cancel it; only a picked-up
@@ -65,7 +93,7 @@ func (ui *UISystem) recognizeGameplayPointer(now int64) (bool, bool) {
 	if dragSurface && (inputLayer == modalLayerStash || inputLayer == modalLayerDialog) {
 		suppressLeftClick = ui.updateStashDrag(now) || suppressLeftClick
 		releaseDrivenClicks = true
-	} else if !ui.game.stashDragPickedUp && (ui.game.stashDragArmed || ui.game.stashDragActive || ui.game.stashDragDrop) {
+	} else if !ui.game.stashDragPickedUp && (ui.game.stashDrag.armed || ui.game.stashDrag.active || ui.game.stashDragDrop) {
 		ui.game.clearStashDrag()
 	}
 

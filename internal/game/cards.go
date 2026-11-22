@@ -2,6 +2,7 @@ package game
 
 import (
 	"fmt"
+	"maps"
 	"reflect"
 	"strings"
 
@@ -10,6 +11,7 @@ import (
 	"ugataima/internal/items"
 	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/stash"
+	"ugataima/internal/status"
 )
 
 // splitPhysToFire divides physical damage into a remaining-physical part and a
@@ -77,7 +79,7 @@ func itemCardKey(it items.Item) string {
 	if it.Type != items.ItemCard {
 		return ""
 	}
-	if _, key, ok := config.GetItemDefinitionByName(it.Name); ok && cardDef(key) != nil {
+	if _, key, ok := config.ItemDefOf(it); ok && cardDef(key) != nil {
 		return key
 	}
 	return ""
@@ -86,8 +88,8 @@ func itemCardKey(it items.Item) string {
 // cardSlot is one collection slot: the resolved card key (gameplay truth,
 // read on hot combat/frame paths) plus the physical card item whose
 // InstanceID survives into saves for stash reconciliation. The key is
-// resolved ONCE when placing or restoring a slot - never re-derived from the item's
-// name at read time (GetItemDefinitionByName is a linear scan).
+// resolved ONCE when placing or restoring a slot - never re-derived at read
+// time on those hot paths.
 type cardSlot struct {
 	key  string
 	item items.Item
@@ -154,15 +156,13 @@ func stashOwnsCardKey(shared *stash.Stash, key string) bool {
 	if shared == nil || key == "" {
 		return false
 	}
-	for _, bank := range [][]items.Item{shared.Slots[:], shared.CardSlots[:]} {
-		for _, it := range bank {
-			normalizeItemFromConfig(&it)
-			if itemCardKey(it) == key {
-				return true
-			}
-		}
-	}
-	return false
+	owns := false
+	shared.Each(func(it *items.Item) {
+		card := *it
+		normalizeItemFromConfig(&card)
+		owns = owns || itemCardKey(card) == key
+	})
+	return owns
 }
 
 // resolveSavedCardSlots is the load contract for both gameplay and browsing.
@@ -177,7 +177,7 @@ func resolveSavedCardSlots(save PartySave, shared *stash.Stash) (slots [MaxCardS
 		if slots[i].key != "" || i >= len(save.CardCollection) {
 			continue
 		}
-		key := save.CardCollection[i]
+		key := config.CanonicalItemKey(save.CardCollection[i])
 		if cardDef(key) == nil {
 			continue
 		}
@@ -268,6 +268,55 @@ func (g *MMGame) cardCollectionEffectLines() []string {
 	return lines
 }
 
+// ValidateCardDrops enforces loots.yaml card_drop_chance on every monster
+// table: bosses use their authored override or the ordinary boss rate; other
+// monsters use the monster rate, one roll each. Needs both catalogs.
+func ValidateCardDrops() error {
+	loots := config.GlobalLoots
+	if loots == nil || monsterPkg.MonsterConfig == nil {
+		return nil
+	}
+	rule := loots.CardDropChance
+	for key := range rule.BossOverrides {
+		def, known := monsterPkg.MonsterConfig.Monsters[key]
+		if !known || !def.Boss {
+			return fmt.Errorf("card_drop_chance.boss_overrides %q must name a boss", key)
+		}
+	}
+	isCard := func(e config.LootEntry) bool {
+		item, ok := config.GetItemDefinition(e.Key)
+		return e.Type == "item" && ok && item.Type == "card"
+	}
+	for key, entries := range loots.Loots {
+		def, known := monsterPkg.MonsterConfig.Monsters[key]
+		for _, e := range entries {
+			// A card is its own roll at the card rate, never a first_of rung.
+			for _, child := range e.Of {
+				if isCard(child) {
+					return fmt.Errorf("loots %q: card %q sits in first_of group %q; cards roll on their own", key, child.Key, e.Key)
+				}
+			}
+			if !isCard(e) {
+				continue
+			}
+			want := rule.Monster
+			if known && def.Boss {
+				want = rule.Boss
+				if override, ok := rule.BossOverrides[key]; ok {
+					want = override
+				}
+			}
+			if want <= 0 {
+				return fmt.Errorf("loots.yaml: card_drop_chance is required for monster cards")
+			}
+			if e.Chance != want || e.RollCount() != 1 || e.Max > 1 {
+				return fmt.Errorf("loots %q: card %q drops at %g x%d; card_drop_chance wants %g once", key, e.Key, e.Chance, e.RollCount(), want)
+			}
+		}
+	}
+	return nil
+}
+
 // foldCardDefs is the pure fold behind cardCollectionAggregate (see its doc).
 func foldCardDefs(defs []*config.ItemDefinitionConfig) *config.ItemDefinitionConfig {
 	agg := &config.ItemDefinitionConfig{}
@@ -276,6 +325,8 @@ func foldCardDefs(defs []*config.ItemDefinitionConfig) *config.ItemDefinitionCon
 		if def == nil {
 			continue
 		}
+		// Shared with equipment (Amber Talisman), so it carries no Card prefix.
+		agg.WeaponBaseDamageBonus += def.WeaponBaseDamageBonus
 		dv := reflect.ValueOf(def).Elem()
 		dt := dv.Type()
 		for i := 0; i < dv.NumField(); i++ {
@@ -334,6 +385,13 @@ func foldCardDefs(defs []*config.ItemDefinitionConfig) *config.ItemDefinitionCon
 		agg.CardPoisonResistPct = 100
 	}
 	agg.CardDodgeChargePct, agg.CardDodgeChargeLimit, agg.CardRepeatedHitReductionPct, agg.CardRepeatedHitReductionCap = reactiveCardRules(defs)
+	// Non-stacking rules: the strongest copy's whole rule, never a sum.
+	for _, rule := range config.CardRules {
+		rule.Copy(agg, &config.ItemDefinitionConfig{})
+		if best := strongestCard(defs, rule); best != nil {
+			rule.Copy(agg, best)
+		}
+	}
 	return agg
 }
 
@@ -467,60 +525,55 @@ func (g *MMGame) cardSummonOwnedSources() []cardSummonSource {
 		}
 	}
 	if g.stash != nil {
-		for _, it := range g.stash.Slots {
-			appendItem(it)
-		}
-		for _, it := range g.stash.CardSlots {
-			appendItem(it)
-		}
+		g.stash.Each(func(it *items.Item) { appendItem(*it) })
 	}
 	return sources
 }
 
-func (g *MMGame) cardSummonCooldown(owner string) int {
-	if owner == "" || g.cardSummonCooldowns == nil {
-		return 0
+// cardSummonCooldown is the clock silencing owner's card: its own, or a
+// longer migrated shared one.
+func (g *MMGame) cardSummonCooldown(owner string) status.DualClock {
+	if owner == "" {
+		return status.DualClock{}
 	}
-	frames := g.cardSummonCooldowns[owner]
+	clock := g.cardSummonCooldowns[owner]
 	// A migrated shared cooldown must keep blocking cards that were inactive at
 	// load time. It expires normally and never appears in newly-created state.
-	if legacy := g.cardSummonCooldowns[cardSummonOwner]; legacy > frames {
-		frames = legacy
+	if legacy := g.cardSummonCooldowns[cardSummonOwner]; legacy.Frames > clock.Frames {
+		clock = legacy
 	}
-	return frames
+	return clock
 }
 
-func (g *MMGame) armCardSummonCooldown(owner string, frames int) {
-	if owner == "" || frames <= 0 {
+func (g *MMGame) armCardSummonCooldown(owner string, seconds int) {
+	if owner == "" || seconds <= 0 {
+		return
+	}
+	var clock status.DualClock
+	clock.Arm(seconds, g.config.GetTPS())
+	g.setCardSummonCooldown(owner, clock)
+}
+
+func (g *MMGame) setCardSummonCooldown(owner string, clock status.DualClock) {
+	if !clock.Active() {
+		delete(g.cardSummonCooldowns, owner)
 		return
 	}
 	if g.cardSummonCooldowns == nil {
-		g.cardSummonCooldowns = make(map[string]int)
+		g.cardSummonCooldowns = make(map[string]status.DualClock)
 	}
-	g.cardSummonCooldowns[owner] = frames
+	g.cardSummonCooldowns[owner] = clock
 }
 
-func (g *MMGame) tickCardSummonCooldowns() {
-	for owner, frames := range g.cardSummonCooldowns {
-		if frames <= 1 {
-			delete(g.cardSummonCooldowns, owner)
-			continue
-		}
-		g.cardSummonCooldowns[owner] = frames - 1
-	}
+func (g *MMGame) tickCardSummonCooldowns(turn bool) {
+	status.TickMap(g.cardSummonCooldowns, turn, status.Self)
 }
 
-func (g *MMGame) snapshotCardSummonCooldowns() map[string]int {
+func (g *MMGame) snapshotCardSummonCooldowns() map[string]status.DualClock {
 	if len(g.cardSummonCooldowns) == 0 {
 		return nil
 	}
-	out := make(map[string]int, len(g.cardSummonCooldowns))
-	for owner, frames := range g.cardSummonCooldowns {
-		if frames > 0 {
-			out[owner] = frames
-		}
-	}
-	return out
+	return maps.Clone(g.cardSummonCooldowns)
 }
 
 // restoreCardSummonState restores per-card cooldowns and migrates the old
@@ -528,19 +581,27 @@ func (g *MMGame) snapshotCardSummonCooldowns() map[string]int {
 // physical card that summons its monster type, including inactive bag/stash
 // cards. The legacy shared cooldown remains shared until it expires, so cards
 // removed during loading cannot receive a free immediate proc when re-slotted.
-func (g *MMGame) restoreCardSummonState(saved map[string]int, legacyCooldown int) {
-	g.cardSummonCooldowns = make(map[string]int)
+func (g *MMGame) restoreCardSummonState(saved map[string]status.DualClock, legacyFrames map[string]int, legacyCooldown int) {
+	g.cardSummonCooldowns = nil
 	sources := g.cardSummonOwnedSources()
-	for owner, frames := range saved {
+	tps := g.config.GetTPS()
+	saved = maps.Clone(saved)
+	for owner, frames := range legacyFrames {
+		if saved == nil {
+			saved = make(map[string]status.DualClock)
+		}
+		saved[owner] = status.FromFrames(frames, tps)
+	}
+	for owner, clock := range saved {
 		// Cooldowns follow the physical card through inventory/removal, so keep
 		// valid inactive-card entries too. A migrated shared entry is also valid
 		// until it expires, even if no summon card was active during the load.
-		if (owner == cardSummonOwner || strings.HasPrefix(owner, cardSummonOwnerPrefix)) && frames > 0 {
-			g.cardSummonCooldowns[owner] = frames
+		if owner == cardSummonOwner || strings.HasPrefix(owner, cardSummonOwnerPrefix) {
+			g.setCardSummonCooldown(owner, clock)
 		}
 	}
 	if len(saved) == 0 && legacyCooldown > 0 {
-		g.cardSummonCooldowns[cardSummonOwner] = legacyCooldown
+		g.setCardSummonCooldown(cardSummonOwner, status.FromFrames(legacyCooldown, tps))
 		g.loadNeedsResave = true
 	}
 
@@ -670,6 +731,10 @@ func (g *MMGame) cardPoisonProc() (chancePct int, durationSec int) {
 
 func (g *MMGame) cardMeleeDmgPct() int {
 	return g.cardCollectionBonus(func(d *config.ItemDefinitionConfig) int { return d.CardMeleeDmgPct })
+}
+
+func (g *MMGame) cardWeaponBaseDamageBonus() int {
+	return g.cardCollectionBonus(func(d *config.ItemDefinitionConfig) int { return d.WeaponBaseDamageBonus })
 }
 
 func (g *MMGame) cardMaxHPBonus() int {

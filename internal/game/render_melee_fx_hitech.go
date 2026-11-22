@@ -29,7 +29,7 @@ func (r *Renderer) drawMeleeFxTechVibro(screen *ebiten.Image, s SlashEffect, cx,
 	}
 	seed := seedFromID(s.ID)
 	h, w := arenaFxScale(s, screenH)
-	fc := float64(r.game.frameCount)
+	sec := r.game.worldSeconds()
 	reach := h * 0.46
 	// Diagonal cut, upper-left to lower-right - a machine does not arc.
 	x0, y0 := cx-reach*0.62, cy-reach*0.58
@@ -58,7 +58,7 @@ func (r *Renderer) drawMeleeFxTechVibro(screen *ebiten.Image, s SlashEffect, cx,
 		off := 0.0
 		if i > 0 {
 			sign := float64(2*i - 3) // -1, +1
-			off = sign * (2.6 + 1.8*math.Abs(math.Sin(fc*0.9+float64(i)))) * w
+			off = sign * (2.6 + 1.8*math.Abs(math.Sin(sec*108+float64(i)))) * w
 		}
 		r.drawDissolveStroke(screen, dissolveStroke{
 			path:   line(off),
@@ -71,7 +71,7 @@ func (r *Renderer) drawMeleeFxTechVibro(screen *ebiten.Image, s SlashEffect, cx,
 	// Resonance ticks: short perpendicular marks sliding along the lit edge.
 	const ticks = 6
 	for i := 0; i < ticks; i++ {
-		tt := math.Mod(float64(i)/ticks+fc*0.02, 1.0)
+		tt := math.Mod(float64(i)/ticks+sec*2.4, 1.0)
 		if tt > ld {
 			continue
 		}
@@ -134,11 +134,11 @@ func (r *Renderer) drawMeleeFxTechVibro(screen *ebiten.Image, s SlashEffect, cx,
 // detached elements moving at projectile speed just reads as random blobs -
 // the silhouette has to be one connected thing.
 func (r *Renderer) drawWeaponProjectileFxTechSuppressor(screen *ebiten.Image, cx, cy, size, dirX, dirY, alpha float64, id int) {
-	fc := float64(r.game.frameCount)
+	sec := r.game.worldSeconds()
 	nx, ny := projectilePerpendicular(dirX, dirY)
 	const turns, steps = 3.4, 26
 	reach := size * 3.4
-	spin := fc * 0.5 // the whole helix rotates: rifling, seen from the side
+	spin := sec * 60 // the whole helix rotates: rifling, seen from the side
 	var px, py float64
 	for k := 0; k <= steps; k++ {
 		t := float64(k) / steps // 0 at the slug, 1 at the tail
@@ -169,7 +169,7 @@ func (r *Renderer) drawWeaponProjectileFxTechSuppressor(screen *ebiten.Image, cx
 // bolt (the shot outruns its own report) with a scope reticle pulsing at the
 // head. Thin and exact - nothing here blooms.
 func (r *Renderer) drawWeaponProjectileFxTechLonglance(screen *ebiten.Image, cx, cy, size, dirX, dirY, alpha float64, id int) {
-	fc := float64(r.game.frameCount)
+	sec := r.game.worldSeconds()
 	nx, ny := projectilePerpendicular(dirX, dirY)
 	// The lance: ONE long solid bar reaching far ahead, laid down in three
 	// overlapping runs so it dims with distance without breaking into dots.
@@ -186,7 +186,7 @@ func (r *Renderer) drawWeaponProjectileFxTechLonglance(screen *ebiten.Image, cx,
 	r.weaponFxSegment(screen, cx, cy, cx-dirX*size*2.6, cy-dirY*size*2.6,
 		math.Max(2, size*0.13), techCyan, 0.45*alpha, additiveGlowBlend)
 	// Scope reticle at the head: four ticks off the axis, pulsing.
-	pulse := 0.6 + 0.4*math.Sin(fc*0.5)
+	pulse := 0.6 + 0.4*math.Sin(sec*60)
 	rr := size * (1.0 + 0.25*pulse)
 	for _, s := range []float64{-1, 1} {
 		r.weaponFxAccent(screen, cx+nx*s*rr, cy+ny*s*rr, math.Max(2, size*0.09), techCyan, 0.55*pulse*alpha, additiveGlowBlend)
@@ -201,12 +201,12 @@ func (r *Renderer) drawWeaponProjectileFxTechLonglance(screen *ebiten.Image, cx,
 // straight line as it flies.
 func (r *Renderer) drawWeaponProjectileFxTechCompound(screen *ebiten.Image, cx, cy, size, dirX, dirY, alpha float64, id int) {
 	seed := id + 671
-	fc := float64(r.game.frameCount)
+	sec := r.game.worldSeconds()
 	alloy := [3]int{168, 196, 214}
 	nx, ny := projectilePerpendicular(dirX, dirY)
 	// Counter-rotating cam rings, flattened along the flight axis.
 	for ring := 0; ring < 2; ring++ {
-		spin := fc * 0.22 * (1 - 2*float64(ring))
+		spin := sec * 26.4 * (1 - 2*float64(ring))
 		rad := size * (0.85 + 0.4*float64(ring))
 		// Chord bars around the ring: consecutive points JOINED, so the cam
 		// reads as a wheel rim instead of a scatter of dots.
@@ -229,7 +229,7 @@ func (r *Renderer) drawWeaponProjectileFxTechCompound(screen *ebiten.Image, cx, 
 	var px, py float64
 	for k := 0; k <= 9; k++ {
 		u := float64(k) / 9
-		amp := size * 0.9 * (1 - u) * math.Sin(u*7+fc*0.3)
+		amp := size * 0.9 * (1 - u) * math.Sin(u*7+sec*36)
 		x := cx - dirX*size*3.8*u + nx*amp
 		y := cy - dirY*size*3.8*u + ny*amp
 		if k > 0 {

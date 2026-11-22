@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"ugataima/internal/character"
+	"ugataima/internal/config"
 	"ugataima/internal/damage"
 	"ugataima/internal/monster"
 )
@@ -35,7 +36,9 @@ func TestCombatLogPiecesColorWhoAndWhat(t *testing.T) {
 		"charmed":           {logMonsterName(charmed), []coloredTextSegment{{"Kappa", logNeutral}}},
 		"enemy's breath":    {logMonsterAs(foe, "Ocelot's Breath"), []coloredTextSegment{{"Ocelot's Breath", logEnemy}}},
 		"true damage":       {logTrueDamage(12), []coloredTextSegment{{"12", logTrue}}},
-		"unknown school":    {logDamage(7, ""), []coloredTextSegment{{"7", SchoolColor("")}}},
+		"no school is true": {logDamage(7, ""), []coloredTextSegment{{"7", logTrue}}},
+		"named school":      {logDamageSchool("air"), []coloredTextSegment{{"air", SchoolTextColor("air")}}},
+		"no school named":   {logDamageSchool(""), []coloredTextSegment{{"true", logTrue}}},
 		"heal":              {logHealed(35), []coloredTextSegment{{"35", keywordColors["heal"]}}},
 		"spell points":      {logRecoveredSP(9), []coloredTextSegment{{"9", keywordColors["buff"]}}},
 		"no crit":           {logCrit(false), []coloredTextSegment{{"", combatMessageGold}}},
@@ -45,13 +48,13 @@ func TestCombatLogPiecesColorWhoAndWhat(t *testing.T) {
 		"HP at half":        {logHP(50, 100), hpReadout("50", logLowHP, "/100)")},
 		"HP at a quarter":   {logHP(25, 100), hpReadout("25", logDyingHP, "/100)")},
 		"HP gone":           {logHP(0, 100), hpReadout("0", logDyingHP, "/100)")},
-		"joined pieces":     {logParts(logHeroText("Mara's "), logSchoolWord("fire", "Fireball")), []coloredTextSegment{{"Mara's ", logHero}, {"Fireball", SchoolColor("fire")}}},
+		"joined pieces":     {logParts(logHeroText("Mara's "), logSchoolWord("fire", "Fireball")), []coloredTextSegment{{"Mara's ", logHero}, {"Fireball", SchoolTextColor("fire")}}},
 		"control keyword":   {logKeyword("control", "stunned"), []coloredTextSegment{{"stunned", keywordColors["control"]}}},
 		"ability":           {logAbility("Piercing Shot"), []coloredTextSegment{{"Piercing Shot", keywordColors["auto"]}}},
 		"poison":            {logColored("poisoned", logPoison), []coloredTextSegment{{"poisoned", logPoison}}},
-		"school word":       {logSchoolWord("water", "Ice Bolt"), []coloredTextSegment{{"Ice Bolt", SchoolColor("water")}}},
-		"physical is white": {logDamage(53, "physical"), []coloredTextSegment{{"53", logTrue}}},
-		"physical word":     {logSchoolWord("physical", "Blowgun"), []coloredTextSegment{{"Blowgun", logTrue}}},
+		"school word":       {logSchoolWord("water", "Ice Bolt"), []coloredTextSegment{{"Ice Bolt", SchoolTextColor("water")}}},
+		"physical is white": {logDamage(53, "physical"), []coloredTextSegment{{"53", logPhysical}}},
+		"physical word":     {logSchoolWord("physical", "Blowgun"), []coloredTextSegment{{"Blowgun", logPhysical}}},
 		"nil hero is blank": {logHeroName(nil), []coloredTextSegment{{"", logHero}}},
 	}
 	for _, school := range damage.Types() {
@@ -139,8 +142,8 @@ func TestLogSegmentsFormatLikeSprintf(t *testing.T) {
 // a line, and every character keeps the color of the piece it came from.
 func TestStyledLinesWrapLikePlainText(t *testing.T) {
 	lines := [][]coloredTextSegment{
-		{{"Gareth", logHero}, {" hits ", logPlain}, {"Ancient God of Death", logEnemy}, {" for ", logPlain}, {"1234", SchoolColor("dark")}, {" damage and kills it! ", logPlain}, {"+5559 XP", combatMessageGold}},
-		{{"Critical! ", combatMessageGold}, {"Silvelyn's Arbalest", SchoolColor("physical")}, {" hit ", logPlain}, {"Elder Dragon", logEnemy}, {" for 88 physical damage! (HP: 1/3600)", logPlain}},
+		{{"Gareth", logHero}, {" hits ", logPlain}, {"Ancient God of Death", logEnemy}, {" for ", logPlain}, {"1234", SchoolTextColor("dark")}, {" damage and kills it! ", logPlain}, {"+5559 XP", combatMessageGold}},
+		{{"Critical! ", combatMessageGold}, {"Silvelyn's Arbalest", SchoolTextColor("physical")}, {" hit ", logPlain}, {"Elder Dragon", logEnemy}, {" for 88 physical damage! (HP: 1/3600)", logPlain}},
 		{{"Supercalifragilisticexpialidociousandthensomemoretext", logEnemy}, {" falls  down   hard", logPlain}},
 		{{"short", logHero}},
 		{{"", logHero}, {"   leading spaces", logPlain}},
@@ -271,7 +274,7 @@ func TestLogLinesCarryTheirTone(t *testing.T) {
 	fight := func(attacker, target *monster.Monster3D) func(t *testing.T) *MMGame {
 		return func(t *testing.T) *MMGame {
 			g := bare()
-			g.addActorCombatMessage(attacker, target, "%s strikes %s for %s!", logMonsterName(attacker), logMonsterName(target), logDamage(9, "physical"))
+			g.reportActorDamage(attacker, target, damageLog{Source: logMonsterName(attacker), Target: monsterLogTarget(target), Amount: 9, School: "physical", Kind: damageLogStrike})
 			return g
 		}
 	}
@@ -280,9 +283,9 @@ func TestLogLinesCarryTheirTone(t *testing.T) {
 		text string
 		tone logTone
 	}{
-		"ally strikes": {fight(ally, foe), "Wolf strikes Ocelot for 9!", logToneGood},
-		"ally struck":  {fight(foe, ally), "Ocelot strikes Wolf for 9!", logToneBad},
-		"two foes":     {fight(foe, rival), "Ocelot strikes Kappa for 9!", logToneNone},
+		"ally strikes": {fight(ally, foe), "Wolf strikes Ocelot for 9! (HP: 0/0)", logToneGood},
+		"ally struck":  {fight(foe, ally), "Ocelot strikes Wolf for 9! (HP: 0/0)", logToneBad},
+		"two foes":     {fight(foe, rival), "Ocelot strikes Kappa for 9! (HP: 0/0)", logToneNone},
 		"level-up": {func(t *testing.T) *MMGame {
 			g := bare()
 			hero := character.CreateCharacter("Mara", character.ClassKnight, cfg)
@@ -306,5 +309,103 @@ func TestLogLinesCarryTheirTone(t *testing.T) {
 				t.Errorf("logged %q with tone %d, want %q with tone %d", e.Text, e.Tone, tc.text, tc.tone)
 			}
 		})
+	}
+}
+
+// Every kind of damage line names its damage the same way: each number in its
+// tint, and only the special damage - every school but physical, and true
+// damage - named after it.
+func TestDamageLinesNameOnlySpecialDamage(t *testing.T) {
+	cfg := loadTestConfig(t)
+	g := newTestGame(cfg, newTestWorldSized(cfg, 4, 4))
+	kinds := []damageLogKind{damageLogHit, damageLogCrush, damageLogSplash, damageLogIndirect, damageLogScorch,
+		damageLogDodge, damageLogHeroDodge, damageLogReflection, damageLogStrike, damageLogBoundStrike,
+		damageLogBolt, damageLogProjectile, damageLogBurst}
+	shapes := []struct {
+		name   string
+		hit    damageLog
+		phrase string
+	}{
+		{"physical", damageLog{Amount: 52, School: "physical"}, " 52"},
+		{"one element", damageLog{Amount: 12, School: "light"}, " 12 light"},
+		{"true", damageLog{Amount: 3}, " 3 true"},
+		{"several", damageLog{Shares: []damageShare{{School: "physical", Amount: 40}, {School: "fire", Amount: 16}, {Amount: 3}}}, " 40 + 16 fire + 3 true"},
+	}
+	for _, kind := range kinds {
+		for _, shape := range shapes {
+			hit := shape.hit
+			hit.Kind, hit.Source = kind, logColored("Src", logPlain)
+			hit.Target = damageLogTarget{name: logColored("Dummy", logEnemy), hp: 10, maxHP: 20}
+			g.combatLogHistory = nil
+			g.reportDamage(logToneGood, hit)
+			text := g.combatLogHistory[0].Text
+			if !strings.Contains(text, shape.phrase) || strings.Contains(text, "physical") {
+				t.Errorf("%s, %s: %q, want %q and no word for physical damage", kind, shape.name, text, strings.TrimSpace(shape.phrase))
+			}
+		}
+	}
+}
+
+// Sequential production hits must log their own resolved amount and HP, not
+// the initial raw amount or the final HP after all follow-up damage.
+func TestDamageReportsCaptureResolvedHits(t *testing.T) {
+	g, hero := newThiefTestGame(t)
+	g.party.Members = []*character.MMCharacter{hero}
+	isolateTrueDamageMember(hero, 0)
+	hero.HitPoints, hero.MaxHitPoints = 1000, 1000
+	m := spawnTestMonsterAt(g, 2, 1)
+	m.HitPoints, m.MaxHitPoints, m.ArmorClass, m.PerfectDodge = 1000, 1000, 0, 0
+	m.Name = "Dummy"
+	m.Resistances = map[monster.DamageType]int{monster.DamageFire: 50}
+	g.combatLogHistory = nil
+	g.combat.elementalWeaponBonus(m, 100, "fire", "Flame")
+	g.combat.applyTrapDamage(m, 40, "fire", "Fire Trap")
+	g.damageEnvironment(config.EnvironmentEffect{Name: "Heat", School: "physical", Damage: 30}, 1)
+	// Through a Perfect Dodge: a Grandmaster graze is the attack's school, a
+	// weapon's true damage alone is true.
+	graze := g.combat.newPartyWeaponAttack(40, 0, "fire", nil, "Blade", false, false, 0)
+	graze.GrazesDodge = true
+	g.combat.applyDamageThroughDodge(m, graze, hero, hero.Name, nil)
+	g.combat.applyDamageThroughDodge(m, g.combat.newPartyWeaponAttack(40, 6, "fire", nil, "Blade", false, false, 0), hero, hero.Name, nil)
+	// A bound ally's graze on a dodging foe reads the same way.
+	ally := spawnTestMonsterAt(g, 3, 1)
+	ally.Name, ally.Bound, ally.BoundClock = "Ghoul", true, framesClock(1000)
+	m.PerfectDodge = 100
+	g.combat.strikeMonsterPacketFor(ally, m, singleMonsterDamagePacket(damage.Parts{Normal: 40}, "fire", 0), nil, false, true, true, false)
+	var hits []combatLogEntry
+	for _, line := range g.combatLogHistory {
+		if strings.Contains(line.Text, "(HP:") {
+			hits = append(hits, line)
+		}
+	}
+	want := []struct {
+		text, amount string
+		tint         color.Color
+	}{
+		{"Flame hits Dummy for 50 fire damage! (HP: 950/1000)", "50", SchoolTextColor("fire")},
+		{"Dummy takes 20 fire damage from Fire Trap! (HP: 930/1000)", "20", SchoolTextColor("fire")},
+		{"Heat hits " + hero.Name + " for 30 damage! (HP: 970/1000)", "30", logPhysical},
+		{"Dummy dodges, but " + hero.Name + " lands 5 fire damage! (HP: 925/1000)", "5", SchoolTextColor("fire")},
+		{"Dummy dodges, but " + hero.Name + " lands 3 true damage! (HP: 922/1000)", "3", logTrue}, // true damage meets resistance
+		{"Dummy dodges, but Ghoul lands 5 fire damage! (HP: 917/1000)", "5", SchoolTextColor("fire")},
+	}
+	if len(hits) != len(want) {
+		t.Fatalf("%d hit reports, want %d: %+v", len(hits), len(want), hits)
+	}
+	for i, w := range want {
+		if hits[i].Text != w.text {
+			t.Fatalf("hit report %q, want %q", hits[i].Text, w.text)
+		}
+		// Every damage number wears its school's tint; no school is true damage.
+		tinted := false
+		for _, s := range hits[i].Segments {
+			tinted = tinted || s.text == w.amount && sameColor(s.color, w.tint)
+		}
+		if !tinted {
+			t.Fatalf("%q: amount %s not tinted %v: %+v", w.text, w.amount, w.tint, hits[i].Segments)
+		}
+	}
+	if m.HitPoints != 917 || hero.HitPoints != 970 {
+		t.Fatalf("reporting changed HP: monster=%d hero=%d", m.HitPoints, hero.HitPoints)
 	}
 }

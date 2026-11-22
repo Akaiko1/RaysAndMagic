@@ -92,10 +92,10 @@ func (r *Renderer) buildWallTorches() {
 
 // wallTorchFlicker returns the torch's brightness modulation for this frame -
 // a slow breathing wave plus per-torch phase so neighbours don't pulse in sync.
-func wallTorchFlicker(seed int, frameCount int64) float64 {
+func wallTorchFlicker(seed int, seconds float64) float64 {
 	phase := auraHash(seed, 0, 11, 0) * 2 * math.Pi
-	f := 0.85 + 0.12*math.Sin(float64(frameCount)*0.13+phase) +
-		0.03*math.Sin(float64(frameCount)*0.47+phase*2)
+	f := 0.85 + 0.12*math.Sin(seconds*15.6+phase) +
+		0.03*math.Sin(seconds*56.4+phase*2)
 	return f
 }
 
@@ -107,7 +107,7 @@ func (r *Renderer) drawWallTorchFlame(screen *ebiten.Image, tp wallTorchPoint) {
 	horizon := r.game.viewHorizon()
 	viewDist := r.game.camera.ViewDist
 	depthBuf := r.game.depthBuffer
-	fc := r.game.frameCount
+	t := r.game.worldSeconds()
 
 	screenX, depth, ok := r.game.renderHelper.projectToScreenX(tp.X, tp.Y)
 	if !ok || depth < auraMinDepth || depth > viewDist {
@@ -124,11 +124,11 @@ func (r *Renderer) drawWallTorchFlame(screen *ebiten.Image, tp wallTorchPoint) {
 	// Flame anchored at torch height (~60% up a 1-tile wall).
 	baseY := floorY - halfWall*1.2
 	size := math.Max(2, halfWall*0.10)
-	flick := wallTorchFlicker(tp.seed, fc)
+	flick := wallTorchFlicker(tp.seed, t)
 
 	// Fire motes: short risers cycling out of the sconce.
 	for k := 0; k < 5; k++ {
-		ph := math.Mod(float64(fc)/(26.0+6*auraHash(tp.seed, k, 1, 0))+auraHash(tp.seed, k, 2, 0), 1.0)
+		ph := math.Mod(t/(.2167+.05*auraHash(tp.seed, k, 1, 0))+auraHash(tp.seed, k, 2, 0), 1.0) // a 0.22-0.27 s rise
 		rise := halfWall * 0.22 * ph
 		sway := math.Sin((ph+auraHash(tp.seed, k, 3, 0))*2*math.Pi) * size * 0.5
 		alpha := flick * (1 - ph) * 0.9
@@ -141,8 +141,8 @@ func (r *Renderer) drawWallTorchFlame(screen *ebiten.Image, tp wallTorchPoint) {
 	// direction/length every flight, so trajectories never repeat in step -
 	// and the per-torch seed keeps neighbouring torches out of sync.
 	for k := 0; k < 3; k++ {
-		period := 18.0 + 10.0*auraHash(tp.seed, k, 8, 0)
-		cyc := float64(fc)/period + auraHash(tp.seed, k, 9, 0)
+		period := .15 + .0833*auraHash(tp.seed, k, 8, 0) // seconds of flight
+		cyc := t/period + auraHash(tp.seed, k, 9, 0)
 		ph := math.Mod(cyc, 1.0)
 		flight := int(cyc) // changes once per flight -> new random trajectory
 		if auraHash(tp.seed, k, flight, 1) < 0.45 {

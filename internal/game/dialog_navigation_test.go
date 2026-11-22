@@ -155,10 +155,9 @@ func TestDialogueNavigationLayoutAndLifecycle(t *testing.T) {
 		}
 	}
 	h.g.dialogNodePath = []*character.NPCDialogueChoice{choices[0]}
-	h.g.dialogLastClickZone = "encounter_choice"
-	h.g.dialogLastClickedIdx = 1
+	h.g.dialogClicks.click(dialogClickKey{"encounter_choice", 1}, 1000)
 	h.g.switchDialogTab(1)
-	if h.g.currentDialogNode() != nil || h.g.dialogLastClickedIdx != -1 {
+	if h.g.currentDialogNode() != nil || h.g.dialogClicks.pending() {
 		t.Fatal("tab change retained branch/click state")
 	}
 	h.g.dialogNodePath = []*character.NPCDialogueChoice{choices[0]}

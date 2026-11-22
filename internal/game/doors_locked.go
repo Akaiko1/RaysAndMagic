@@ -5,6 +5,7 @@ import (
 	"math/rand"
 	"strings"
 
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/collision"
 	"ugataima/internal/config"
@@ -291,14 +292,14 @@ func (g *MMGame) resolveDoorUnlock(npc *character.NPC, optIdx, roll int) {
 	opened := false
 	switch opt.kind {
 	case character.DoorOpeningMasterKey:
-		g.AddCombatMessage(fmt.Sprintf("The %s turns without resistance - the %s door swings open.", opt.masterKeyName, doorLabelOrDefault(npc)))
+		g.AddCombatMessage(uitext.Text("combat.the_turns_without_resistance_the_door", opt.masterKeyName, doorLabelOrDefault(npc)))
 		opened = true
 	case character.DoorOpeningKey:
 		def, ok := config.GetItemDefinition(opt.keyItemKey)
 		if !ok || def == nil || !g.party.RemoveItemsByName(def.Name, 1) {
 			return // key vanished between opening the dialog and confirming
 		}
-		g.AddCombatMessage(fmt.Sprintf("The %s turns in the lock and breaks off - the door opens.", def.Name))
+		g.AddCombatMessage(uitext.Text("combat.the_turns_in_the_lock_and", def.Name))
 		opened = true
 	case character.DoorOpeningForce, character.DoorOpeningLockpick:
 		opened, _ = resolveNonKeyDoorAttempt(npc, opt.chancePct, roll)
@@ -307,12 +308,11 @@ func (g *MMGame) resolveDoorUnlock(npc *character.NPC, optIdx, roll int) {
 			if opt.kind == character.DoorOpeningLockpick {
 				verb = "picks"
 			}
-			g.AddCombatMessage(fmt.Sprintf("%s %s the %s door open.", opt.actorName, verb, doorLabelOrDefault(npc)))
+			g.AddCombatMessage(uitext.Text("combat.the_door_open", opt.actorName, verb, doorLabelOrDefault(npc)))
 		} else if npc.DoorLockBroken {
-			g.AddCombatMessage(fmt.Sprintf("Failed attempt %d jams the lock. Only a key can open it now.", character.DoorMaxNonKeyAttempts))
+			g.AddCombatMessage(uitext.Text("combat.failed_attempt_jams_the_lock_only", character.DoorMaxNonKeyAttempts))
 		} else {
-			g.AddCombatMessage(fmt.Sprintf("The attempt fails. %d non-key attempt(s) remain before the lock jams.",
-				character.DoorMaxNonKeyAttempts-npc.DoorAttempts))
+			g.AddCombatMessage(uitext.Text("combat.the_attempt_fails_non_key_attempt", character.DoorMaxNonKeyAttempts-npc.DoorAttempts))
 		}
 	default:
 		return

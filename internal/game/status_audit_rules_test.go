@@ -9,7 +9,6 @@ import (
 	"ugataima/internal/config"
 	"ugataima/internal/monster"
 	"ugataima/internal/spells"
-	"ugataima/internal/status"
 	"ugataima/internal/world"
 )
 
@@ -104,21 +103,21 @@ func TestSlowRealtimeCadence(t *testing.T) {
 			if tb {
 				g.refreshMonsterAIState()
 				runOneMonsterTurn(g, gl)
-				s.pounceTurns = puma.PounceCDTurns
+				s.pounceTurns = puma.PounceCD.Turns
 			} else {
 				g.combat.HandleMonsterInteractions()
-				s.pounceCD = puma.PounceCDFrames
+				s.pounceCD = puma.PounceCD.Frames
 			}
 		}
 
-		prev := config.GlobalEcology
-		t.Cleanup(func() { config.GlobalEcology = prev })
 		grazer := monster.NewMonster3DFromConfig(0, 0, "goblin", g.config)
 		grazer.Disposition = "grazer"
-		config.GlobalEcology = &config.EcologyConfig{TurnStepSpeed: 2 * grazer.Speed}
+		prev := g.config.MonsterAI.TurnStepSpeed
+		t.Cleanup(func() { g.config.MonsterAI.TurnStepSpeed = prev })
+		g.config.MonsterAI.TurnStepSpeed = 2 * grazer.Speed // half a step per turn
 		hit(g, grazer)
 		for range 4 {
-			if grazer.SpendAmbientTurnMove() {
+			if grazer.TakeTurnBasedSteps() > 0 {
 				s.ambientMoves += "x"
 			} else {
 				s.ambientMoves += "-"
@@ -154,7 +153,7 @@ func TestSlowRealtimeCadence(t *testing.T) {
 func TestSlowTurnBasedSkipCadence(t *testing.T) {
 	trident := tarnTrident(t)
 	const every = 3 // fixture cadence, set on the loaded config below
-	slowTurns := config.WeaponStatusTurns(trident.SlowSeconds)
+	slowTurns := config.CombatRounds(trident.SlowSeconds)
 	turns := max(2*every, slowTurns+every)
 	// cadence is the expected run: x acted, - skipped (every k-th turn while slowed).
 	cadence := func(slowedTurns int) string {
@@ -193,7 +192,7 @@ func TestSlowTurnBasedSkipCadence(t *testing.T) {
 	// A slow one turn shorter than the cadence, reapplied as it lapses.
 	shortTurns := every - 1
 	shortSlow := func(m *monster.Monster3D) {
-		m.ApplySlow(trident.SlowPct, shortTurns*TurnBasedPeriodicEffectSeconds*config.GetTargetTPS(), shortTurns)
+		m.ApplySlow(trident.SlowPct, shortTurns*config.CombatRoundSeconds*config.GetTargetTPS(), shortTurns)
 	}
 	scenarios := []struct {
 		name   string
@@ -207,6 +206,25 @@ func TestSlowTurnBasedSkipCadence(t *testing.T) {
 				hit(e, m)
 			}
 		}, cadence(slowTurns)},
+		{"spell_once_expires", func(e env, m *monster.Monster3D, turn int) {
+			if turn != 1 {
+				return
+			}
+			d, err := spells.GetSpellDefinitionByID("slow")
+			if err != nil {
+				e.t.Fatal(err)
+			}
+			mechanic := *d.Mechanic
+			d.DurationByMastery = []int{9, 9, 9, 9}
+			mechanic.RadiusTiles = 9 // Include the distant pursuit fixture.
+			d.Mechanic = &mechanic
+			if !e.g.combat.castResolvedSpell(d.ID, d, e.g.party.Members[0], 0, false, false) {
+				e.t.Fatal("Slow cast did not reach the scheduler fixture")
+			}
+			if m.Slow.Turns != 3 {
+				e.t.Fatal("Slow cast did not apply the authored duration")
+			}
+		}, cadence(3)},
 		{"save_before_skip", func(e env, m *monster.Monster3D, turn int) {
 			hit(e, m)
 			if turn == every {
@@ -223,9 +241,10 @@ func TestSlowTurnBasedSkipCadence(t *testing.T) {
 		for _, sc := range scenarios {
 			t.Run(a.name+"/"+sc.name, func(t *testing.T) {
 				g, gl, wm := clockSaveFixture(t)
-				prevEvery := config.GlobalConfig.StatusEffects.SlowSkipEveryTurns
-				config.GlobalConfig.StatusEffects.SlowSkipEveryTurns = every
-				t.Cleanup(func() { config.GlobalConfig.StatusEffects.SlowSkipEveryTurns = prevEvery })
+				slow := config.Status("slow")
+				prevEvery := slow.SkipEveryTurns
+				slow.SkipEveryTurns = every
+				t.Cleanup(func() { slow.SkipEveryTurns = prevEvery })
 				g.turnBasedMode = true
 				ts := float64(g.config.GetTileSize())
 				for _, c := range g.party.Members {
@@ -269,12 +288,12 @@ func TestSlowSkippedTurnStillTicksRoot(t *testing.T) {
 	m := monster.NewMonster3DFromConfig(400, 400, "goblin", g.config)
 	g.world.Monsters = []*monster.Monster3D{m}
 	g.world.RegisterMonstersWithCollisionSystem(g.collisionSystem)
-	g.combat.applyMonsterRoot(m, 5, 5*TurnBasedPeriodicEffectSeconds*g.config.GetTPS())
+	g.combat.applyMonsterRoot(m, 5)
 	for turn := 1; turn <= 3; turn++ {
 		m.ApplySlow(30, 10*g.config.GetTPS(), 5)
 		runOneMonsterTurn(g, gl)
-		if m.RootTurnsRemaining != 5-turn {
-			t.Fatalf("turn %d: root turns %d, want %d", turn, m.RootTurnsRemaining, 5-turn)
+		if m.Root.Turns != 5-turn {
+			t.Fatalf("turn %d: root turns %d, want %d", turn, m.Root.Turns, 5-turn)
 		}
 	}
 }
@@ -350,8 +369,8 @@ func TestEradicationClearsAfflictionClocks(t *testing.T) {
 	}
 }
 
-// Charm takes hold of living, non-formless targets only. Formless covers every
-// boss; undead answer to Bind Undead instead.
+// Charm takes hold of living, non-formless targets only; undead answer to
+// Bind Undead instead.
 func TestCharmTargetEligibility(t *testing.T) {
 	for _, tc := range []struct {
 		name, key string
@@ -359,7 +378,6 @@ func TestCharmTargetEligibility(t *testing.T) {
 	}{
 		{"living", "goblin", true},
 		{"undead", "skeleton", false},
-		{"formless", "enforcer_alien", false},
 		{"formless_boss", "golden_thief_bug", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -387,7 +405,7 @@ func TestTurnDebuffLatchesSurviveSave(t *testing.T) {
 		name  string
 		apply func(g *MMGame, m *monster.Monster3D)
 	}{
-		{"root", func(g *MMGame, m *monster.Monster3D) { g.combat.applyMonsterRoot(m, 1, g.config.GetTPS()) }},
+		{"root", func(g *MMGame, m *monster.Monster3D) { g.combat.applyMonsterRoot(m, 1) }},
 		{"slow", func(g *MMGame, m *monster.Monster3D) { m.ApplySlow(30, g.config.GetTPS(), 1) }},
 		{"weaken", func(g *MMGame, m *monster.Monster3D) { m.ApplyWeaken(25, g.config.GetTPS(), 1) }},
 	} {
@@ -459,7 +477,7 @@ func TestEnrageAnnouncesOnceAcrossSave(t *testing.T) {
 				g.world.Monsters = []*monster.Monster3D{boss}
 				g.world.RegisterMonstersWithCollisionSystem(g.collisionSystem)
 				boss = spawn()
-				if boss.EnrageAtHP <= 0 {
+				if boss.Abilities.Enrage.AtHP <= 0 {
 					t.Fatal("setup: old_samurai has no enrage threshold")
 				}
 				run := func() {
@@ -472,7 +490,7 @@ func TestEnrageAnnouncesOnceAcrossSave(t *testing.T) {
 					}
 				}
 				const rage = "flies into a furious rage"
-				boss.HitPoints = boss.EnrageAtHP + tc.hpBefore
+				boss.HitPoints = boss.Abilities.Enrage.AtHP + tc.hpBefore
 				if tc.ranBefore {
 					run()
 				}
@@ -494,7 +512,7 @@ func TestEnrageAnnouncesOnceAcrossSave(t *testing.T) {
 					}
 					boss = spawn()
 				}
-				boss.HitPoints = boss.EnrageAtHP + tc.hpAfter
+				boss.HitPoints = boss.Abilities.Enrage.AtHP + tc.hpAfter
 				run()
 				after := countCombatLog(g, rage)
 				if tc.name == "no_save" {
@@ -589,10 +607,11 @@ func TestHeroStunDiminishingReturns(t *testing.T) {
 				c := g.party.Members[0]
 				c.Conditions = nil
 				mob := monster.NewMonster3DFromConfig(400, 400, "goblin", g.config)
-				mob.StunCharChance, mob.StunCharSeconds, mob.StunCharTurns = 1, 4, 4
-				full, window := 4*tps, status.StunDRResetSeconds*tps
+				mob.Abilities.Stun.Chance, mob.Abilities.Stun.Seconds = 1, 4*config.CombatRoundSeconds
+				resetRounds := config.CombatRounds(config.Status("stun").RepeatResetSeconds)
+				full, window := config.RoundFrames(4, tps), config.RoundFrames(resetRounds, tps)
 				if tb {
-					full, window = 4, status.StunDRResetTurns
+					full, window = 4, resetRounds
 				}
 				advance := func() {
 					if tb {
@@ -602,10 +621,10 @@ func TestHeroStunDiminishingReturns(t *testing.T) {
 					}
 				}
 				stun := func() int {
-					g.combat.applyMonsterHitRiders(mob, "", heroHitTarget{g.combat, c})
-					got := c.StunFramesRemaining
+					g.combat.applyMonsterHitRiders(mob, "", heroHitTarget{g.combat, c}, true)
+					got := c.Stun.Frames
 					if tb {
-						got = c.StunTurnsRemaining
+						got = c.Stun.Turns
 					}
 					for c.IsStunned() {
 						advance()

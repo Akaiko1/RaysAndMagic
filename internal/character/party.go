@@ -1,6 +1,8 @@
 package character
 
 import (
+	"iter"
+
 	"ugataima/internal/config"
 	"ugataima/internal/items"
 )
@@ -245,20 +247,17 @@ func (p *Party) AddMember(character *MMCharacter) {
 	}
 }
 
-// UpdateWithMode updates the party with knowledge of the current game mode and
-// reports whether any member completed an RT regeneration cadence.
-func (p *Party) UpdateWithMode(turnBasedMode bool) bool {
-	regenCadenceCompleted := false
+// UpdateWithMode updates the party on its clock. Optional absorbers are
+// shared by every member's periodic damage.
+func (p *Party) UpdateWithMode(clock PartyClock, absorbDoT ...func(int) int) {
 	for _, member := range p.Members {
-		if member.UpdateWithMode(turnBasedMode) {
-			regenCadenceCompleted = true
-		}
+		member.UpdateWithMode(clock, absorbDoT...)
 	}
-	return regenCadenceCompleted
 }
 
-// AddItem adds an item to the party inventory. Stackable items (consumables,
-// trinkets) merge into an existing same-name stack; everything else appends.
+// AddItem adds an item to the party inventory automatically: stackable items
+// (consumables, trinkets) merge into the first matching stack; everything else
+// appends.
 func (p *Party) AddItem(item items.Item)          { p.Bag().Add(item) }
 func (p *Party) RemoveItem(index int)             { p.Bag().Remove(index) }
 func (p *Party) ConsumeUnitsAt(index, n int) bool { return p.Bag().Consume(index, n) }
@@ -270,13 +269,91 @@ func (p *Party) TakeStackUnits(index, quantity int) (items.Item, bool) {
 }
 func (p *Party) MergeStacks() {
 	p.Bag().MergeStacks()
-	for _, roster := range [][]*MMCharacter{p.Members, p.Reserve, p.Captive} {
-		for _, ch := range roster {
-			if ch != nil {
-				p.Bag(ch).MergeStacks()
+	for ch := range p.Heroes() {
+		p.Bag(ch).MergeStacks()
+	}
+}
+
+// Heroes walks every hero the party holds: members, reserve, then captives.
+func (p *Party) Heroes() iter.Seq[*MMCharacter] {
+	return func(yield func(*MMCharacter) bool) {
+		for _, roster := range [][]*MMCharacter{p.Members, p.Reserve, p.Captive} {
+			for _, ch := range roster {
+				if ch != nil && !yield(ch) {
+					return
+				}
 			}
 		}
 	}
+}
+
+// walkOwned is the one list of places a party item lives: the shared bag,
+// then every hero's (active, reserve, captive) bag, equipment and quick slots.
+// visit may edit the item in place; keep false removes it, stop ends the walk.
+// Card collection and ground containers belong to the game and are walked
+// beside it.
+func (p *Party) walkOwned(visit func(it *items.Item) (keep, stop bool)) {
+	stopped := false
+	bag := func(list []items.Item) []items.Item {
+		kept := list[:0]
+		for _, it := range list {
+			keep := true
+			if !stopped {
+				keep, stopped = visit(&it)
+			}
+			if keep {
+				kept = append(kept, it)
+			}
+		}
+		return kept
+	}
+	if p == nil {
+		return
+	}
+	p.Inventory = bag(p.Inventory)
+	for hero := range p.Heroes() {
+		if stopped {
+			return
+		}
+		hero.Inventory = bag(hero.Inventory)
+		for slot, it := range hero.Equipment {
+			if stopped {
+				break
+			}
+			keep := true
+			keep, stopped = visit(&it)
+			if keep {
+				hero.Equipment[slot] = it
+			} else {
+				delete(hero.Equipment, slot)
+			}
+		}
+		for i, it := range hero.QuickSlots {
+			if stopped {
+				break
+			}
+			if it != nil {
+				keep := true
+				if keep, stopped = visit(it); !keep {
+					hero.QuickSlots[i] = nil
+				}
+			}
+		}
+	}
+}
+
+// OwnedItems yields every item the party owns (see walkOwned), editable in
+// place.
+func (p *Party) OwnedItems() iter.Seq[*items.Item] {
+	return func(yield func(*items.Item) bool) {
+		p.walkOwned(func(it *items.Item) (bool, bool) { return true, !yield(it) })
+	}
+}
+
+// RetainOwnedItems drops every owned item keep rejects; keep may edit the
+// item it keeps.
+func (p *Party) RetainOwnedItems(keep func(*items.Item) bool) {
+	p.walkOwned(func(it *items.Item) (bool, bool) { return keep(it), false })
 }
 
 // CountItemsByName counts carried units available for crafting and item exchanges.
@@ -403,7 +480,7 @@ func (p *Party) UnequipItemToInventory(slot items.EquipSlot, characterIndex int,
 	if !success {
 		return false
 	}
-	if slot != items.SlotSpell {
+	if slot != items.SlotQuickAction {
 		p.Bag(owner...).Add(item)
 	}
 	return true

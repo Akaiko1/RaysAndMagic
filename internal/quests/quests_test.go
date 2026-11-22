@@ -58,8 +58,8 @@ func TestQuestManager_InitializeStartingQuests(t *testing.T) {
 	if goblinQuest == nil {
 		t.Fatal("Goblin hunt quest should be active")
 	}
-	if goblinQuest.Status != QuestStatusActive {
-		t.Errorf("Goblin quest status should be active, got %s", goblinQuest.Status)
+	if goblinQuest.Status() != QuestStatusActive {
+		t.Errorf("Goblin quest status should be active, got %s", goblinQuest.Status())
 	}
 	if goblinQuest.CurrentCount != 0 {
 		t.Errorf("Goblin quest count should be 0, got %d", goblinQuest.CurrentCount)
@@ -107,8 +107,8 @@ func TestQuestManager_OnMonsterKilled(t *testing.T) {
 	}
 
 	quest = qm.GetQuest("goblin_hunt")
-	if quest.Status != QuestStatusCompleted {
-		t.Errorf("Quest status should be completed, got %s", quest.Status)
+	if quest.Status() != QuestStatusCompleted {
+		t.Errorf("Quest status should be completed, got %s", quest.Status())
 	}
 	if !quest.Completed {
 		t.Error("Quest.Completed should be true")
@@ -249,6 +249,12 @@ func TestInteractQuestProgressIsAuthored(t *testing.T) {
 				TargetCount: 3, ProgressText: "shrine lamps lifted"},
 			wants: "must set target_monster",
 		},
+		{
+			// A hidden quest taken from a giver would vanish from the journal.
+			name:  "hidden but not starting",
+			def:   &QuestDefinition{Type: QuestTypeKill, TargetMonster: "alien", TargetCount: 3, Hidden: true},
+			wants: "hidden needs is_starting_quest",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			err := validateQuestConfig(&QuestConfig{Quests: map[string]*QuestDefinition{"q": tc.def}})
@@ -294,8 +300,8 @@ func TestQuestManager_ActivateQuest(t *testing.T) {
 	if quest == nil {
 		t.Fatal("Secret quest should be active")
 	}
-	if quest.Status != QuestStatusActive {
-		t.Errorf("Quest status should be active, got %s", quest.Status)
+	if quest.Status() != QuestStatusActive {
+		t.Errorf("Quest status should be active, got %s", quest.Status())
 	}
 
 	// Try to activate again - should fail
@@ -330,8 +336,8 @@ func TestQuestManager_CreateEncounterQuest(t *testing.T) {
 	if quest == nil {
 		t.Fatal("Encounter quest should exist")
 	}
-	if quest.Status != QuestStatusActive {
-		t.Errorf("Quest status should be active, got %s", quest.Status)
+	if quest.Status() != QuestStatusActive {
+		t.Errorf("Quest status should be active, got %s", quest.Status())
 	}
 	if quest.Definition.Type != QuestTypeEncounter {
 		t.Errorf("Quest type should be encounter, got %s", quest.Definition.Type)
@@ -383,8 +389,8 @@ func TestQuestManager_CompleteEncounterQuest(t *testing.T) {
 	if !quest.RewardsClaimed {
 		t.Error("Rewards should be auto-claimed")
 	}
-	if quest.Status != QuestStatusCompleted {
-		t.Errorf("Quest status should be completed, got %s", quest.Status)
+	if quest.Status() != QuestStatusCompleted {
+		t.Errorf("Quest status should be completed, got %s", quest.Status())
 	}
 
 	// Completing again should return nil
@@ -419,8 +425,8 @@ func TestQuestManager_CompleteEncounterQuest_NonEncounter(t *testing.T) {
 
 	// Quest should still be active
 	quest := qm.GetQuest("goblin_hunt")
-	if quest.Status != QuestStatusActive {
-		t.Errorf("Quest status should still be active, got %s", quest.Status)
+	if quest.Status() != QuestStatusActive {
+		t.Errorf("Quest status should still be active, got %s", quest.Status())
 	}
 }
 
@@ -479,7 +485,7 @@ func TestQuestManager_LoadDropsQuestsTakenAfterSave(t *testing.T) {
 	}
 	var saved []snap
 	for _, q := range qm.GetAllQuests() {
-		saved = append(saved, snap{q.ID, q.Status, q.CurrentCount, q.RewardsClaimed})
+		saved = append(saved, snap{q.ID, q.Status(), q.CurrentCount, q.RewardsClaimed})
 	}
 
 	// Player takes the side quest after that save.
@@ -529,7 +535,7 @@ func TestQuestManager_MarkCompleted(t *testing.T) {
 	qm.MarkCompleted("slay_boss")
 
 	q := qm.GetQuest("slay_boss")
-	if q == nil || !q.Completed || q.Status != QuestStatusCompleted || q.CurrentCount != 1 {
+	if q == nil || !q.Completed || q.Status() != QuestStatusCompleted || q.CurrentCount != 1 {
 		t.Fatalf("quest should be fully completed, got %+v", q)
 	}
 	if _, err := qm.ClaimRewards("slay_boss"); err != nil {

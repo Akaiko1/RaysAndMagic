@@ -2,6 +2,8 @@ package game
 
 import (
 	"fmt"
+	"maps"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,12 +23,85 @@ func (g *MMGame) LoadPlayerProfile() {
 	if g.playerProfile != nil {
 		return
 	}
+	g.openPlayerProfile(storage.AppSavePath("player_profile.json"))
+}
+
+func (g *MMGame) openPlayerProfile(path string) {
 	g.playerProfileError = ""
-	p, err := playerprofile.Open(storage.AppSavePath("player_profile.json"))
+	p, err := playerprofile.Open(path)
 	g.playerProfile = p
 	if err != nil {
 		g.playerProfileError = err.Error()
 		fmt.Printf("Warning: player statistics unavailable: %v\n", err)
+		return
+	}
+	g.reconcileProfileLootGroups()
+}
+
+// profileLootGroup is the collecting statistic an item unit counts toward:
+// cards, legendary loot, or neither. Legendary loot is a legendary find of
+// the current catalog - what the Legendary Showcase collects: no quest items
+// (the dragon statuettes), no class starting kit.
+func profileLootGroup(it items.Item) string {
+	for _, group := range profileLootGroups {
+		if group.holds(it) {
+			return group.name
+		}
+	}
+	return ""
+}
+
+func profileItemKey(it items.Item) string { return fmt.Sprintf("%d:%s", it.Type, it.Name) }
+
+// profileLootGroups are the collecting statistics, first match wins: the
+// recording path and the rebuild on profile open both read this one list.
+var profileLootGroups = []struct {
+	name  string
+	holds func(items.Item) bool
+}{
+	{"cards_found", func(it items.Item) bool { return it.Type == items.ItemCard }},
+	{"legendary_loot", func(it items.Item) bool { return legendaryStampKey(it) != "" }},
+}
+
+// reconcileProfileLootGroups rebuilds the collecting statistics from the
+// complete loot ranking (one entry per item, recorded with them since the
+// start) by the current catalog. A rarity change, a quest item an older rule
+// counted, a new legendary or a removed legendary moves its units out of or
+// into a group; cards count by type, so a removed card stays found. The total
+// loot is untouched.
+func (g *MMGame) reconcileProfileLootGroups() {
+	d := &g.playerProfile.Data
+	rebuilt := map[string]map[string]playerprofile.Entry{}
+	totals := map[string]int64{}
+	for key, e := range d.Rankings["loot"] {
+		typ, name, _ := strings.Cut(key, ":")
+		n, err := strconv.Atoi(typ)
+		if err != nil {
+			continue
+		}
+		it := items.Item{Type: items.ItemType(n), Name: name}
+		normalizeItemFromConfig(&it)
+		group := profileLootGroup(it)
+		if group == "" {
+			continue
+		}
+		if rebuilt[group] == nil {
+			rebuilt[group] = map[string]playerprofile.Entry{}
+		}
+		rebuilt[group][key] = playerprofile.Entry{Name: e.Name, Icon: e.Icon, Count: e.Count}
+		totals[group] += e.Count
+	}
+	changed := false
+	for _, group := range profileLootGroups {
+		name := group.name
+		if maps.Equal(d.Rankings[name], rebuilt[name]) && d.Counters[name] == totals[name] {
+			continue
+		}
+		d.Rankings[name], d.Counters[name] = rebuilt[name], totals[name]
+		changed = true
+	}
+	if changed {
+		g.playerProfile.Checkpoint()
 	}
 }
 
@@ -92,7 +167,7 @@ func (g *MMGame) updatePlayerProfile(now time.Time) {
 			}
 		}
 		g.evaluateAchievements()
-		loading := g.gameLoop != nil && g.gameLoop.loadingBarrier()
+		loading := g.loadingStall()
 		if !loading {
 			g.recordProfileExploration(g.camera.X, g.camera.Y)
 		}
@@ -208,20 +283,14 @@ func (g *MMGame) recordProfileLootSource(loot []items.Item, chest bool) {
 	}
 	for _, it := range loot {
 		n := int64(it.Count())
-		key, icon := fmt.Sprintf("%d:%s", it.Type, it.Name), itemTooltipIconName(it)
+		key, icon := profileItemKey(it), itemTooltipIconName(it)
 		g.playerProfile.Data.Add("loot", n)
 		g.playerProfile.Data.RankValued("loot", key, it.Name, icon, n, int64(it.Attributes["value"]))
 		if chest {
 			g.playerProfile.Data.Add("chest_loot", n)
 			g.playerProfile.Data.Rank("chest_loot", key, it.Name, icon, n)
 		}
-		group := ""
-		if it.Type == items.ItemCard {
-			group = "cards_found"
-		} else if strings.EqualFold(it.Rarity, "legendary") {
-			group = "legendary_loot"
-		}
-		if group != "" {
+		if group := profileLootGroup(it); group != "" {
 			g.playerProfile.Data.Add(group, n)
 			g.playerProfile.Data.Rank(group, key, it.Name, icon, n)
 		}
@@ -247,9 +316,8 @@ func (g *MMGame) recordProfileQuestResolution(quest *quests.Quest) {
 
 // Record the committed payment, not the number of goods received. Shop-wide
 // currencies and per-entry overrides both pass the resolved currency here.
-func (g *MMGame) recordProfileItemTrade(currency, name string, units int) {
-	key, ok := character.CurrencyItemKey(currency)
-	if g.playerProfile == nil || !ok || units <= 0 {
+func (g *MMGame) recordProfileItemTrade(key, name string, units int) {
+	if g.playerProfile == nil || key == "" || units <= 0 {
 		return
 	}
 	g.playerProfile.Data.Add("items_traded", int64(units))
@@ -319,7 +387,7 @@ func (g *MMGame) beginProfileMonsterHit(m *monster.Monster3D, name string) func(
 // Paused achievements use the interface clock; the world clock owns all other
 // news. Loading freezes this channel while its own indicator is visible.
 func (g *MMGame) tickPausedAchievementBanner() {
-	if g.gameLoop != nil && g.gameLoop.loadingBarrier() {
+	if g.loadingStall() {
 		return
 	}
 	if b := g.currentScreenBanner(); b != nil && b.kind == bannerAchievement {

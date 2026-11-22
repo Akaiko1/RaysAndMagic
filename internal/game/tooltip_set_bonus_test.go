@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
 )
@@ -128,22 +129,27 @@ func TestSetHighlightSurvivesLongAuthoredText(t *testing.T) {
 	set.Name = strings.Repeat("Long authored set name ", 5)
 	for _, full := range []bool{false, true} {
 		rows := GetItemTooltipRows(armor, ch, cs, full)
-		lines := rows.Lines()
 		colors := activeSetBonusRowColors(rows, nil, armor, ch)
-		wrapped, colors := wrapTooltipLines(lines, colors, 0, 300, 0)
+		inSet := make([]bool, len(rows))
 		active := false
-		greenRows := 0
-		for i, line := range wrapped {
-			if line == equipmentSetSectionTitle {
+		for i, row := range rows {
+			switch {
+			case row.Text == equipmentSetSectionTitle:
 				active = true
 				continue
-			}
-			if line == "" {
+			case row.Text == "" || row.Kind == character.CardRowSpacer:
 				active = false
 			}
-			green := colors[i] == equipmentBenefitColor
-			if green != active {
-				t.Fatalf("wrapped row %q green=%v, want %v", line, green, active)
+			inSet[i] = active
+		}
+		greenRows := 0
+		for _, lr := range tooltipLayoutRows(rows, false, 300, 16).rows {
+			if rows[lr.source].Text == equipmentSetSectionTitle {
+				continue
+			}
+			green := colors[lr.source] == equipmentBenefitColor
+			if green != inSet[lr.source] {
+				t.Fatalf("wrapped row %q green=%v, want %v", lr.text, green, inSet[lr.source])
 			}
 			if green {
 				greenRows++

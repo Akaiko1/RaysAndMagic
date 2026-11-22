@@ -16,41 +16,41 @@
 # Reserved secret anchor: the lone azalea between twin lanterns at (24,42).
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %.......................%:::::::::::%.M................%
-%..OO.....k.....T...OO..%::@::::::::%.M....M......O..P.%  >[npc:sakura_garden_exit]
-%..O...k............O.T.%:::::+::@::%.M..O......M..O...%  >[npc:miko_shiori]
-%.........III...P...T...%:::::::::::=.M...O.....t......%
+%..OO.....k.....T...OO@.%::@::::::::%.M....M......O@.@.%  >[npc:sakura_offering_bundle], [npc:sakura_garden_exit], [npc:sakura_offering_bundle], [npc:sakura_collectible_leaves]
+%..O...k............O.T.%:::::+::@::%.M..O@.....M..O...%  >[npc:miko_shiori], [npc:sakura_offering_bundle]
+%.........III...@...T...%:::::::::::=.M...O.....t......%  >[npc:sakura_collectible_leaves]
 %.....I;;;;;;;;;........=:::S:::::::=.M..O.....R.......%
 %.....;;;;;;;;;;;.@.....=:::::::::::%.M.....O.....t.M..%  >[npc:pond_keeper_ayame]
 %OO..;;;;;WWW;;;;;......%:::::::::::%.MO.......t.......%
 %OO.;;;;WWWWWWW;;;;H....%%%%%222%%%%%.MOO.M............%
 %.O.;;;;WWQQQWW;;;;.....T....222.......MMMMt.........O.%
-%OO.;;;WWQQ@QQWW;D;....OT....2G2..........MOO.......O..%  >[npc:chest_golden]
-%OO.P;;;WWQQQWW;;;;...OOT...L222L......MM.MOOM.........%
+%OO.;;;WWQQ@QQWW;D;....OT....2G2..........MOO.......O@.%  >[npc:chest_golden], [npc:sakura_offering_bundle]
+%OO.@;;;WWQQQWW;;;;...OOT...L222L......MM.MOOM.........%  >[npc:sakura_collectible_leaves]
 %...;;;;WWWWWWW;;;;..UTT.....222......MO..........M....%
 %....;;;;;WWW;;I;;...........222..@...MO...............%  >[npc:tengu_exile_kuroha]
 %...k.III;;;;;;I;;..........L222L.....MM.........t.....%
 %......;;;;;;;;k..I....OT....222......MO...............%
 %..O.....k;;;......I....TBBBBB::BBBBB.M............t...%
 %..OO.......k.......I...TB::::::::::B.M................%
-%....................I..TBE::::::::$B.M......O..O......%  >[tile:brazier]
+%..@.................I..TBE::::::::$B.M......O..O......%  >[npc:sakura_offering_bundle], [tile:brazier]
 %KKKKKKKK....KKKKKKKKKKKKB::::::::::B.MOMOMOMO..MOMOMOM%
 %KKKKKKKKK..KKKKKKKKKKKKKB$:J::::J::B.OMOMOMO....MOMOMO%  >[tile:omikuji]
-%...........P............B:::::::::::..................%
+%...........@............B:::::::::::..................%  >[npc:sakura_collectible_leaves]
 %....KKKK................B:::::X:::::A.................%
 %....KKKK...KKKK.........B$::::::::$BVVVVVVVVVVVVVV...V%  >[tile:taiko], [tile:sake_barrels]
-%....KKKK...KKKK.......T.B::::::@:::B,,,VVVV,,,,VVV.,.V%  >[npc:onmyoji_hina]
+%....KKKK...KKKK.......T.B::::::@:::B,,,VVVV@,,,VVV.,.V%  >[npc:onmyoji_hina], [npc:sakura_offering_bundle]
 %...........KKKK.........B::::::::::B,,,VVVV,,,,VVV.,.V%
-%..u....FFFF.............B::::::::::B,f,VVVV,,,,,,,,,,V%
+%..u....FFFF@............B@:::::::::B,f,VVVV,,,,,,,,,,V%  >[npc:sakura_offering_bundle], [npc:sakura_offering_bundle]
 %......,,u......KKKK.....BBBBB::BBBBB,,,,,,,VVV,,,U,,,V%
 %...KKK,,,...u..KKKK.....K....22....VVVV,,,,VVV,,,,,,,V%
-%...KKK...KKK...KKKK.....K....22....VVVV,,P,,,,,,f,,,,V%
-%...KKK...KKK,,,........UK....22....VVVV,U,,,,,P,,,,,UV%
-%...KKK...KKK,,,.u.F.....K....22....V,,,,,,,f,,,,P,,,,V%
+%...KKK...KKK...KKKK.....K....22....VVVV,,@,,,,,,f,,,,V%  >[npc:sakura_collectible_leaves]
+%...KKK.@.KKK,,,........UK....22....VVVV,U,,,,,@,,,,,UV%  >[npc:spell_lectern_cleric], [npc:sakura_collectible_leaves]
+%...KKK...KKK,,,.u.F.....K....22....V@,,,,,,f,,,,@,,,,V%  >[npc:sakura_offering_bundle], [npc:sakura_collectible_leaves]
 %....,,...KKK,,,...F.....K..:::::::.V,,,,f,,,,,,,,,,,,V%
 %....,,.......KKKK.F..A..K.C:::::::.V,U,,,,VVV,,VVVV,,V%
-%..u...KKK.u..KKKK.......K..N::Z:::.V,,,,,V,,,,,,,,,V,V%
+%..u...KKK.u..KKKK.......K..N::Z:::.V,,,,,V,,,,,,,,@V,V%  >[npc:spell_lectern_light_dark]
 %......KKK....KKKK.......K..:::::C:.V,,,,,,,,,,,,,,,,,V%
-%...K..KKK..............AK..:::::::.V,,P,,V,,,P,P,,,V,V%
+%...K..KKK..............AK..:::::::.V,,@,,V,,,@,@,,,V,V%  >[npc:sakura_collectible_leaves], [npc:sakura_collectible_leaves], [npc:sakura_collectible_leaves]
 %...@K............u......K....22....V,,,,,,,,,,,,,,,,,V%  >[npc:chest_iron]
 %KKKKKKKKK..KKKKKKKKKKKKKK....22....V,,,,,V,,,,j,,,,,,V%
 %KKKKKKKK....KKKKKKKKKKKKK....22....V,,,,,,,,,,,,,,,V,V%
@@ -58,7 +58,7 @@
 %......M.....C.M............M.......V,,,,,,V@,,,,,@,V,V%  >[npc:chest_iron], [npc:chest_golden]
 %...A............AA....LAL.....u.....V.,,,,V,,,,,,V,,,V%
 %...A,,AAA,,,,,,,,,,,,,,,,,,,,,,,,,..,,,,,,,,V,,V,,,,,V%
-%...A.A.@.A....AA...u..AA..P....A......,,,,,,,,,,,,,,,V%  >[npc:spell_lectern]
-%......AAA.M.......M...M.........M..VVVVVVVVVVVVVVVVVVV%
+%...A.A.@.A....AA...u..AA..@....A......,,,,,,,,,,,,,,@V%  >[npc:spell_lectern], [npc:sakura_collectible_leaves], [npc:sakura_offering_bundle]
+%......AAA.M.......M...M@........M..VVVVVVVVVVVVVVVVVVV%  >[npc:sakura_offering_bundle]
 %......................................................%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

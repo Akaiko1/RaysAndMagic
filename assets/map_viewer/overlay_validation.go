@@ -110,7 +110,7 @@ func (v *viewer) validateOverlayObjects(d *overlayDocument) error {
 					return fail("select an existing control")
 				}
 			case "disarm_environment":
-				if e := a.Effect(c.Control); e == nil || e.Kind != "trap" {
+				if e := a.Effect(c.Control); e == nil || e.Kind != config.EffectTrap {
 					return fail("select an existing pressure trap")
 				}
 			case "enter_map", "enter_schedule":
@@ -141,7 +141,7 @@ func (v *viewer) validateOverlayObjects(d *overlayDocument) error {
 					return fail("select an existing quest")
 				}
 			case "start_arena_duel":
-				if config.GlobalChampionConfig == nil || config.GlobalChampionConfig.Tiers[c.Tier] == nil {
+				if config.GetChampionTier(c.Tier) == nil {
 					return fail("select an existing champion tier")
 				}
 				if mc := v.overlayMapConfig(d.key); mc == nil || mc.Duel == nil {

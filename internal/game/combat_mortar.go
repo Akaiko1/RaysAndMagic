@@ -1,10 +1,10 @@
 package game
 
 import (
-	"fmt"
 	"math"
 	"math/rand"
 
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	damagecalc "ugataima/internal/damage"
 	monsterPkg "ugataima/internal/monster"
@@ -25,8 +25,7 @@ type pendingMortar struct {
 	Caster      *character.MMCharacter
 	RadiusTiles float64
 	StunChance  float64
-	StunSeconds int
-	StunTurns   int
+	StunSeconds int // whole rounds, the same span in both modes
 	School      string
 }
 
@@ -45,18 +44,15 @@ func (cs *CombatSystem) castMortarSpell(spellID spells.SpellID, spellDef spells.
 	parts, isCrit := cs.rollSpellCritParts(spellID, caster, parts)
 
 	// Flight time from the spell's authored projectile speed (validateSpellAuthoring
-	// guarantees a mortar spell has physics.speed_tiles > 0); a wall may clip the
-	// visual bolt early, but the arc abstraction lands the bloom regardless.
-	speed := spellDef.MortarRangeTiles // 1 tile/frame fallback if physics is ever absent
+	// guarantees a mortar spell has physics.speed_tiles > 0). The visual bolt
+	// flies through walls like the shell; a wall hides it only below its top.
+	speed := spellDef.MortarRangeTiles // a one-second flight if physics is ever absent
 	if physics, err := cs.game.config.GetSpellConfig(string(spellID)); err == nil && physics.SpeedTiles > 0 {
 		speed = physics.SpeedTiles
 	}
-	frames := int(spellDef.MortarRangeTiles / speed * float64(cs.game.config.GetTPS()))
-	if frames < 1 {
-		frames = 1
-	}
+	frames := cs.game.framesForSeconds(spellDef.MortarRangeTiles / speed)
 
-	cs.spawnMortarVisual(spellID, frames)
+	cs.spawnMortarVisual(spellID, frames, dist)
 	cs.game.pendingMortars = append(cs.game.pendingMortars, pendingMortar{
 		X: landX, Y: landY,
 		FramesLeft:  frames,
@@ -68,20 +64,25 @@ func (cs *CombatSystem) castMortarSpell(spellID spells.SpellID, spellDef spells.
 		RadiusTiles: spellDef.AoeRadiusTiles,
 		StunChance:  spellDef.StunChance,
 		StunSeconds: spellDef.StunDurationSeconds,
-		StunTurns:   spellDef.StunDurationTurns,
-		School:      spellDef.School,
+		School:      spellDef.DamageType(),
 	})
 	if announce {
-		cs.game.AddCombatMessage(fmt.Sprintf("Casting %s!", spellDef.Name))
+		cs.game.AddCombatMessage(uitext.Text("combat.casting", spellDef.Name))
 	}
 	return true
 }
 
+// mortarApexPerRange sets a mortar's crest above its hand-to-landing line as a
+// share of its range: high enough to clear walls, low enough to stay in view.
+const mortarApexPerRange = .2
+
 // spawnMortarVisual launches the non-colliding display bolt that traces the
-// mortar's path (no collision entity: nothing may intercept the arc).
-func (cs *CombatSystem) spawnMortarVisual(spellID spells.SpellID, frames int) {
+// mortar's arc to the landing point dist ahead (no collision entity: nothing
+// may intercept the arc).
+func (cs *CombatSystem) spawnMortarVisual(spellID spells.SpellID, frames int, dist float64) {
 	castingSystem := spells.NewCastingSystem(cs.game.config)
-	projectile, err := castingSystem.CreateProjectile(spellID, cs.game.camera.X, cs.game.camera.Y, cs.partyAttackAngle())
+	angle := cs.partyAttackAngle()
+	projectile, err := castingSystem.CreateProjectile(spellID, cs.game.camera.X, cs.game.camera.Y, angle)
 	if err != nil {
 		return
 	}
@@ -97,6 +98,8 @@ func (cs *CombatSystem) spawnMortarVisual(spellID spells.SpellID, frames int) {
 		Size:      projectile.Size,
 		NoCollide: true,
 		Owner:     ProjectileOwnerPlayer,
+		Launch: projectileLaunch{x: cs.game.camera.X, y: cs.game.camera.Y, dx: math.Cos(angle), dy: math.Sin(angle),
+			angle: angle, distance: dist, lobApex: dist * mortarApexPerRange},
 	}
 	cs.game.magicProjectiles = append(cs.game.magicProjectiles, mp)
 }
@@ -130,34 +133,21 @@ func (cs *CombatSystem) detonateMortar(m pendingMortar) {
 		name = def.Name
 	}
 	damageTypeStr := normalizeDamageTypeStr(m.School)
-	parts, _ := cs.spellPartsWithOutgoingBuff(
-		damagecalc.Parts{Normal: m.Damage, True: m.TrueDamage},
-		damageTypeStr,
-	)
-	resistPierce := cs.spellResistPierce(m.Caster, m.SpellID)
-	attack := cs.newPartyMonsterAttack(parts.Normal, parts.True, damageTypeStr, resistPierce, nil, name, false, true, false)
+	attack := cs.partySpellAttack(m.Caster, m.SpellID, damagecalc.Parts{Normal: m.Damage, True: m.TrueDamage}, m.Crit)
 
 	cs.game.spawnStarburstFx(m.X, m.Y, m.RadiusTiles)
-	cs.game.AddCombatMessage(fmt.Sprintf("%s blooms!", name))
-	hurts := func(t *monsterPkg.Monster3D) bool { return !isPurePartySummon(t) && !t.IsDamageInvulnerable() }
+	cs.game.AddCombatMessage(uitext.Text("combat.blooms", name))
 	// Stone Blossom is artillery lobbed in a high arc, not a point blast: the
 	// bloom falls on everything around the landing point, walls or not.
 	bloom := cs.pointBlast(m.X, m.Y, m.RadiusTiles)
 	bloom.throughWalls = true
-	cs.forEachAreaVictim(bloom, hurts, func(target *monsterPkg.Monster3D) {
-		if cs.tryDarkElfBindInstead(m.Caster, target) {
-			return
-		}
-		actual := cs.applyPartyMonsterAttack(target, attack).Total()
-		cs.markMonsterHit(target)
-		cs.spawnMonsterHitBurst(target, damageTypeStr)
-		cs.game.logCombat(logToneGood, "%s crushes %s for %s damage.", logSchoolWord(damageTypeStr, name), logMonsterName(target), logDamage(actual, damageTypeStr))
-		if !target.IsAlive() {
-			cs.finishMonsterKill(target)
+	blow := partyBlow{caster: m.Caster, attack: attack, name: name, school: damageTypeStr, kind: damageLogCrush}
+	cs.forEachAreaVictim(bloom, partyAreaHurts, func(target *monsterPkg.Monster3D) {
+		if _, landed := cs.landPartyHit(target, blow); !landed || !target.IsAlive() {
 			return
 		}
 		if m.StunChance >= 1 || rand.Float64() < m.StunChance {
-			cs.applyStun(target, m.StunSeconds, m.StunTurns, true)
+			cs.applyStun(target, m.StunSeconds, true)
 		}
 	})
 }

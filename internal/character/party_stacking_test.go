@@ -1,6 +1,7 @@
 package character
 
 import (
+	"fmt"
 	"testing"
 
 	"ugataima/internal/items"
@@ -179,5 +180,101 @@ func TestConsumeUnitsAt(t *testing.T) {
 	}
 	if len(p.Inventory) != 0 {
 		t.Fatalf("the emptied entry must be removed, got %+v", p.Inventory)
+	}
+}
+
+// Free stacks: a bag keeps the layout the player drops. Each row starts from
+// [potion x5, sword, potion x2] and moves n units of src to cell at (3 is the
+// free tail); want is the resulting layout as name/count.
+func TestBagMoveWithinKeepsDroppedLayout(t *testing.T) {
+	type stack struct {
+		name  string
+		count int
+	}
+	p, s := stack{"Health Potion", 0}, stack{"Iron Sword", 1}
+	pot := func(n int) stack { p.count = n; return p }
+	for _, tc := range []struct {
+		name       string
+		src, at, n int
+		ok         bool
+		want       []stack
+	}{
+		{"whole stack merges onto its match", 0, 2, 5, true, []stack{s, pot(7)}},
+		{"whole stack swaps with another item", 0, 1, 5, true, []stack{s, pot(5), pot(2)}},
+		{"whole stack moves to the free tail", 0, 3, 5, true, []stack{s, pot(2), pot(5)}},
+		{"part becomes its own stack at the tail", 0, 3, 2, true, []stack{pot(3), s, pot(2), pot(2)}},
+		{"part merges onto a matching stack", 0, 2, 2, true, []stack{pot(3), s, pot(4)}},
+		{"part never displaces another item", 0, 1, 2, false, []stack{pot(5), s, pot(2)}},
+		{"a drop on itself does nothing", 0, 0, 2, false, []stack{pot(5), s, pot(2)}},
+		{"whole stack merges onto a match before it", 2, 0, 2, true, []stack{pot(7), s}},
+		{"whole stack swaps with an item before it", 2, 1, 2, true, []stack{pot(5), pot(2), s}},
+		{"part merges onto a match before it", 2, 0, 1, true, []stack{pot(6), s, pot(1)}},
+		{"part never displaces an item before it", 2, 1, 1, false, []stack{pot(5), s, pot(2)}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			party := &Party{Inventory: []items.Item{potion(5), sword(), potion(2)}}
+			for i := range party.Inventory {
+				items.EnsureInstanceID(&party.Inventory[i])
+			}
+			bag := party.Bag()
+			if got := bag.MoveWithin(tc.src, tc.at, tc.n); got != tc.ok {
+				t.Fatalf("MoveWithin = %v, want %v", got, tc.ok)
+			}
+			var got []stack
+			units := 0
+			for _, it := range party.Inventory {
+				got = append(got, stack{it.Name, it.Count()})
+				if it.Stackable() {
+					units += it.Count()
+					lineage := 0
+					for _, part := range it.StackLineageParts() {
+						lineage += part.Quantity
+					}
+					if lineage != it.Count() {
+						t.Fatalf("%s x%d carries lineage for %d units", it.Name, it.Count(), lineage)
+					}
+				}
+			}
+			if units != 7 || len(got) != len(tc.want) {
+				t.Fatalf("layout %v (%d potions), want %v", got, units, tc.want)
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Fatalf("layout %v, want %v", got, tc.want)
+				}
+			}
+		})
+	}
+}
+
+// An item arriving from elsewhere keeps the cell it was dropped on: onto its
+// match it merges, at the tail it is its own stack, onto another item it takes
+// the cell and hands back the item it displaced; a negative cell stacks
+// automatically like loot.
+func TestBagPlaceFollowsTheTargetCell(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		at        int
+		count     []int // potion stacks afterwards, in order
+		displaced string
+	}{
+		{"onto its match", 2, []int{5, 4}, ""},
+		{"at the free tail", 3, []int{5, 2, 2}, ""},
+		{"onto another item", 1, []int{5, 2, 2}, "Iron Sword"},
+		{"automatic", -1, []int{7, 2}, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			party := &Party{Inventory: []items.Item{potion(5), sword(), potion(2)}}
+			displaced := party.Bag().Place(potion(2), tc.at)
+			var got []int
+			for _, it := range party.Inventory {
+				if it.Stackable() {
+					got = append(got, it.Count())
+				}
+			}
+			if fmt.Sprint(got) != fmt.Sprint(tc.count) || displaced.Name != tc.displaced {
+				t.Fatalf("potion stacks %v, displaced %q; want %v and %q", got, displaced.Name, tc.count, tc.displaced)
+			}
+		})
 	}
 }

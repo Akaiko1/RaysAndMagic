@@ -39,8 +39,7 @@ func fishWater(w *world.World3D, x, y int) bool {
 	if w == nil || world.GlobalTileManager == nil || x < 0 || y < 0 || x >= w.Width || y >= w.Height {
 		return false
 	}
-	d := world.GlobalTileManager.GetTileData(w.Tiles[y][x])
-	return d != nil && d.Type == "water"
+	return world.GlobalTileManager.IsWater(w.Tiles[y][x])
 }
 
 func (g *MMGame) fishRegionContains(key string, x, y int) bool {
@@ -185,7 +184,7 @@ func (g *MMGame) updateFish() {
 	}
 	// A shared update cadence, not a spawn cooldown. Flights do not suppress
 	// later rolls, and each eligible tile rolls independently.
-	if g.frameCount == 0 || g.frameCount%int64(f.RollEveryFrames) != 0 {
+	if g.frameCount == 0 || g.frameCount%int64(g.framesForSeconds(f.RollEverySeconds)) != 0 {
 		return
 	}
 	key := world.GlobalWorldManager.CurrentMapKey

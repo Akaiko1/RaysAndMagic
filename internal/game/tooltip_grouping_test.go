@@ -84,9 +84,8 @@ func assertSharedTooltipLayout(t *testing.T, ui *UISystem) {
 				}
 			}
 			w, h := ui.mainTooltipSize(cap, size[1])
-			measuredW, measuredH := cardTooltipBoxSize(ui.mainTooltipRows(), hasIcon, cap, size[1])
 			layout := layoutCardTooltip(ui.mainTooltipRows(), hasIcon, cap, size[1])
-			if w != measuredW || h != measuredH || w != layout.w || h != layout.h || w > cap || h > size[1]-2*tooltipScreenMargin {
+			if w != layout.w || h != layout.h || w > cap || h > size[1]-2*tooltipScreenMargin {
 				t.Fatalf("%v/icon%v: card %dx%d does not fit or differs from renderer", size, hasIcon, w, h)
 			}
 			reconstructed := make([]string, len(ui.tooltipLines))
@@ -120,7 +119,6 @@ func TestTooltipResultsAndExceptionsStayTogether(t *testing.T) {
 		{"spell", "fireball", "CRITICAL", "Chance:", "Luck:", "Critical Damage:"},
 		{"spell", "firewall", "DAMAGE PER TICK", "Total per tick:", "Base (", "Reduced by target Armor"},
 		{"spell", "heal_other", "HEALING", "Total Healing:", "Base:", "Natural Healer:"},
-		{"spell", "hour_of_power", "DURATION", "Current Duration:", "Base Duration:", "Light Mastery -"},
 		{"trap", "cleave_trap", "DAMAGE", "Total Damage:", "Base:", "Reduced by target Armor"},
 		{"trap", "bear_trap", "CONTROL", "Total Root:", "Base Root:", "Prevents movement but not attacks"},
 		{"trap", "stasis_trap", "CONTROL", "Total Stun:", "Base Stun:", "Trapper -"},

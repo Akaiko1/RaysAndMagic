@@ -47,6 +47,9 @@ const (
 	cardItem
 	cardSpell
 	cardSkill
+	// cardAction is a technique or trap: a book action that is not a spell. It
+	// carries its own icon and shares the spell accent.
+	cardAction
 )
 
 // groupCardsBySection collapses each section into ONE contiguous run, keeping
@@ -283,7 +286,7 @@ func buildTechniqueCards() []contentCard {
 			panic("unknown catalog technique: " + d.Key)
 		}
 		cards = append(cards, contentCard{
-			kind:        cardSpell,
+			kind:        cardAction,
 			section:     section,
 			key:         d.Key,
 			name:        d.Name,
@@ -315,7 +318,7 @@ func trapCard(section, key string, def *config.TrapDefinitionConfig) contentCard
 	}
 	rows := game.GetItemTooltipRows(it, nil, nil, true)
 	return contentCard{
-		kind:        cardSpell,
+		kind:        cardAction,
 		section:     section,
 		key:         key,
 		name:        def.Name,
@@ -337,8 +340,8 @@ func weaponCard(section, key string, def *config.WeaponDefinitionConfig) content
 	for _, term := range formula.Terms {
 		subtitle += fmt.Sprintf("  +%s/%d", term.Stat, term.Divisor)
 	}
-	if def.TrueDamage > 0 {
-		subtitle += fmt.Sprintf("  +%d True", def.TrueDamage)
+	if def.TrueDamagePct > 0 {
+		subtitle += fmt.Sprintf("  %d%% True", def.TrueDamagePct)
 	}
 	rows := game.GetItemTooltipRows(items.CreateWeaponFromYAML(key), nil, nil, true)
 	return contentCard{
@@ -408,8 +411,8 @@ func spellCard(section, key string, def *config.SpellDefinitionConfig) contentCa
 		}
 	case def.HealAmount > 0:
 		subtitle += fmt.Sprintf("  Base heal %d", def.HealAmount)
-	case def.Duration > 0:
-		subtitle += fmt.Sprintf("  Base duration %ds", def.Duration)
+	case sdErr == nil && len(sd.DurationByMastery) > 0:
+		subtitle += fmt.Sprintf("  Novice duration %ds", sd.DurationSeconds(0))
 	}
 
 	if def.MonsterOnly {

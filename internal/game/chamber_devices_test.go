@@ -37,11 +37,11 @@ func TestChamberDevicesPlayable(t *testing.T) {
 					tick := func(seconds int) {
 						if tb {
 							for i := 0; i < seconds; i += 3 {
-								g.tickEnvironment(3, true)
+								tickEnvironmentFor(g, 3, true)
 							}
 						} else {
 							for range seconds {
-								g.tickEnvironment(1, false)
+								tickEnvironmentFor(g, 1, false)
 							}
 						}
 					}
@@ -56,7 +56,7 @@ func TestChamberDevicesPlayable(t *testing.T) {
 									g.currentTurn = 0
 									ih := NewInputHandler(g)
 									ih.openNPCInteraction(npc)
-									dialogActions[c.Action](ih, npc, c)
+									dialogActions[c.Action].run(ih, npc, c)
 									return
 								}
 							}
@@ -79,7 +79,7 @@ func TestChamberDevicesPlayable(t *testing.T) {
 					case "water":
 						transfer("cistern_current", false)
 						boss.IsEngagingPlayer = true
-						boss.HitPoints = boss.MaxHitPoints / 2
+						boss.HitPoints = boss.MaxHitPoints / 4 // below the regeneration ceiling
 						hp := boss.HitPoints
 						tick(6)
 						if boss.HitPoints <= hp {
@@ -129,6 +129,19 @@ func TestChamberDevicesPlayable(t *testing.T) {
 							t.Fatal("east valve did not suppress lower firing row")
 						}
 					case "earth":
+						// Stepping onto an armed plate costs its share of the boss
+						// attack: at least the scaled boss's weakest hit at 100%.
+						plate := a.Effect("plate_row_1")
+						lo, hi := adventureBossAttack(g.config.AdventureScaling, a, v)
+						if resolved := effectDamage(*plate, lo, hi).Damage; resolved < boss.DamageMin {
+							t.Fatalf("plate resolves to %d, below the boss's %d-%d attack", resolved, boss.DamageMin, boss.DamageMax)
+						}
+						hp := g.party.Members[0].HitPoints
+						place(plate.Rect[0], plate.Rect[1])
+						g.applyEnvironmentArrival()
+						if g.party.Members[0].HitPoints >= hp {
+							t.Fatal("an armed plate deals no damage")
+						}
 						for _, npc := range g.world.NPCs {
 							if npc.Key == "solstice_earth_security_bypass" {
 								for _, c := range npc.DialogueData.Choices {
@@ -151,8 +164,8 @@ func TestChamberDevicesPlayable(t *testing.T) {
 						}
 						ac := boss.ArmorClass
 						operate("brace_one", "adventure_control")
-						if boss.ArmorClass != max(a.Boss.ArmorFloor, ac-18) {
-							t.Fatal("load brace did not weaken armor")
+						if want := max(a.Boss.ArmorFloor, ac*(100-a.Control("brace_one").ArmorReductionPercent)/100); boss.ArmorClass != want {
+							t.Fatalf("load brace left armor %d, want %d", boss.ArmorClass, want)
 						}
 						ac = boss.ArmorClass
 						operate("brace_one", "adventure_control")
@@ -183,7 +196,7 @@ func TestChamberDevicesPlayable(t *testing.T) {
 					// Old saves can contain removed effect/control keys. They must remain
 					// harmless while current controls and safe return routes survive reload.
 					v.Controls["legacy_removed_control"] = true
-					v.effectState("legacy_removed_effect").Warning = 1
+					v.effectState("legacy_removed_effect").Warning = roundClock()
 					snapshot := g.buildSave(wm)
 					if err := g.applySave(wm, &snapshot); err != nil {
 						t.Fatal(err)

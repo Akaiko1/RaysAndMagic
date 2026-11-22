@@ -30,8 +30,8 @@ func TestCharPoisonLifecycle(t *testing.T) {
 	for i := 0; i < 2*tps; i++ {
 		c.updatePoison(tps)
 	}
-	if c.HitPoints != 50-2*PoisonDamagePerTick {
-		t.Fatalf("2s poison at %d/s dealt wrong damage: HP=%d", PoisonDamagePerTick, c.HitPoints)
+	if c.HitPoints != 50-2*poisonPerTick() {
+		t.Fatalf("2s poison at %d/s dealt wrong damage: HP=%d", poisonPerTick(), c.HitPoints)
 	}
 	if c.HasCondition(ConditionPoisoned) || c.PoisonFramesRemaining != 0 {
 		t.Fatal("expiry must clear the condition and the clock")
@@ -53,7 +53,7 @@ func TestCharPoisonTurnBased(t *testing.T) {
 
 	c.ApplyPoison(10 * tps)
 	c.TickPoisonTurn(round, tps)
-	if c.HitPoints != 50-3*PoisonDamagePerTick {
+	if c.HitPoints != 50-3*poisonPerTick() {
 		t.Fatalf("a 3s TB round must deal 3 poison ticks: HP=%d", c.HitPoints)
 	}
 	if c.PoisonFramesRemaining != 7*tps {
@@ -62,7 +62,7 @@ func TestCharPoisonTurnBased(t *testing.T) {
 	for c.PoisonFramesRemaining > 0 {
 		c.TickPoisonTurn(round, tps)
 	}
-	if c.HitPoints != 50-10*PoisonDamagePerTick || c.HasCondition(ConditionPoisoned) {
+	if c.HitPoints != 50-10*poisonPerTick() || c.HasCondition(ConditionPoisoned) {
 		t.Fatalf("a 10s poison must deal 10 ticks in TB too and clear: HP=%d poisoned=%v",
 			c.HitPoints, c.HasCondition(ConditionPoisoned))
 	}
@@ -87,7 +87,7 @@ func TestCharBurnLifecycle(t *testing.T) {
 		c.updateBurn(tps)
 		c.updatePoison(tps)
 	}
-	wantHP := 50 - 2*BurnDamagePerTick - 2*PoisonDamagePerTick
+	wantHP := 50 - 2*burnPerTick() - 2*poisonPerTick()
 	if c.HitPoints != wantHP {
 		t.Fatalf("burn (3x) + poison together: HP=%d want %d", c.HitPoints, wantHP)
 	}
@@ -116,7 +116,7 @@ func TestCharBurnRefreshPreservesTickPhase(t *testing.T) {
 	for range 10 {
 		c.updateBurn(tps)
 	}
-	if c.HitPoints != 50-BurnDamagePerTick {
+	if c.HitPoints != 50-burnPerTick() {
 		t.Fatalf("refreshed burn delayed its due tick: HP=%d", c.HitPoints)
 	}
 }
@@ -128,9 +128,9 @@ func TestCharBurnTurnBased(t *testing.T) {
 	tps := config.GetTargetTPS()
 	c.ApplyBurn(3 * tps)
 	c.TickBurnTurn(3*tps, tps)
-	if c.HitPoints != 50-3*BurnDamagePerTick || c.HasCondition(ConditionBurning) {
+	if c.HitPoints != 50-3*burnPerTick() || c.HasCondition(ConditionBurning) {
 		t.Fatalf("a 3s TB round must deal 3 burn ticks (%d each) and clear on expiry: HP=%d",
-			BurnDamagePerTick, c.HitPoints)
+			burnPerTick(), c.HitPoints)
 	}
 }
 
@@ -141,22 +141,22 @@ func TestCharStunDualClock(t *testing.T) {
 		t.Fatal("apply must stun")
 	}
 	c.ApplyCharStun(1, 1) // weaker re-apply
-	if c.StunFramesRemaining != 2 || c.StunTurnsRemaining != 3 {
+	if c.Stun.Frames != 2 || c.Stun.Turns != 3 {
 		t.Fatal("stun refresh must never shorten either clock")
 	}
 
 	// RT expiry clears the TB clock and the condition.
 	c.tickStunFrames()
 	c.tickStunFrames()
-	if c.IsStunned() || c.StunTurnsRemaining != 0 || c.HasCondition(ConditionStunned) {
-		t.Fatalf("RT expiry must clear everything: f=%d t=%d", c.StunFramesRemaining, c.StunTurnsRemaining)
+	if c.IsStunned() || c.Stun.Turns != 0 || c.HasCondition(ConditionStunned) {
+		t.Fatalf("RT expiry must clear everything: f=%d t=%d", c.Stun.Frames, c.Stun.Turns)
 	}
 
 	// TB expiry clears the RT clock symmetrically.
 	c.ApplyCharStun(500, 1)
 	c.TickStunTurn()
-	if c.IsStunned() || c.StunFramesRemaining != 0 || c.HasCondition(ConditionStunned) {
-		t.Fatalf("TB expiry must clear everything: f=%d t=%d", c.StunFramesRemaining, c.StunTurnsRemaining)
+	if c.IsStunned() || c.Stun.Frames != 0 || c.HasCondition(ConditionStunned) {
+		t.Fatalf("TB expiry must clear everything: f=%d t=%d", c.Stun.Frames, c.Stun.Turns)
 	}
 
 	c.ApplyCharStun(0, 0)
@@ -171,16 +171,16 @@ func TestCharStunWeakRefreshPreservesModeExchangeRate(t *testing.T) {
 	for range 119 {
 		c.tickStunFrames()
 	}
-	if c.StunFramesRemaining != 361 || c.StunTurnsRemaining != 4 || c.StunRate != 120 {
+	if c.Stun.Frames != 361 || c.Stun.Turns != 4 || c.Stun.Rate != 120 {
 		t.Fatalf("RT progress: frames=%d turns=%d rate=%d, want 361/4/120",
-			c.StunFramesRemaining, c.StunTurnsRemaining, c.StunRate)
+			c.Stun.Frames, c.Stun.Turns, c.Stun.Rate)
 	}
 
 	c.ApplyCharStun(120, 1)
 	c.TickStunTurn()
-	if c.StunFramesRemaining != 241 || c.StunTurnsRemaining != 3 || c.StunRate != 120 {
+	if c.Stun.Frames != 241 || c.Stun.Turns != 3 || c.Stun.Rate != 120 {
 		t.Fatalf("weak refresh changed TB remainder: frames=%d turns=%d rate=%d, want 241/3/120",
-			c.StunFramesRemaining, c.StunTurnsRemaining, c.StunRate)
+			c.Stun.Frames, c.Stun.Turns, c.Stun.Rate)
 	}
 }
 
@@ -201,5 +201,55 @@ func TestCharFlagConditions(t *testing.T) {
 	c.RemoveCondition(ConditionDead)
 	if c.HasCondition(ConditionDead) || !c.HasCondition(ConditionUnconscious) || !c.HasCondition(ConditionEradicated) {
 		t.Fatal("remove must drop exactly the given condition")
+	}
+}
+
+// The DoTs' per-second hero loss, from the status table.
+// dotPerTick is the expected loss of one DoT tick on a hero of maxHP, worked
+// out here from the status row: its percent of max HP, at least its minimum.
+func dotPerTick(key string, maxHP int) int {
+	s := config.Status(key)
+	return max(s.PercentPerSecond*maxHP/100, s.MinimumDamage)
+}
+
+func poisonPerTick() int { return dotPerTick("poison", 50) }
+func burnPerTick() int   { return dotPerTick("burn", 50) }
+
+// Hero poison and burn take a percent of max HP per tick: a small pool loses
+// the floor, a large one its percent, and the two DoTs stack, in both modes.
+func TestCharDoTScalesWithMaxHP(t *testing.T) {
+	// The real tick rate: burn banks half a game second against poison.
+	tps := config.GetTargetTPS()
+	for _, maxHP := range []int{50, 1000} {
+		for _, key := range []string{"poison", "burn", "both"} {
+			for _, tb := range []bool{false, true} {
+				c := &MMCharacter{Name: "T", HitPoints: maxHP, MaxHitPoints: maxHP}
+				want := 0
+				if key != "burn" {
+					c.ApplyPoison(3 * tps)
+					want += 3 * dotPerTick("poison", maxHP)
+				}
+				if key != "poison" {
+					c.ApplyBurn(3 * tps)
+					want += 3 * dotPerTick("burn", maxHP)
+				}
+				if tb {
+					c.TickPoisonTurn(3*tps, tps)
+					c.TickBurnTurn(3*tps, tps)
+				} else {
+					for range 3 * tps {
+						c.updatePoison(tps)
+						c.updateBurn(tps)
+					}
+				}
+				if lost := maxHP - c.HitPoints; lost != want {
+					t.Errorf("%s on %d max HP (TB=%v) took %d, want %d", key, maxHP, tb, lost, want)
+				}
+			}
+		}
+	}
+	// The large pool must be past both floors, or the percent goes untested.
+	if dotPerTick("poison", 1000) <= config.Status("poison").MinimumDamage || dotPerTick("burn", 1000) <= config.Status("burn").MinimumDamage {
+		t.Fatal("fixture: 1000 max HP does not lift the DoTs above their floors")
 	}
 }

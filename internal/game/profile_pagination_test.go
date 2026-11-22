@@ -2,10 +2,11 @@ package game
 
 import (
 	"fmt"
-	"github.com/hajimehoshi/ebiten/v2"
 	"testing"
 	"ugataima/internal/arena"
 	"ugataima/internal/config"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 func TestProfileIndependentScroll(t *testing.T) {

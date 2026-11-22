@@ -8,6 +8,7 @@ import (
 
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
+	"ugataima/internal/status"
 	"ugataima/internal/world"
 )
 
@@ -54,7 +55,7 @@ func TestCardMoveBurstMovementContract(t *testing.T) {
 				}
 				t.Cleanup(func() { def.CardMoveAoePct = oldChance })
 				if tc.rooted {
-					g.partyRoot = PartyRootState{Frames: 120, Turns: 1}
+					g.partyRoot = status.DualClock{Frames: 120, Turns: 1}
 				}
 				if rt {
 					g.camera.X = 11*tile - 1

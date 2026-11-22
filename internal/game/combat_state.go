@@ -7,6 +7,7 @@ package game
 func (g *MMGame) clearTransientCombatState() {
 	g.resetOverwatch()
 	g.monsterCorpses = nil
+	clear(g.monsterGlides)
 	for i := range g.groundContainers {
 		g.groundContainers[i].hop = lootHop{}
 	}
@@ -19,24 +20,15 @@ func (g *MMGame) clearTransientCombatState() {
 	g.clearBuildingEntities()
 	g.clearLockedDoorEntities()
 	g.projectileMutex.Lock()
-	if g.collisionSystem != nil {
-		// applySave rebuilds the collision system anyway; switchToMap keeps it,
-		// so stale projectile entities must be dropped explicitly.
-		for i := range g.magicProjectiles {
-			g.collisionSystem.UnregisterEntity(g.magicProjectiles[i].ID)
-		}
-		for i := range g.arrows {
-			g.collisionSystem.UnregisterEntity(g.arrows[i].ID)
-		}
-	}
-	g.magicProjectiles = g.magicProjectiles[:0]
-	g.arrows = g.arrows[:0]
+	g.clearProjectiles()
 	g.projectileMutex.Unlock()
 	// Stone Blossom blooms scheduled mid-flight belong to the map they were
 	// aimed on - a map switch/load must not detonate them at the same
 	// coordinates of the destination map.
 	g.pendingMortars = g.pendingMortars[:0]
+	g.pendingTolls = g.pendingTolls[:0]
 	g.slashEffects = g.slashEffects[:0]
+	g.rangedHeld = nil
 	g.trapBursts = g.trapBursts[:0]
 	g.elementalAttackEffects = nil
 	g.hitEffectsMu.Lock()
@@ -50,7 +42,8 @@ func (g *MMGame) clearTransientCombatState() {
 	// to render, detonate, or leak into the destination autosave.
 	g.bossFireTraps = nil
 	g.bossFireTrapsOwner = ""
-	// A suspended TB turn belongs to the old world. applySave restores the
-	// suspension from its own snapshot after this cleaner returns.
+	// A suspended TB turn and an answered aggro belong to the old world.
+	// applySave restores both after this cleaner returns.
 	g.turnBasedTurnSuspended = false
+	g.fightAggroAnswered = false
 }

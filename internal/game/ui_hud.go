@@ -9,12 +9,13 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	uitext "ugataima/assets/text"
+	"ugataima/internal/status"
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
-	"ugataima/internal/spells"
 	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -37,11 +38,11 @@ const (
 	panelPortraitW          = 47
 	panelPortraitH          = 56
 	partyFocusMarkerOffsetY = -11
-	partyProgressBadgeSize  = 24
-	partyProgressBadgeGap   = 4 // the two haloes blend softly; no hard frames to keep apart
-	partyProgressBadgeLift  = 12
-	partyAutoButtonMaxW     = 62
-	partyAutoButtonH        = 16
+	partyLevelUpChipH       = uiTextCharHeight // one card text row
+	partyLevelUpChipGap     = 6
+	partyLevelUpLabelGap    = 3
+	// Preserve the original Normal content origin. Personal badges use only
+	// the existing narrow portrait gutter and never move names or meters.
 	partyPanelContentLeft   = 83
 	partyEquipmentMinW      = 48 // the equipment column never shrinks below this
 	partyPanelContentRight  = 18
@@ -75,8 +76,13 @@ type partyCardContentLayout struct {
 	box, stats, equipment layoutRect
 }
 
-type partyProgressionBadgeLayout struct {
-	stat, skill layoutRect
+// partyLevelUpLayout is a hero's pending growth in the last row of the card's
+// equipment column: stat points, then a skill choice. Each chip is the
+// authored icon and a label (the points, "Skill"); when the labelled chips do
+// not fit the column, the skill label goes first, then the points.
+type partyLevelUpLayout struct {
+	stat, skill           layoutRect
+	statLabel, skillLabel string
 }
 
 func makePartyCardContentLayout(panelX, panelY, panelW int) partyCardContentLayout {
@@ -98,46 +104,123 @@ func makePartyCardContentLayout(panelX, panelY, panelW int) partyCardContentLayo
 	return partyCardContentLayout{box: box, stats: stats, equipment: equipment}
 }
 
-// makePartyProgressionBadgeLayout attaches pending-progression actions to the
-// portrait that owns them. One badge centers; two straddle the lower rim with
-// equal spacing and only a minimal overhang beyond the irregular aperture.
-func makePartyProgressionBadgeLayout(px, py, pw, ph int, hasStat, hasSkill bool) partyProgressionBadgeLayout {
-	count := 0
+// makePartyLevelUpLayout places the pending-growth chips on the equipment
+// column's bottom row, centred and labelled. Compact chips (a long status
+// list needs the row) drop their labels and keep to the column's right edge.
+func makePartyLevelUpLayout(content partyCardContentLayout, points int, hasStat, hasSkill, compact bool) partyLevelUpLayout {
+	l := partyLevelUpLayout{}
+	if !hasStat && !hasSkill {
+		return l
+	}
+	if hasStat && !compact {
+		l.statLabel = fmt.Sprintf("+%d", points)
+	}
+	if hasSkill && !compact {
+		l.skillLabel = "Skill"
+	}
+	chipW := func(label string) int {
+		if label == "" {
+			return partyLevelUpChipH
+		}
+		return partyLevelUpChipH + partyLevelUpLabelGap + uiTextWidth(label)
+	}
+	total := func() int {
+		w := 0
+		if hasStat {
+			w += chipW(l.statLabel)
+		}
+		if hasSkill {
+			w += chipW(l.skillLabel)
+		}
+		if hasStat && hasSkill {
+			w += partyLevelUpChipGap
+		}
+		return w
+	}
+	if total() > content.equipment.w {
+		l.skillLabel = ""
+	}
+	if total() > content.equipment.w {
+		l.statLabel = ""
+	}
+	x := content.equipment.x + (content.equipment.w-total())/2
+	if compact {
+		x = content.equipment.right() - total()
+	}
+	y := content.box.bottom() - partyLevelUpChipH
 	if hasStat {
-		count++
+		l.stat = layoutRect{x, y, chipW(l.statLabel), partyLevelUpChipH}
+		x = l.stat.right() + partyLevelUpChipGap
 	}
 	if hasSkill {
-		count++
+		l.skill = layoutRect{x, y, chipW(l.skillLabel), partyLevelUpChipH}
 	}
-	if count == 0 {
-		return partyProgressionBadgeLayout{}
-	}
-	totalW := count*partyProgressBadgeSize + (count-1)*partyProgressBadgeGap
-	x := px + (pw-totalW)/2
-	y := py + ph - partyProgressBadgeLift
-	next := func() layoutRect {
-		r := layoutRect{x: x, y: y, w: partyProgressBadgeSize, h: partyProgressBadgeSize}
-		x += partyProgressBadgeSize + partyProgressBadgeGap
-		return r
-	}
-	layout := partyProgressionBadgeLayout{}
-	if hasStat {
-		layout.stat = next()
-	}
-	if hasSkill {
-		layout.skill = next()
-	}
-	return layout
+	return l
 }
 
-func makePartyAutoButtonLayout(content partyCardContentLayout) layoutRect {
-	w := min(partyAutoButtonMaxW, content.equipment.w)
-	return layoutRect{
-		x: content.equipment.x + (content.equipment.w-w)/2,
-		y: content.box.bottom() - partyAutoButtonH,
-		w: w,
-		h: partyAutoButtonH,
+// partyLevelUpLayoutFor is hero i's chips on the displayed party strip; the
+// draw pass and the portrait hit-test share it.
+func (g *MMGame) partyLevelUpLayoutFor(i int) partyLevelUpLayout {
+	member := g.party.Members[i]
+	if member == nil {
+		return partyLevelUpLayout{}
 	}
+	full, _ := g.partyConditionLabels(member)
+	return g.partyLevelUpLayoutWith(i, full)
+}
+
+// partyLevelUpLayoutWith lays out hero i's chips beside the status list the
+// card already worded, so drawing does not word it twice a frame.
+func (g *MMGame) partyLevelUpLayoutWith(i int, status string) partyLevelUpLayout {
+	member := g.party.Members[i]
+	if member == nil {
+		return partyLevelUpLayout{}
+	}
+	portraitWidth, portraitHeight, baseLeft, startY := partyPortraitLayout(g)
+	panelX, panelY, panelW, _ := partyCardPanelRect(baseLeft+i*portraitWidth, startY, portraitWidth, portraitHeight)
+	content := makePartyCardContentLayout(panelX, panelY, panelW)
+	compact := uiTextWidth(status) > content.stats.w-2
+	return makePartyLevelUpLayout(content, member.FreeStatPoints, member.FreeStatPoints > 0, g.hasLevelUpChoiceForChar(i), compact)
+}
+
+// statusRight is where the bottom row ends for a status line beside the chips.
+func (l partyLevelUpLayout) statusRight(content partyCardContentLayout) int {
+	switch {
+	case l.stat.w > 0:
+		return l.stat.x - partyLevelUpChipGap
+	case l.skill.w > 0:
+		return l.skill.x - partyLevelUpChipGap
+	}
+	return content.box.right()
+}
+
+// partyStatusLine is how a card shows its status list: the box it is centred
+// in, the text drawn, and the full list for hover when the text is shortened.
+type partyStatusLine struct {
+	box  layoutRect
+	text string
+	full string
+}
+
+// partyStatusLineLayout fits a card's status list, most to least roomy: full
+// names under the meters (the authored line); full names across the bottom
+// row up to rowRight (the card edge, or the compact level-up chips); short
+// names there; short names cut to fit. Anything shortened offers the full
+// list on hover.
+func partyStatusLineLayout(content partyCardContentLayout, y int, full, short string, rowRight int) partyStatusLine {
+	box := layoutRect{content.stats.x, y, content.stats.w, uiTextCharHeight}
+	if uiTextWidth(full) <= box.w-2 {
+		return partyStatusLine{box: box, text: full}
+	}
+	box.w = max(box.w, min(rowRight, content.box.right())-box.x)
+	line := partyStatusLine{box: box, text: full}
+	if uiTextWidth(full) > box.w-2 {
+		line.text = clipUIText(short, max(0, box.w-2))
+	}
+	if line.text != full {
+		line.full = full
+	}
+	return line
 }
 
 // validatePartyCardPanelAsset fails the boot when party_member_panel.png is
@@ -543,12 +626,12 @@ func (ui *UISystem) cardPortrait(name string, w, h int, usePartyAperture bool) *
 // this frame. Every drawCard* call in the layer block below must be represented
 // here, or the card silently loses that effect.
 type partyCardEffectSet struct {
-	poison, burn, stun, timed bool
-	status                    statusVisuals
+	poison, burn, stun, timed, castOverlay bool
+	status                                 statusVisuals
 }
 
 func (s partyCardEffectSet) any() bool {
-	return s.poison || s.burn || s.stun || s.timed || s.status != 0
+	return s.poison || s.burn || s.stun || s.timed || s.castOverlay || s.status != 0
 }
 
 // layerCardFx are the timer-driven overlays that paint into the effect layer.
@@ -632,6 +715,7 @@ func (ui *UISystem) drawGameplayUI(screen *ebiten.Image) {
 	ui.drawPartyUI(screen)
 	ui.drawInGameQuickSlots(screen)
 	ui.drawCampHUD(screen)
+	ui.drawAutoStatsHUD(screen)
 	ui.drawSpellStatusBar(screen)
 	ui.drawCompass(screen)
 	ui.drawWizardEyeRadar(screen)
@@ -698,14 +782,19 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 		// reused layer clips them to the painted panel so they never cross the
 		// reserved cooldown/selection frames. The layer costs a render-target
 		// switch plus a full-card blit every frame, so an idle card skips it.
+		overlay, showOverlay := ui.game.partyCardCast()
 		fx := partyCardEffectSet{
-			poison: isPoisoned && !isDown,
-			burn:   isBurning && !isDown,
-			stun:   member.IsStunned() && !isDown,
-			timed:  ui.game.anyTimedCardFxActive(i),
-			status: ui.game.partyStatusVisuals(member),
+			poison:      isPoisoned && !isDown,
+			burn:        isBurning && !isDown,
+			stun:        member.IsStunned() && !isDown,
+			timed:       ui.game.anyTimedCardFxActive(i),
+			status:      ui.game.partyStatusVisuals(member),
+			castOverlay: showOverlay && !isDown,
 		}
 		if effects := ui.partyCardEffects(i, panelW, panelH, fx.any()); effects != nil {
+			if fx.castOverlay && ui.game.gameLoop != nil && ui.game.gameLoop.renderer != nil {
+				ui.game.gameLoop.renderer.drawCastOverlayRegion(effects, overlay, castPassSingle, 0, 0, float64(portraitColWidth), float64(panelH))
+			}
 			if fx.poison {
 				ui.drawCardPoisonBubbles(effects, 0, 0, panelW, panelH)
 			}
@@ -753,21 +842,24 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			member.SpellPoints, member.MaxSpellPoints, "SP", color.RGBA{38, 88, 160, 245})
 
 		// Add character condition status
-		statusText := ui.game.partyConditionLabel(member)
+		statusText, statusShort := ui.game.partyConditionLabels(member)
 		statusColor := color.RGBA{126, 220, 154, 255}
 		if statusText != "OK" {
 			statusColor = color.RGBA{255, 174, 88, 255}
 		}
-		statusY := panelY + 67
-		statusText = clipUIText(statusText, max(0, statsW-2))
-		drawCenteredTextWithShadow(screen, statusText, contentX, statusY, statsW, uiTextCharHeight, statusColor)
+		levelUp := ui.game.partyLevelUpLayoutWith(i, statusText)
+		status := partyStatusLineLayout(content, panelY+67, statusText, statusShort, levelUp.statusRight(content))
+		if status.full != "" && !ui.partyCardClicksBlocked() { // hover text follows the card's clicks
+			uiClippedLabels = append(uiClippedLabels, uiClippedLabel{status.box, status.full})
+		}
+		drawCenteredTextWithShadow(screen, status.text, status.box.x, status.box.y, status.box.w, status.box.h, statusColor)
 
 		mainText, mainColor := "W None", color.Color(color.RGBA{135, 143, 158, 255})
 		if weapon, ok := member.Equipment[items.SlotMainHand]; ok {
 			mainText, mainColor = "W "+weapon.Name, ui.itemRarityColor(weapon)
 		}
 		spellText, spellColor := "S None", color.Color(color.RGBA{135, 143, 158, 255})
-		if spell, ok := member.Equipment[items.SlotSpell]; ok {
+		if spell, ok := member.Equipment[items.SlotQuickAction]; ok {
 			spellText, spellColor = "S "+spell.Name, color.RGBA{145, 192, 255, 255}
 		}
 		offText, offColor := "O None", color.Color(color.RGBA{135, 143, 158, 255})
@@ -781,40 +873,33 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 		drawCenteredTextWithShadow(screen, offText, equipX, nameY+16, equipW, uiTextCharHeight, offColor)
 		drawCenteredTextWithShadow(screen, spellText, equipX, nameY+32, equipW, uiTextCharHeight, spellColor)
 
-		hasStatBadge := member.FreeStatPoints > 0
-		hasSkillBadge := ui.game.hasLevelUpChoiceForChar(i)
-		badges := makePartyProgressionBadgeLayout(px, py, pw, ph, hasStatBadge, hasSkillBadge)
 		mouseX, mouseY := uiCursorPosition()
-
-		if hasStatBadge {
-			statHover := isMouseHoveringBox(mouseX, mouseY, badges.stat.x, badges.stat.y, badges.stat.right(), badges.stat.bottom())
-			ui.drawPartyProgressionBadge(screen, badges.stat, statBadgeStyle, statHover)
-			if statHover {
+		// A chip rings and explains itself only while its click is live.
+		chipsLive := !ui.partyCardClicksBlocked()
+		if levelUp.stat.w > 0 {
+			chip := levelUp.stat
+			hover := chipsLive && isMouseHoveringBox(mouseX, mouseY, chip.x, chip.y, chip.right(), chip.bottom())
+			ui.drawPartyLevelUpChip(screen, chip, statBadgeStyle, levelUp.statLabel, hover)
+			if hover {
 				ui.queueTooltip([]string{fmt.Sprintf("%d stat points ready", member.FreeStatPoints), "Click to assign"}, mouseX+12, mouseY+8)
 			}
-			ui.onDisplayedInput(uiCommandClick, layoutRect{badges.stat.x, badges.stat.y, (badges.stat.right()) - (badges.stat.x), (badges.stat.bottom()) - (badges.stat.y)}, func() {
-				if !ui.partyCardClicksBlocked() && ui.game.consumeLeftClickIn(badges.stat.x, badges.stat.y, badges.stat.right(), badges.stat.bottom()) {
-					ui.game.statPopupOpen = true
-					// Open the popup for THIS character. Don't touch selectedChar:
-					// in turn-based mode it tracks whose turn it is, and hijacking it
-					// made the popup show the active char instead of the clicked one.
-					ui.game.statPopupCharIdx = i
-					ui.justOpenedStatPopup = true
-				}
+			ui.onGatedClick(chip, func() bool { return !ui.partyCardClicksBlocked() }, func() {
+				ui.game.statPopupOpen = true
+				// Open the popup for THIS character. Don't touch selectedChar:
+				// in turn-based mode it tracks whose turn it is, and hijacking it
+				// made the popup show the active char instead of the clicked one.
+				ui.game.statPopupCharIdx = i
+				ui.justOpenedStatPopup = true
 			})
 		}
-
-		if hasSkillBadge {
-			skillHover := isMouseHoveringBox(mouseX, mouseY, badges.skill.x, badges.skill.y, badges.skill.right(), badges.skill.bottom())
-			ui.drawPartyProgressionBadge(screen, badges.skill, skillBadgeStyle, skillHover)
-			if skillHover {
+		if levelUp.skill.w > 0 {
+			chip := levelUp.skill
+			hover := chipsLive && isMouseHoveringBox(mouseX, mouseY, chip.x, chip.y, chip.right(), chip.bottom())
+			ui.drawPartyLevelUpChip(screen, chip, skillBadgeStyle, levelUp.skillLabel, hover)
+			if hover {
 				ui.queueTooltip([]string{"Skill choice ready", "Click to choose"}, mouseX+12, mouseY+8)
 			}
-			ui.onDisplayedInput(uiCommandClick, layoutRect{badges.skill.x, badges.skill.y, (badges.skill.right()) - (badges.skill.x), (badges.skill.bottom()) - (badges.skill.y)}, func() {
-				if !ui.partyCardClicksBlocked() && ui.game.consumeLeftClickIn(badges.skill.x, badges.skill.y, badges.skill.right(), badges.skill.bottom()) {
-					ui.game.openLevelUpChoiceForChar(i)
-				}
-			})
+			ui.onGatedClick(chip, func() bool { return !ui.partyCardClicksBlocked() }, func() { ui.game.openLevelUpChoiceForChar(i) })
 		}
 
 		// The state band: in TB whether this hero has acted (a dual wielder's
@@ -848,7 +933,7 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 				ui.queueOverwatchTooltip(member, mouseX+12, mouseY+8)
 			}
 		}
-		ui.drawFlowingStaffCharges(screen, member, px, py, pw, mouseX, mouseY)
+		ui.drawPersonalSpellEffects(screen, member, px, py, pw, mouseX, mouseY)
 		if ui.game.partyMemberFocused(i) {
 			// Focus belongs to the portrait, not to the whole party slot. Its tip
 			// deliberately overlaps the authored top rim so the marker reads as
@@ -857,28 +942,6 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 		}
 	}
 
-	hasFreeStats := false
-	for _, member := range ui.game.party.Members {
-		if member != nil && member.FreeStatPoints > 0 {
-			hasFreeStats = true
-			break
-		}
-	}
-	if hasFreeStats {
-		panelX, panelY, panelW, _ := partyCardPanelRect(baseLeft, startY, portraitWidth, portraitHeight)
-		auto := makePartyAutoButtonLayout(makePartyCardContentLayout(panelX, panelY, panelW))
-		mouseX, mouseY := uiCursorPosition()
-		autoHover := isMouseHoveringBox(mouseX, mouseY, auto.x, auto.y, auto.right(), auto.bottom())
-		ui.drawAutoStatButton(screen, auto.x, auto.y, auto.w, auto.h, autoHover)
-		if autoHover {
-			ui.queueTooltip([]string{"Auto-assign party stats", "Click to spend all available points"}, mouseX+12, mouseY+8)
-		}
-		ui.onDisplayedInput(uiCommandClick, layoutRect{auto.x, auto.y, (auto.right()) - (auto.x), (auto.bottom()) - (auto.y)}, func() {
-			if !ui.partyCardClicksBlocked() && ui.game.consumeLeftClickIn(auto.x, auto.y, auto.right(), auto.bottom()) {
-				autoDistributePartyStatPoints(ui.game.party.Members, ui.game.config)
-			}
-		})
-	}
 	// The exposed party strip is UI even while the character hub is open.
 	// Register it after its badges so those controls retain first claim, and
 	// resolve selection before the dispatcher retires unmatched UI clicks.
@@ -900,17 +963,17 @@ func (ui *UISystem) drawCardFlames(screen *ebiten.Image, x, startY, w, h, idx in
 	if t <= 0 {
 		return
 	}
-	intensity := float64(t) / float64(PartyFlameFrames) // 1 -> 0 overall fade
-	f := int(ui.cardAnimClock())
+	intensity := float64(t) / float64(ui.game.framesForSeconds(PartyFlameSeconds)) // 1 -> 0 overall fade
+	clock := ui.game.uiSeconds()
 	const n = 14
 	for k := 0; k < n; k++ {
-		phase := float64((f*2+k*53)%60) / 60.0 // 0..1 rising cycle, staggered per tongue
-		rise := 1.0 - phase                    // brightness/heat fade as it climbs
+		phase := math.Mod(clock*4+float64(k)*53/60, 1) // 0..1 rising cycle, staggered per tongue
+		rise := 1.0 - phase                            // brightness/heat fade as it climbs
 		a := uint8(220 * rise * intensity)
 		if a < 8 {
 			continue
 		}
-		px := float64(x) + (float64(k)+0.5)/float64(n)*float64(w) + math.Sin(float64(f)*0.2+float64(k))*3
+		px := float64(x) + (float64(k)+0.5)/float64(n)*float64(w) + math.Sin(clock*24+float64(k))*3
 		py := float64(startY+h) - phase*float64(h)*1.05 // from card bottom up past the top
 		sz := float32(3 + 3*rise)
 		col := color.RGBA{255, uint8(40 + 190*rise), uint8(40 * rise), a} // yellow->orange->red
@@ -926,8 +989,8 @@ func (ui *UISystem) drawCardSparks(screen *ebiten.Image, x, startY, w, h, idx in
 	if t <= 0 {
 		return
 	}
-	intensity := float64(t) / float64(HitSparkFrames) // 1 -> 0 fade
-	prog := 1.0 - intensity                           // 0 -> 1 as sparks fly out
+	intensity := float64(t) / float64(ui.game.framesForSeconds(HitSparkSeconds)) // 1 -> 0 fade
+	prog := 1.0 - intensity                                                      // 0 -> 1 as sparks fly out
 
 	// Whole-card red flash (not just the portrait).
 	uiFillRect(screen, float32(x), float32(startY), float32(w-2), float32(h),
@@ -960,7 +1023,7 @@ func (ui *UISystem) drawCardHealPlus(screen *ebiten.Image, x, startY, w, h, idx 
 	if t <= 0 {
 		return
 	}
-	prog := 1.0 - float64(t)/float64(HealEffectFrames) // 0 -> 1 as they rise & fade
+	prog := 1.0 - float64(t)/float64(ui.game.framesForSeconds(HealEffectSeconds)) // 0 -> 1 as they rise & fade
 	const n = 5
 	for k := 0; k < n; k++ {
 		// Each "+" rises on its own staggered phase so they don't move in lockstep.
@@ -986,12 +1049,11 @@ func (ui *UISystem) drawCardHealPlus(screen *ebiten.Image, x, startY, w, h, idx 
 // drawCardPoisonBubbles draws green bubbles drifting up a poisoned member's card
 // (replaces the old flat green tint). Runs continuously while poisoned.
 func (ui *UISystem) drawCardPoisonBubbles(screen *ebiten.Image, x, startY, w, h int) {
-	f := int(ui.cardAnimClock())
+	t := ui.game.uiSeconds()
 	const n = 6
-	const period = 72
 	for k := 0; k < n; k++ {
-		phase := float64((f+k*period/n)%period) / float64(period) // 0..1 rising loop
-		bx := float64(x) + (float64(k)+0.5)/float64(n)*float64(w) + math.Sin(float64(f)*0.08+float64(k))*3
+		phase := math.Mod(t/poisonBubbleSeconds+float64(k)/n, 1) // 0..1 rising loop
+		bx := float64(x) + (float64(k)+0.5)/float64(n)*float64(w) + math.Sin(t*9.6+float64(k))*3
 		by := float64(startY+h) - phase*float64(h)
 		a := uint8(170 * (1 - phase)) // fade as it nears the top ("pops")
 		if a < 12 {
@@ -1016,12 +1078,12 @@ func hashNoise(seed float64) float64 {
 // embers that float up and wink out. Built to read as real fire, not a recolour
 // of the poison bubbles. Runs continuously while ConditionBurning.
 func (ui *UISystem) drawCardIgnite(screen *ebiten.Image, x, startY, w, h, idx int) {
-	f := float64(ui.cardAnimClock())
+	t := ui.game.uiSeconds()
 	fx, fb, fw, fh := float64(x), float64(startY+h), float64(w), float64(h)
 	salt := float64(idx) * 13.7
 
 	// Flickering warm glow banked along the bottom of the card.
-	glow := uint8(35 + 25*math.Sin(f*0.3+salt))
+	glow := uint8(35 + 25*math.Sin(t*36+salt))
 	uiFillRect(screen, float32(x), float32(startY)+float32(fh*0.55), float32(w-2), float32(fh*0.45),
 		color.RGBA{120, 40, 10, glow}, false)
 
@@ -1029,10 +1091,10 @@ func (ui *UISystem) drawCardIgnite(screen *ebiten.Image, x, startY, w, h, idx in
 	for k := 0; k < n; k++ {
 		seed := float64(k)*1.7 + salt
 		life := hashNoise(seed)
-		ph := math.Mod(f*0.02*(0.6+life*0.8)+life, 1.0) // 0..1 rising, varied speed
-		rise := 1.0 - ph                                // heat fades with height
+		ph := math.Mod(t*2.4*(0.6+life*0.8)+life, 1.0) // 0..1 rising, varied speed
+		rise := 1.0 - ph                               // heat fades with height
 		col := hashNoise(seed * 3.3)
-		wob := math.Sin(f*0.15+life*6.28+float64(k))*5*ph + (hashNoise(seed+f*0.01)-0.5)*4
+		wob := math.Sin(t*18+life*6.28+float64(k))*5*ph + (hashNoise(seed+t*1.2)-0.5)*4
 		px := fx + col*fw + wob
 		if px < fx || px > fx+fw {
 			continue
@@ -1054,8 +1116,8 @@ func (ui *UISystem) drawCardIgnite(screen *ebiten.Image, x, startY, w, h, idx in
 	const embers = 6
 	for k := 0; k < embers; k++ {
 		seed := float64(k)*7.1 + salt
-		ph := math.Mod(f*0.012+hashNoise(seed), 1.0)
-		px := fx + hashNoise(seed*2.0)*fw + math.Sin(f*0.05+seed)*6
+		ph := math.Mod(t*1.44+hashNoise(seed), 1.0)
+		px := fx + hashNoise(seed*2.0)*fw + math.Sin(t*6+seed)*6
 		py := fb - ph*fh*1.2
 		a := uint8(200 * (1 - ph) * (1 - ph))
 		if a < 12 {
@@ -1069,27 +1131,15 @@ func (ui *UISystem) drawCardIgnite(screen *ebiten.Image, x, startY, w, h, idx in
 // member's portrait head - the classic "seeing stars" daze. Each star orbits,
 // pulses in size/alpha on its own phase, and carries a faint diagonal sparkle.
 func (ui *UISystem) drawCardStunStars(screen *ebiten.Image, x, startY, w, h int) {
-	f := float64(ui.cardAnimClock())
 	cx := float64(x) + float64(w)*0.5
 	cy := float64(startY) + float64(h)*0.30 // ring around the upper portrait (head)
-	rx, ry := float64(w)*0.42, float64(h)*0.20
-	const n = 5
-	for k := 0; k < n; k++ {
-		ang := f*0.06 + 2*math.Pi*float64(k)/float64(n)
-		sx := float32(cx + math.Cos(ang)*rx)
-		sy := float32(cy + math.Sin(ang)*ry)
-		tw := 0.5 + 0.5*math.Sin(f*0.25+float64(k)*1.7) // twinkle
-		a := uint8(120 + 135*tw)
-		arm := float32(2.5 + 3.5*tw)
-		col := color.RGBA{255, 240, 120, a}
-		uiStrokeLine(screen, sx-arm, sy, sx+arm, sy, 1.5, col, true)
-		uiStrokeLine(screen, sx, sy-arm, sx, sy+arm, 1.5, col, true)
-		d := arm * 0.6
-		spark := color.RGBA{255, 255, 200, uint8(a / 2)}
-		uiStrokeLine(screen, sx-d, sy-d, sx+d, sy+d, 1, spark, true)
-		uiStrokeLine(screen, sx-d, sy+d, sx+d, sy-d, 1, spark, true)
-		uiFillCircle(screen, sx, sy, 1.2, color.RGBA{255, 255, 230, a}, true)
-	}
+	stunStarGlyphs(ui.game.uiSeconds(), cx, cy, float64(w)*0.42, float64(h)*0.20, 2.5, 3.5,
+		func(x0, y0, x1, y1, width float64, c color.RGBA) {
+			uiStrokeLine(screen, float32(x0), float32(y0), float32(x1), float32(y1), float32(width), c, true)
+		},
+		func(px, py, radius float64, c color.RGBA) {
+			uiFillCircle(screen, float32(px), float32(py), float32(radius), c, true)
+		})
 }
 
 // drawPartyProgressionBadgeShadow lifts a badge off the portrait beneath it.
@@ -1137,11 +1187,6 @@ const (
 	badgeAuraFloor    = 0.55 // pulse trough - never dims out of sight
 )
 
-// cardAnimClock is the clock EVERY party-card animation reads: the interface
-// clock, which keeps running while an overlay pauses the world. A hit flash,
-// poison bubbles, ignite, stun stars and the progression aura are presentation
-// on a panel the player is looking at - they must not freeze under an open hub,
-// and equally must not be driven by the world clock, which stops there.
 // partyCardDown reports the states that darken a party card instead of
 // animating it: unconscious, dead and eradicated.
 func partyCardDown(c *character.MMCharacter) bool {
@@ -1151,25 +1196,28 @@ func partyCardDown(c *character.MMCharacter) bool {
 
 // partyStatusClock phases each card's status motifs apart from its neighbours.
 func (ui *UISystem) partyStatusClock(card int) float64 {
-	return float64(ui.cardAnimClock()) + float64(card)*17
+	return ui.game.uiSeconds() + float64(card*17)*fxSaltSeconds
 }
 
-func (ui *UISystem) cardAnimClock() int64 {
-	if ui == nil || ui.game == nil {
+// uiSeconds is the clock EVERY party-card animation reads: the interface clock
+// in seconds (uiFrameCount at the live rate), which keeps running while an
+// overlay pauses the world. A hit flash, poison bubbles, ignite, stun stars and
+// the progression aura are presentation on a panel the player is looking at -
+// they must not freeze under an open hub, and equally must not be driven by the
+// world clock, which stops there.
+func (g *MMGame) uiSeconds() float64 {
+	if g == nil {
 		return 0
 	}
-	return ui.game.uiFrameCount
+	return float64(g.uiFrameCount) / float64(g.tickRate())
 }
 
-// badgeAuraPulse is the shared 0..1 breath. Both badges read the SAME clock
-// (g.uiFrameCount, which keeps advancing while a menu pauses the world), so two
-// badges on one portrait pulse together instead of beating against each other.
-func (g *MMGame) badgeAuraPulse(frame int64) float64 {
-	period := int64(g.framesForSeconds(badgeAuraPeriodSeconds))
-	if period <= 0 {
-		return 1
-	}
-	phase := float64(frame%period) / float64(period)
+// badgeAuraPulse is the shared 0..1 breath at seconds on the interface clock.
+// Both badges read the SAME clock (g.uiSeconds, which keeps advancing while a
+// menu pauses the world), so two badges on one portrait pulse together instead
+// of beating against each other.
+func (g *MMGame) badgeAuraPulse(seconds float64) float64 {
+	phase := math.Mod(seconds, badgeAuraPeriodSeconds) / badgeAuraPeriodSeconds
 	return badgeAuraFloor + (1-badgeAuraFloor)*(0.5-0.5*math.Cos(2*math.Pi*phase))
 }
 
@@ -1181,55 +1229,40 @@ func drawPartyProgressionBadgeAura(screen *ebiten.Image, x, y, w, h int, base co
 	drawSoftGlowAround(screen, x, y, w, h, badgeAuraSpreadPx, base, badgeAuraPeak, pulse)
 }
 
-// drawPartyProgressionBadge draws a portrait-attached progression badge: aura,
-// art, then the hover ring. The available-point count lives in its tooltip so
-// the icon remains one clean silhouette instead of looking like two badges.
-func (ui *UISystem) drawPartyProgressionBadge(screen *ebiten.Image, r layoutRect, style progressionBadgeStyle, isHover bool) {
-	drawPartyProgressionBadgeShadow(screen, r.x, r.y, r.w, r.h)
-	drawPartyProgressionBadgeAura(screen, r.x, r.y, r.w, r.h, style.tint, ui.game.badgeAuraPulse(ui.cardAnimClock()))
-	ui.drawInterfaceIcon(screen, style.icon, r.x, r.y, r.w, r.h)
+// drawPartyLevelUpChip draws one pending-growth chip: the authored icon (it
+// carries its own button and rim, so it gets no second frame) over its pulsing
+// aura, and the label in the chip's tint. Hover rings the whole chip.
+func (ui *UISystem) drawPartyLevelUpChip(screen *ebiten.Image, r layoutRect, style progressionBadgeStyle, label string, isHover bool) {
+	icon := layoutRect{r.x, r.y, partyLevelUpChipH, partyLevelUpChipH}
+	drawPartyProgressionBadgeAura(screen, icon.x, icon.y, icon.w, icon.h, style.tint, ui.game.badgeAuraPulse(ui.game.uiSeconds()))
+	drawPartyProgressionBadgeShadow(screen, icon.x, icon.y, icon.w, icon.h)
+	ui.drawInterfaceIcon(screen, style.icon, icon.x, icon.y, icon.w, icon.h)
+	if label != "" {
+		x := icon.right() + partyLevelUpLabelGap
+		drawCenteredTextWithShadow(screen, label, x, r.y, r.right()-x, r.h, style.tint)
+	}
 	if isHover {
 		drawPartyProgressionBadgeHover(screen, r.x, r.y, r.w, r.h, style.tint)
 	}
-}
-
-func (ui *UISystem) drawAutoStatButton(screen *ebiten.Image, x, y, w, h int, isHover bool) {
-	if w <= 0 || h <= 0 {
-		return
-	}
-	base := color.RGBA{18, 47, 78, 255}
-	if isHover {
-		base = color.RGBA{30, 82, 132, 255}
-	}
-	uiFillRect(screen, float32(x+1), float32(y+2), float32(max(0, w-1)), float32(max(0, h-2)), color.RGBA{0, 0, 0, 190}, false)
-	uiFillRect(screen, float32(x), float32(y), float32(w), float32(h), color.RGBA{5, 10, 18, 245}, false)
-	for row := 1; row < h-1; row++ {
-		shade := metalShade(base, float64(row-1)/float64(max(1, h-3)))
-		uiFillRect(screen, float32(x+1), float32(y+row), float32(max(0, w-2)), 1, shade, false)
-	}
-	uiStrokeRect(screen, float32(x), float32(y), float32(w-1), float32(h-1), 1, color.RGBA{26, 35, 48, 255}, false)
-	uiStrokeRect(screen, float32(x+1), float32(y+1), float32(max(0, w-3)), float32(max(0, h-3)), 1, metalShade(raritySilver, 0.6), false)
-	uiFillRect(screen, float32(x+3), float32(y+2), float32(max(0, w-6)), 1, color.RGBA{210, 235, 255, 180}, false)
-	drawCenteredTextWithShadow(screen, "AUTO", x, y, w, h, raritySilver)
 }
 
 // spellStatusRailLayout places the active party effects on the rail above the
 // party deck; drawing, hover and dispel clicks all read these rects.
 type spellStatusRailLayout struct {
 	bar      layoutRect
-	statuses []*UtilitySpellStatus
+	statuses []*BuffStatus
 	icons    []layoutRect
 }
 
 func (g *MMGame) spellStatusRail() (spellStatusRailLayout, bool) {
-	statuses := make([]*UtilitySpellStatus, 0, len(g.utilitySpellStatuses))
-	for _, status := range g.utilitySpellStatuses {
-		if status != nil && status.Duration > 0 {
+	statuses := make([]*BuffStatus, 0, len(g.buffStatuses))
+	for _, status := range g.buffStatuses {
+		if status != nil && status.Duration != 0 {
 			statuses = append(statuses, status)
 		}
 	}
 	sort.Slice(statuses, func(i, j int) bool {
-		return statuses[i].SpellID < statuses[j].SpellID
+		return statuses[i].ID < statuses[j].ID
 	})
 	if len(statuses) == 0 {
 		return spellStatusRailLayout{}, false
@@ -1288,7 +1321,7 @@ func (ui *UISystem) drawSpellStatusBar(screen *ebiten.Image) {
 	for i, status := range rail.statuses {
 		icon := rail.icons[i]
 		x, y, w, h := ui.drawSpellIcon(screen, icon.x, icon.y, icon.w, status.Icon, status.Fallback, status.Duration, status.MaxDuration)
-		ui.handleSpellIconClick(x, y, w, h, status.SpellID)
+		ui.handleBuffIconClick(x, y, w, h, status.ID)
 		mouseX, mouseY := uiCursorPosition()
 		if isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h) {
 			lines, plate := ui.game.buffStatusCardRows(status)
@@ -1343,57 +1376,38 @@ func (ui *UISystem) drawSpellIcon(screen *ebiten.Image, x, y, size int, icon, fa
 	return x, y, size, size
 }
 
-// handleSpellIconClick handles mouse clicks on spell status icons for dispelling
-func (ui *UISystem) handleSpellIconClick(x, y, width, height int, spellID spells.SpellID) {
-	if ui.displayedInput.building {
-		ui.onDisplayedInput(uiCommandClick, layoutRect{x, y, width, height}, func() { ui.handleSpellIconClick(x, y, width, height, spellID) })
-		return
-	}
-
-	// Check for mouse click (only process on first press, not while held)
-	if !ui.hudClicksBlocked() && ui.game.consumeLeftClickIn(x, y, x+width, y+height) {
-		currentTime := ui.game.mouseLeftClickAt
-
-		// Check for a fast double-click on the same icon.
-		doubleClick := withinDoubleClickWindow(currentTime, ui.game.lastUtilitySpellClickTime) &&
-			ui.game.lastClickedUtilitySpell == string(spellID)
-		if doubleClick {
-			// Double-click detected - dispel the spell
-			ui.dispelUtilitySpell(spellID)
-			// Reset click tracking
-			ui.game.lastUtilitySpellClickTime = 0
-			ui.game.lastClickedUtilitySpell = ""
-		} else {
-			// Single click - record for potential double-click
-			ui.game.lastUtilitySpellClickTime = currentTime
-			ui.game.lastClickedUtilitySpell = string(spellID)
+// handleBuffIconClick dispels a party buff on a double-click of its status icon.
+func (ui *UISystem) handleBuffIconClick(x, y, width, height int, id string) {
+	ui.onGatedClick(layoutRect{x, y, width, height}, func() bool { return !ui.hudClicksBlocked() }, func() {
+		if ui.game.buffIconClicks.click(id, ui.game.mouseLeftClickAt) {
+			ui.dispelBuff(id)
 		}
-	}
+	})
 }
 
-// dispelUtilitySpell removes an active utility spell effect by triggering natural expiration
-func (ui *UISystem) dispelUtilitySpell(spellID spells.SpellID) {
+// dispelBuff ends an active party buff the way it would expire naturally.
+func (ui *UISystem) dispelBuff(id string) {
 	// Flag effects (torch / wizard eye / water): zero the duration and let the
 	// next tick expire it naturally - onExpire side effects (e.g. the
 	// underwater return teleport) fire exactly as on a normal timeout.
 	for _, b := range ui.game.timedBuffs() {
-		if b.id != spellID {
+		if string(b.id) != id {
 			continue
 		}
 		if *b.active {
-			*b.duration = 0
-			ui.game.AddCombatMessage(fmt.Sprintf("%s dispelled!", spellDisplayName(spellID)))
+			*b.clock = status.DualClock{}
+			ui.game.AddCombatMessage(uitext.Text("combat.dispelled", buffSourceName(id)))
 		}
 		return
 	}
-	// Registry buffs (stat AND combat) dispel by spell id.
-	if _, ok := ui.game.statBuffByID(string(spellID)); ok {
-		if ui.game.removeStatBuff(string(spellID)) {
-			ui.game.AddCombatMessage(fmt.Sprintf("%s dispelled!", spellDisplayName(spellID)))
+	// Registry buffs (stat AND combat) dispel by source id.
+	if _, ok := ui.game.statBuffByID(id); ok {
+		if ui.game.removeStatBuff(id) {
+			ui.game.AddCombatMessage(uitext.Text("combat.dispelled", buffSourceName(id)))
 		}
-	} else if _, ok := ui.game.combatBuffByID(string(spellID)); ok {
-		if ui.game.removeCombatBuff(string(spellID)) {
-			ui.game.AddCombatMessage(fmt.Sprintf("%s dispelled!", spellDisplayName(spellID)))
+	} else if _, ok := ui.game.combatBuffByID(id); ok {
+		if ui.game.removeCombatBuff(id) {
+			ui.game.AddCombatMessage(uitext.Text("combat.dispelled", buffSourceName(id)))
 		}
 	}
 }
@@ -1479,24 +1493,31 @@ func (ui *UISystem) drawCompassMinimap(screen *ebiten.Image, centerX, centerY, r
 	opts.GeoM.Translate(float64(centerX-radius), float64(centerY-radius))
 	uiDrawImage(screen, ui.compassTileLayer, opts)
 
-	// Draw NPCs on minimap
-	for _, npc := range ui.game.world.NPCs {
-		if !ui.game.npcMapMarkerVisible(npc) {
-			continue
+	// Draw NPCs on minimap: used props first, so live dots sit on top (as on
+	// the atlas).
+	for _, spent := range []bool{true, false} {
+		dot := color.RGBA{255, 210, 55, 255}
+		if spent {
+			dot = color.RGBA{150, 146, 136, 255} // a used prop: stone grey
 		}
-		npcTileX := TileIndex(npc.X, tileSize)
-		npcTileY := TileIndex(npc.Y, tileSize)
-		dx := npcTileX - playerTileX
-		dy := npcTileY - playerTileY
+		for _, npc := range ui.game.world.NPCs {
+			if ui.game.npcPropSpent(npc) != spent || !ui.game.npcMapMarkerVisible(npc) {
+				continue
+			}
+			npcTileX := TileIndex(npc.X, tileSize)
+			npcTileY := TileIndex(npc.Y, tileSize)
+			dx := npcTileX - playerTileX
+			dy := npcTileY - playerTileY
 
-		// Keep the entire live marker inside the same circular map viewport.
-		dotRadius := max(float32(2), miniTileSize/2)
-		markerLimit := float32(radius) - dotRadius - 1
-		if float32(dx*dx+dy*dy)*miniTileSize*miniTileSize <= markerLimit*markerLimit {
-			screenX := float32(centerX) + float32(dx)*miniTileSize
-			screenY := float32(centerY) + float32(dy)*miniTileSize
-			uiFillCircle(screen, screenX, screenY, dotRadius+1, color.RGBA{8, 10, 14, 235}, true)
-			uiFillCircle(screen, screenX, screenY, dotRadius, color.RGBA{255, 210, 55, 255}, true)
+			// Keep the entire live marker inside the same circular map viewport.
+			dotRadius := max(float32(2), miniTileSize/2)
+			markerLimit := float32(radius) - dotRadius - 1
+			if float32(dx*dx+dy*dy)*miniTileSize*miniTileSize <= markerLimit*markerLimit {
+				screenX := float32(centerX) + float32(dx)*miniTileSize
+				screenY := float32(centerY) + float32(dy)*miniTileSize
+				uiFillCircle(screen, screenX, screenY, dotRadius+1, color.RGBA{8, 10, 14, 235}, true)
+				uiFillCircle(screen, screenX, screenY, dotRadius, dot, true)
+			}
 		}
 	}
 }

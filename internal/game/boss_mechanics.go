@@ -33,23 +33,27 @@ func (g *MMGame) bossMechanicValue(m *monster.Monster3D, stat string, fallback i
 }
 
 // Roll once when the outgoing hit is created. Projectiles and their splash keep
-// that packet even when a switch is operated before impact. True damage stays true.
-func (cs *CombatSystem) monsterOutgoingDamage(m *monster.Monster3D, parts damagecalc.Parts) damagecalc.Parts {
+// that packet even when a switch is operated before impact. True damage stays
+// true. crit reports the boss crit it rolled.
+func (cs *CombatSystem) monsterOutgoingDamage(m *monster.Monster3D, parts damagecalc.Parts) (damagecalc.Parts, bool) {
 	return cs.bossCriticalDamage(m, m.OutgoingDamage(parts))
 }
-func (cs *CombatSystem) bossCriticalDamage(m *monster.Monster3D, parts damagecalc.Parts) damagecalc.Parts {
+func (cs *CombatSystem) bossCriticalDamage(m *monster.Monster3D, parts damagecalc.Parts) (damagecalc.Parts, bool) {
 	if m.IsChampion() {
-		return parts
+		return parts, false // a champion crits through its own weapon or spell roll
 	}
 	if chance := cs.game.bossMechanicValue(m, "critical_chance", 0); chance > 0 && rand.Intn(100) < chance {
 		parts.Normal *= CritDamageMultiplier
+		return parts, true
 	}
-	return parts
+	return parts, false
 }
 func (cs *CombatSystem) hitFromMonster(m *monster.Monster3D, damage int, school string, ignoreArmor bool, disintegrate float64, melee, spell bool) monsterCharacterHit {
 	hit := hitFromMonster(m, damage, school, ignoreArmor, disintegrate, melee, spell)
 	if m != nil {
-		hit.Parts = cs.bossCriticalDamage(m, hit.Parts)
+		var crit bool
+		hit.Parts, crit = cs.bossCriticalDamage(m, hit.Parts)
+		hit.Critical = hit.Critical || crit
 	}
 	return hit
 }

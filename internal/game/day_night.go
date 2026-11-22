@@ -19,6 +19,9 @@ import (
 	"math"
 	"math/rand"
 	"os"
+	uitext "ugataima/assets/text"
+	"ugataima/internal/quests"
+	"ugataima/internal/status"
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
@@ -114,23 +117,15 @@ func (g *MMGame) applyDayNightPhase(night bool) {
 	g.replenishWildlife()
 	g.refreshCelestialProvidence()
 	if night {
-		g.refreshRepeatableQuests("night")
-		g.AddCombatMessage("Night falls.")
+		g.refreshRepeatableQuests(quests.RepeatNightly)
+		g.AddCombatMessage(uitext.Text("combat.night_falls"))
 		return
 	}
 	if weekChanged, _ := g.advanceCalendarAtDawn(); weekChanged {
 		g.refreshScheduledMerchantStocks()
 	}
-	g.refreshRepeatableQuests("day")
-	g.AddCombatMessage("The sun rises.")
-}
-
-var celestialProvidenceBuffPool = []spells.SpellID{
-	"day_of_the_gods",
-	"hour_of_power",
-	"bless",
-	"stone_skin",
-	"heroism",
+	g.refreshRepeatableQuests(quests.RepeatDaily)
+	g.AddCombatMessage(uitext.Text("combat.the_sun_rises"))
 }
 
 const celestialProvidenceSourceID = "racial:celestial_providence"
@@ -156,7 +151,7 @@ func (g *MMGame) restoreCelestialProvidenceOwnership(sourceVersion int) {
 		}
 	}
 	for i := range g.combatBuffs {
-		if g.combatBuffs[i].SpellID == spellID {
+		if g.combatBuffs[i].ID == spellID {
 			if g.combatBuffs[i].SourceID == "" {
 				g.combatBuffs[i].SourceID = celestialProvidenceSourceID
 			}
@@ -165,6 +160,20 @@ func (g *MMGame) restoreCelestialProvidenceOwnership(sourceVersion int) {
 	}
 	// A stale marker without a matching buff must not claim a future cast.
 	g.celestialBuffSpellID = ""
+}
+
+// validateProvidencePool: Celestial Providence draws party buff spells only.
+func validateProvidencePool(pool []string) error {
+	for _, key := range pool {
+		def, err := spells.GetSpellDefinitionByID(spells.SpellID(key))
+		if err != nil {
+			return fmt.Errorf("characters.providence_pool: unknown spell %q", key)
+		}
+		if !def.GrantsStatBuff() && !def.GrantsCombatBuff() {
+			return fmt.Errorf("characters.providence_pool: %q grants no party buff", key)
+		}
+	}
+	return nil
 }
 
 // refreshCelestialProvidence replaces the last race-granted party buff at a
@@ -191,14 +200,16 @@ func (g *MMGame) refreshCelestialProvidence() {
 			}
 		}
 	}
-	if !hasLivingCelestial || len(celestialProvidenceBuffPool) == 0 {
+	pool := g.config.Characters.ProvidencePool
+	if !hasLivingCelestial || len(pool) == 0 {
 		return
 	}
 	// A normal cast that is still active owns its spell slot. Providence may
 	// replace its own previous grant above, but must never downgrade, relabel, or
 	// later remove a player-owned cast of the same spell.
-	available := make([]spells.SpellID, 0, len(celestialProvidenceBuffPool))
-	for _, candidate := range celestialProvidenceBuffPool {
+	available := make([]spells.SpellID, 0, len(pool))
+	for _, key := range pool {
+		candidate := spells.SpellID(key)
 		_, statActive := g.statBuffByID(string(candidate))
 		_, combatActive := g.combatBuffByID(string(candidate))
 		if !statActive && !combatActive {
@@ -219,15 +230,10 @@ func (g *MMGame) refreshCelestialProvidence() {
 		},
 	}
 	frames := g.celestialProvidenceFramesLeft()
-	if def.StatBonus > 0 || len(def.StatBonuses) > 0 {
-		g.combat.applyStatBuffSpellFromSource(spellID, celestialProvidenceSourceID, frames, g.combat.spellStatBuffBonuses(spellID, caster))
-	} else {
-		g.addCombatBuff(timedCombatBuffFromSpell(spellID, def, caster, frames, celestialProvidenceSourceID))
-	}
+	g.combat.grantSpellPartyBuff(spellID, def, caster, frames, celestialProvidenceSourceID)
 	g.celestialBuffSpellID = string(spellID)
-	g.setUtilityStatus(spellID, frames)
 	g.combat.playSpellBuffFx(spellID)
-	g.AddCombatMessage(fmt.Sprintf("Celestial Providence grants Master-tier %s until the next dawn or dusk.", def.Name))
+	g.AddCombatMessage(uitext.Text("combat.celestial_providence_grants_master_tier_until", def.Name))
 }
 
 // The first frame after the quarter-cycle boundary belongs to the new phase.
@@ -366,11 +372,11 @@ func (g *MMGame) dropFlyWithoutOpenSky() {
 		return
 	}
 	g.flyActive = false
-	g.flyDuration = 0
+	g.flyClock = status.DualClock{}
 	if g.world != nil {
 		g.world.SetTerrainPassageActive(g.partyHasTerrainPassage())
 	}
-	g.AddCombatMessage("The close air presses down - Fly fades.")
+	g.AddCombatMessage(uitext.Text("combat.the_close_air_presses_down_fly"))
 }
 
 // skyTextureForPhase resolves the phase variant when it exists on disk, else
@@ -410,7 +416,7 @@ func (g *MMGame) applySkyForPhase(fade bool) {
 	g.updateSkyPanorama(name)
 	if fade && prev != nil && g.skyPanorama != nil {
 		g.skyPanoramaPrev = prev
-		total := int(g.config.DayNight.PanoramaFadeSecondsOrDefault() * float64(g.config.GetTPS()))
+		total := g.framesForSeconds(g.config.DayNight.PanoramaFadeSecondsOrDefault())
 		g.skyFadeFrames, g.skyFadeTotal = total, total
 	} else {
 		g.cancelSkyFade()
@@ -624,12 +630,9 @@ func (g *MMGame) spawnPackMember(w *world.World3D, tag string, member config.Pac
 		m := monster.NewMonster3DFromConfig(x, y, key, g.config)
 		m.PackKey = tag
 		m.QuestProgressIgnored = !member.QuestProgress
-		g.stampMonsterHome(w, m)
+		g.addMonsterToWorld(w, m)
 		if w == g.world {
-			g.registerSpawnedMonster(m)
 			g.refreshMonsterCollisionState(m)
-		} else {
-			w.Monsters = append(w.Monsters, m)
 		}
 	}
 	return slots

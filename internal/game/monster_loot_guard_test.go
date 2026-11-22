@@ -378,7 +378,7 @@ func TestNearbyLootTargetsReserveDifferentPatrolPosts(t *testing.T) {
 
 	groups = loop.lootGuardGroups(targetByID)
 	posts := make(map[lootGuardPostID]string)
-	targetTiles := lootGuardTargetReservations(targetByID)
+	targetTiles := loop.lootGuardTargetReservations(targetByID)
 	for _, target := range targets {
 		leader := stableLootGuardLeader(groups[target.id])
 		if leader == nil {
@@ -518,7 +518,7 @@ func TestLootGuardSpidersDoNotReformBandWhilePursuing(t *testing.T) {
 		prepareLootGuardsForTest(game, loop)
 		runLootGuardRealTimeStep(game, loop)
 		loop.updateMonsterBands()
-		loop.updateCombatTransitVisualStacks()
+		loop.updateTileFans()
 		for _, guard := range []*monster.Monster3D{first, second} {
 			if guard.LootGuarding || guard.BandID != 0 || guard.LootGuardTargetKey != "" {
 				t.Fatalf("frame %d: %s re-formed its guard band while pursuing: guarding=%v band=%d target=%q",
@@ -817,48 +817,68 @@ func TestSaveLoadPreservesLootGuardReservation(t *testing.T) {
 // but its seven-tile objective leash is still active. Saving at that point must
 // not turn the encounter into a generic wandering mob on reload.
 func TestSaveLoadPreservesActiveLootGuardEncounter(t *testing.T) {
-	cfg := loadTestConfig(t)
-	wSave := newTestWorldSized(cfg, 24, 24)
-	wmSave := world.NewWorldManager(cfg)
-	wmSave.LoadedMaps = map[string]*world.World3D{"forest": wSave}
-	wmSave.CurrentMapKey = "forest"
-	saveGame := newTestGame(cfg, wSave)
-	tile := float64(cfg.GetTileSize())
-	guard := addLootGuardTestMonster(t, saveGame, "sighted-guard", "goblin", 10, 10, tile)
-	placePlayerAtTile(saveGame, 12, 10, tile)
-	guard.IsEngagingPlayer = true
-	guard.LootGuardAlerted = true
-	guard.LootGuarding = false
-	guard.WasAttacked = false
+	for _, tc := range []struct {
+		name       string
+		relieved   bool
+		fleeing    bool
+		partyTiles int
+	}{
+		{name: "on duty", partyTiles: 2},
+		// Past the sight edge only a relieved guard is still in the fight.
+		{name: "relieved", relieved: true, partyTiles: 9},
+		// Relief lasts one engagement: a guard saved mid-flee loads calm.
+		{name: "relieved, fleeing", relieved: true, fleeing: true, partyTiles: 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := loadTestConfig(t)
+			wSave := newTestWorldSized(cfg, 24, 24)
+			wmSave := world.NewWorldManager(cfg)
+			wmSave.LoadedMaps = map[string]*world.World3D{"forest": wSave}
+			wmSave.CurrentMapKey = "forest"
+			saveGame := newTestGame(cfg, wSave)
+			tile := float64(cfg.GetTileSize())
+			guard := addLootGuardTestMonster(t, saveGame, "sighted-guard", "goblin", 10, 10, tile)
+			placePlayerAtTile(saveGame, 10+tc.partyTiles, 10, tile)
+			guard.IsEngagingPlayer = true
+			guard.LootGuardAlerted = true
+			guard.LootGuarding = false
+			guard.WasAttacked = false
+			guard.LootGuardRelieved = tc.relieved
+			if tc.fleeing {
+				guard.IsEngagingPlayer, guard.State = false, monster.StateFleeing
+			}
 
-	save := saveGame.buildSave(wmSave)
-	saved := save.MapMonsters["forest"]
-	if len(saved) != 1 || saved[0].LootGuarding || !saved[0].LootGuardAlerted || saved[0].WasAttacked {
-		t.Fatalf("active loot-guard encounter was not serialized faithfully: %+v", saved)
-	}
+			save := saveGame.buildSave(wmSave)
+			saved := save.MapMonsters["forest"]
+			if len(saved) != 1 || saved[0].LootGuarding || !saved[0].LootGuardAlerted || saved[0].WasAttacked || saved[0].LootGuardRelieved != tc.relieved {
+				t.Fatalf("active loot-guard encounter was not serialized faithfully: %+v", saved)
+			}
 
-	wLoad := newTestWorldSized(cfg, 24, 24)
-	wmLoad := world.NewWorldManager(cfg)
-	wmLoad.LoadedMaps = map[string]*world.World3D{"forest": wLoad}
-	wmLoad.CurrentMapKey = "forest"
-	loadGame := newTestGame(cfg, wLoad)
-	loadGame.combat = NewCombatSystem(loadGame)
+			wLoad := newTestWorldSized(cfg, 24, 24)
+			wmLoad := world.NewWorldManager(cfg)
+			wmLoad.LoadedMaps = map[string]*world.World3D{"forest": wLoad}
+			wmLoad.CurrentMapKey = "forest"
+			loadGame := newTestGame(cfg, wLoad)
+			loadGame.combat = NewCombatSystem(loadGame)
 
-	oldWorldManager := world.GlobalWorldManager
-	world.GlobalWorldManager = wmLoad
-	t.Cleanup(func() { world.GlobalWorldManager = oldWorldManager })
-	if err := loadGame.applySave(wmLoad, &save); err != nil {
-		t.Fatalf("apply save: %v", err)
-	}
-	if len(wLoad.Monsters) != 1 {
-		t.Fatalf("loaded monsters = %d, want 1", len(wLoad.Monsters))
-	}
-	loaded := wLoad.Monsters[0]
-	if loaded.LootGuarding || !loaded.LootGuardAlerted || !loaded.IsEngagingPlayer || loaded.WasAttacked {
-		t.Fatalf("active guard encounter restored incorrectly: guarding=%v alerted=%v engaging=%v hit=%v",
-			loaded.LootGuarding, loaded.LootGuardAlerted, loaded.IsEngagingPlayer, loaded.WasAttacked)
-	}
-	if leash := loaded.PursuitLeashPixels(); leash != monster.LootGuardAggroRadiusTiles*tile {
-		t.Fatalf("restored guard leash = %.1f, want %.1f", leash, monster.LootGuardAggroRadiusTiles*tile)
+			oldWorldManager := world.GlobalWorldManager
+			world.GlobalWorldManager = wmLoad
+			t.Cleanup(func() { world.GlobalWorldManager = oldWorldManager })
+			if err := loadGame.applySave(wmLoad, &save); err != nil {
+				t.Fatalf("apply save: %v", err)
+			}
+			if len(wLoad.Monsters) != 1 {
+				t.Fatalf("loaded monsters = %d, want 1", len(wLoad.Monsters))
+			}
+			loaded := wLoad.Monsters[0]
+			if loaded.LootGuarding || !loaded.LootGuardAlerted || loaded.IsEngagingPlayer == tc.fleeing || loaded.WasAttacked ||
+				loaded.LootGuardRelieved != (tc.relieved && !tc.fleeing) {
+				t.Fatalf("active guard encounter restored incorrectly: guarding=%v alerted=%v engaging=%v hit=%v relieved=%v",
+					loaded.LootGuarding, loaded.LootGuardAlerted, loaded.IsEngagingPlayer, loaded.WasAttacked, loaded.LootGuardRelieved)
+			}
+			if leash := loaded.PursuitLeashPixels(); !tc.relieved && leash != monster.LootGuardAggroRadiusTiles*tile {
+				t.Fatalf("restored guard leash = %.1f, want %.1f", leash, monster.LootGuardAggroRadiusTiles*tile)
+			}
+		})
 	}
 }

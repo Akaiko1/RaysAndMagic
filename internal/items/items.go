@@ -2,9 +2,10 @@ package items
 
 import (
 	"fmt"
-	"strings"
+	"slices"
 
 	damagecalc "ugataima/internal/damage"
+	"ugataima/internal/stats"
 )
 
 type EquipSlot int
@@ -21,11 +22,21 @@ const (
 	SlotAmulet
 	SlotRing1
 	SlotRing2
-	SlotSpell // Unified spell slot for any spell
+	SlotQuickAction // The readied F/Space action: a spell, technique, trap or flask
 )
 
+// StatBonusAttributes are the item attribute keys of the flat stat bonuses,
+// bonus_<stat> in stats.Names order.
+var StatBonusAttributes = func() []string {
+	keys := make([]string, len(stats.Names))
+	for i, n := range stats.Names {
+		keys[i] = "bonus_" + n
+	}
+	return keys
+}()
+
 // DisplayEquipSlots is the canonical render order of wearable equipment slots
-// (excludes the spell slot). UI panels iterate this so adding a slot surfaces it
+// (excludes the quick-action slot). UI panels iterate this so adding a slot surfaces it
 // everywhere without re-encoding the order per screen.
 var DisplayEquipSlots = []EquipSlot{
 	SlotMainHand, SlotOffHand, SlotArmor, SlotHelmet, SlotBoots,
@@ -55,22 +66,29 @@ func (s EquipSlot) DisplayName() string {
 		return "Amulet"
 	case SlotRing1, SlotRing2:
 		return "Ring"
-	case SlotSpell:
+	case SlotQuickAction:
 		return "Quick Slot"
 	}
 	return "Gear"
 }
 
 type Item struct {
-	// DeviceCooldownFrames is the exact remaining gameplay budget.
-	DeviceCooldownFrames int     `json:"device_cooldown_frames,omitempty"`
-	LegacyDeviceCooldown float64 `json:"device_cooldown,omitempty"`
-	UseAction            string  `json:"use_action,omitempty"`
-	Name                 string
-	Type                 ItemType
-	Attributes           map[string]int
-	Description          string
-	Rarity               string
+	Signature WeaponSignatureState `json:"weapon_signature,omitzero"`
+	// DeviceCooldown is the device's recharge on the one RT/TB clock.
+	DeviceCooldown RoundClock `json:"device_recharge,omitzero"`
+	// Older saves' recharges, moved into DeviceCooldown on load.
+	LegacyDeviceCooldownFrames int     `json:"device_cooldown_frames,omitempty" ticks:"frames"`
+	LegacyDeviceCooldown       float64 `json:"device_cooldown,omitempty"`
+	UseAction                  string  `json:"use_action,omitempty"`
+	// Key is the catalog key (weapons.yaml or items.yaml), stamped at creation
+	// and backfilled on load; "" for shortcuts (spell, technique, trap, flask),
+	// which carry their own keys.
+	Key         string `json:"key,omitempty"`
+	Name        string
+	Type        ItemType
+	Attributes  map[string]int
+	Description string
+	Rarity      string
 	// InstanceID identifies this item across save/load and the cross-save stash.
 	// Stackable items retain it as the primary lineage ID for compatibility with
 	// older saves; Lineages carries the complete provenance after stacks merge.
@@ -91,10 +109,18 @@ type Item struct {
 	ArmorCategory string
 	// Set is the armor-set key (items.yaml item_sets) this piece belongs to.
 	Set string `json:"set,omitempty"`
-	// For spells
+	// Spell fields: a spell shortcut, or the spell a device casts. Only spells
+	// belong here; techniques, traps and flasks use their own keys below.
+	// Older saves kept those keys in SpellEffect; loading migrates them.
 	SpellSchool string // Will use string instead of character.MagicSchoolID to avoid cycles
 	SpellCost   int
 	SpellEffect SpellEffect
+	// Technique is an ItemTechnique shortcut's techniques.yaml key.
+	Technique string `json:"technique,omitempty"`
+	// Trap is an ItemTrap shortcut's traps.yaml key.
+	Trap string `json:"trap,omitempty"`
+	// Flask is an ItemThrowable shortcut's items.yaml flask key.
+	Flask string `json:"flask,omitempty"`
 }
 
 // StackLineage identifies quantity fungible units that came from the same
@@ -176,6 +202,25 @@ func (it *Item) ConsumeStackUnits(quantity int) bool {
 	it.Quantity = it.Count() - quantity
 	it.setStackLineageParts(kept)
 	return true
+}
+
+// RekeyClaimedLineages gives each stack component whose ID claimed reports a
+// fresh ID, keeping its units. A whole chest withdrawal uses it for components
+// the chest still holds in another cell (a layout split there shares IDs), so
+// a later load never strips the withdrawn units as stash-owned.
+func (it *Item) RekeyClaimedLineages(claimed func(id uint64) bool) bool {
+	parts := slices.Clone(it.StackLineageParts())
+	changed := false
+	for i := range parts {
+		if claimed(parts[i].ID) {
+			parts[i].ID = NewInstanceID()
+			changed = true
+		}
+	}
+	if changed {
+		it.setStackLineageParts(parts)
+	}
+	return changed
 }
 
 // SplitOff removes quantity units from a stack and returns them as a separate
@@ -357,6 +402,31 @@ func SameStack(a, b Item) bool {
 	return a.Stackable() && b.Stackable() && a.Name == b.Name && a.Type == b.Type
 }
 
+// Drop is what a manual drop does at the cell it lands on.
+type Drop int
+
+const (
+	DropRefused Drop = iota // part of a stack onto another item: nothing moves
+	DropMerge               // onto a matching stack
+	DropPlace               // onto an empty cell: a stack of its own
+	DropSwap                // a whole stack onto another item: the two trade cells
+)
+
+// DropOnto is the placement rule of every container cell, bag or chest: moving
+// (a whole stack, or part of one) dropped on a cell holding occupant. A zero
+// occupant (no name, like an empty chest cell) is an empty cell.
+func DropOnto(moving, occupant Item, whole bool) Drop {
+	switch {
+	case occupant.Name == "":
+		return DropPlace
+	case SameStack(occupant, moving):
+		return DropMerge
+	case whole:
+		return DropSwap
+	}
+	return DropRefused
+}
+
 // PreferredSlot resolves where this item equips from its equip_slot attribute,
 // falling back to the given slot when unset. Single source for the
 // equip_slot->slot mapping (used by EquipItem and the class-kit loader).
@@ -385,7 +455,7 @@ const (
 	ItemCard      // Collectible monster cards (party-wide collection via the card collector)
 	ItemThrowable // Non-owning bag-backed flask shortcut.
 	ItemTechnique // Pilgrim technique shortcut.
-	ItemDevice    // Reusable physical utility item with its own cooldown.
+	ItemDevice    // Reusable physical utility item: jump, summon (own recharge) or a thrown flask.
 )
 
 // String returns the display name of the item type (Stringer interface).
@@ -455,6 +525,7 @@ func TryCreateWeaponFromYAML(weaponKey string) (Item, error) {
 	}
 
 	it := Item{
+		Key:         weaponKey,
 		Name:        weaponDef.Name,
 		Type:        ItemWeapon,
 		Description: desc,
@@ -506,24 +577,13 @@ func getGlobalWeaponDef(weaponKey string) (*WeaponDefinitionFromYAML, bool) {
 // GlobalWeaponAccessor is set by the config module to provide weapon access
 var GlobalWeaponAccessor func(string) (*WeaponDefinitionFromYAML, bool)
 
-// GlobalWeaponKeyByName is set by the config bridge to resolve a weapon's display
-// name to its YAML key via the real name index - handles flavor names the naive
-// transform below can't (e.g. "Kage-kunai, the Twin Shadows" -> "kage_kunai",
-// "Kanabo" -> "kanabo"). Unset in isolated tests, where the fallback applies.
-var GlobalWeaponKeyByName func(string) (string, bool)
-
-// GetWeaponKeyByName returns the YAML weapon key for a display name. Prefers the
-// exact config name index (punctuation/flavor-name safe); falls back to a
-// lower+underscore transform only when the bridge is unset or the name is unknown.
-// The fallback is why a weapon whose display name isn't its key-with-spaces (a
-// comma or an "of the ...") was previously unequippable - now resolved.
-func GetWeaponKeyByName(name string) string {
-	if GlobalWeaponKeyByName != nil {
-		if key, ok := GlobalWeaponKeyByName(name); ok {
-			return key
-		}
+// FromKey creates a catalog item by key: weapons.yaml, else items.yaml (keys
+// are unique across both, validated at load).
+func FromKey(key string) (Item, error) {
+	if _, ok := getWeaponDefinitionFromGlobal(key); ok {
+		return TryCreateWeaponFromYAML(key)
 	}
-	return strings.ToLower(strings.ReplaceAll(name, " ", "_"))
+	return TryCreateItemFromYAML(key)
 }
 
 // ------- Non-weapon items from YAML -------
@@ -545,17 +605,11 @@ type ItemDefinitionFromYAML struct {
 	EnduranceScalingDivisor   int
 	IntellectScalingDivisor   int
 	PersonalityScalingDivisor int
-	BonusIntellect            int
-	BonusPersonality          int
-	BonusEndurance            int
-	BonusAccuracy             int
-	BonusSpeed                int
-	BonusLuck                 int
+	StatBonus                 stats.StatBonuses
 	HealBase                  int
 	HealEnduranceDivisor      int
 	SummonDistanceTiles       int
 	EquipSlot                 string
-	BonusMight                int
 	Resistances               map[string]int // per-school % damage resist (school->percent)
 	Value                     int
 	Revive                    bool
@@ -635,23 +689,10 @@ func TryCreateItemFromYAML(itemKey string) (Item, error) {
 	if def.PersonalityScalingDivisor != 0 {
 		attrs["personality_scaling_divisor"] = def.PersonalityScalingDivisor
 	}
-	if def.BonusLuck != 0 {
-		attrs["bonus_luck"] = def.BonusLuck
-	}
-	if def.BonusIntellect != 0 {
-		attrs["bonus_intellect"] = def.BonusIntellect
-	}
-	if def.BonusPersonality != 0 {
-		attrs["bonus_personality"] = def.BonusPersonality
-	}
-	if def.BonusEndurance != 0 {
-		attrs["bonus_endurance"] = def.BonusEndurance
-	}
-	if def.BonusAccuracy != 0 {
-		attrs["bonus_accuracy"] = def.BonusAccuracy
-	}
-	if def.BonusSpeed != 0 {
-		attrs["bonus_speed"] = def.BonusSpeed
+	for i, key := range StatBonusAttributes {
+		if v := *def.StatBonus.At(i); v != 0 {
+			attrs[key] = v
+		}
 	}
 	if def.HealBase != 0 {
 		attrs["heal_base"] = def.HealBase
@@ -675,9 +716,6 @@ func TryCreateItemFromYAML(itemKey string) (Item, error) {
 	if def.EquipSlot != "" {
 		slotCode := mapEquipSlotStringToCode(def.EquipSlot)
 		attrs["equip_slot"] = int(slotCode)
-	}
-	if def.BonusMight != 0 {
-		attrs["bonus_might"] = def.BonusMight
 	}
 	for school, pct := range def.Resistances {
 		if pct != 0 {
@@ -722,6 +760,7 @@ func TryCreateItemFromYAML(itemKey string) (Item, error) {
 	}
 
 	return Item{
+		Key:           itemKey,
 		Name:          def.Name,
 		UseAction:     def.UseAction,
 		SpellEffect:   SpellEffect(def.UseSpell),

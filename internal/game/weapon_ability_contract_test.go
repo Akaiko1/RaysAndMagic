@@ -3,7 +3,6 @@ package game
 import (
 	"fmt"
 	"math"
-	"sort"
 	"strings"
 	"testing"
 
@@ -20,13 +19,14 @@ import (
 // Proc fixtures use 100% to prove wiring without probabilistic failures. The
 // separate launch test checks the unchanged authored percentages and snapshots.
 func TestWeaponDisintegrateCombatContract(t *testing.T) {
+	newCombat := newTestCombatFactory(t)
 	for _, key := range []string{"kage_kunai", "serpent_fang", "alien_blaster"} {
 		for _, tb := range []bool{false, true} {
 			for _, off := range []bool{false, true} {
 				for _, source := range []string{"weapon", "card", "both", "neither"} {
-					for _, targetState := range []string{"landed", "undead", "dragon", "warded", "sealed", "dodged", "summon"} {
+					for _, targetState := range []string{"landed", "undead", "dragon", "boss", "warded", "sealed", "dodged", "summon"} {
 						t.Run(fmt.Sprintf("%s/TB=%v/off=%v/%s/%s", key, tb, off, source, targetState), func(t *testing.T) {
-							cs := newTestCombatSystemWithConfig(t)
+							cs := newCombat(t)
 							g := cs.game
 							g.turnBasedMode = tb
 							def, _ := config.GetWeaponDefinition(key)
@@ -76,6 +76,8 @@ func TestWeaponDisintegrateCombatContract(t *testing.T) {
 							switch targetState {
 							case "undead", "dragon":
 								m.MonsterType = targetState
+							case "boss":
+								m.Boss = true
 							case "warded":
 								m.BossWarded = true
 							case "sealed":
@@ -101,6 +103,13 @@ func TestWeaponDisintegrateCombatContract(t *testing.T) {
 							wantDead := targetState == "landed" && source != "neither"
 							if dead := !m.IsAlive(); dead != wantDead {
 								t.Fatalf("dead=%v want %v; HP=%d", dead, wantDead, m.HitPoints)
+							}
+							if targetState == "boss" {
+								wantSear := source != "neither"
+								lost := m.MaxHitPoints - m.HitPoints
+								if seared := countCombatLog(g, "withstands disintegration") == 1; seared != wantSear || wantSear && lost < m.MaxHitPoints*config.InstakillSearMaxHPPct/100 {
+									t.Fatalf("seared=%v want %v; lost %d", seared, wantSear, lost)
+								}
 							}
 						})
 					}
@@ -146,6 +155,16 @@ func TestWeaponDisintegrateLaunchSnapshot(t *testing.T) {
 						if got := g.arrows[0].DisintegrateChance; math.Abs(got-want) > 1e-9 {
 							t.Fatalf("snapshot chance=%v want %v", got, want)
 						}
+						// The weapon card states the chance its shot launches with.
+						if !bonus {
+							text := GetItemTooltipRows(ch.Equipment[slot], ch, cs, true).String()
+							line := fmt.Sprintf("Disintegrate Chance: %.0f%%", want*100)
+							detail := strings.Contains(text, "Cards: +") && strings.Contains(text, "disintegrate chance")
+							if def.DisintegrateChance > 0 && (!strings.Contains(text, line) || detail != card) ||
+								def.DisintegrateChance == 0 && strings.Contains(text, "Disintegrate Chance") {
+								t.Fatalf("card for %.0f%% (cards=%v):\n%s", want*100, card, text)
+							}
+						}
 						delete(ch.Equipment, slot)
 						g.cardSlots = [MaxCardSlots]cardSlot{}
 						if g.arrows[0].DisintegrateChance != want {
@@ -186,7 +205,7 @@ func TestWeaponContinuationCollisionContract(t *testing.T) {
 					}
 					def, _ := config.GetWeaponDefinition(key)
 					ar := Arrow{ID: "origin", Active: true, LifeTime: 100, Damage: 10, Owner: ProjectileOwnerPlayer, BowKey: key, DamageType: "physical", X: first.X, Y: first.Y, VelX: 8, PierceLeft: def.PierceCount, RicochetLeft: def.RicochetTargets}
-					cs.applyProjectileDamage(&ar, "arrow", first, ar.ID)
+					cs.applyProjectileDamage(&ar, first, ar.ID)
 					if len(g.arrows) != 1 {
 						t.Fatalf("continuations=%d want 1", len(g.arrows))
 					}
@@ -262,10 +281,10 @@ func TestWeaponAndCardBonusTargetContract(t *testing.T) {
 					}
 					switch path {
 					case "melee":
-						cs.ApplyDamageToMonster(m, 200, def.Name, false)
+						cs.ApplyDamageToMonster(m, 200, testWeapon(def.Name), false)
 					case "projectile":
 						ar := Arrow{ID: "bonus-arrow", Active: true, LifeTime: 100, Damage: 200, Owner: ProjectileOwnerPlayer, BowKey: "elven_bow", DamageType: "physical"}
-						cs.applyProjectileDamage(&ar, "arrow", m, ar.ID)
+						cs.applyProjectileDamage(&ar, m, ar.ID)
 					case "splash":
 						center := mkTestMonster("Center", 1000)
 						attack := cs.newPartyMonsterAttack(200, 0, "physical", 0, def, def.Name, true, false, false)
@@ -286,8 +305,7 @@ func TestWeaponAndCardBonusTargetContract(t *testing.T) {
 func TestElvenBowAllAuthoredDragonFamilies(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	monsterPkg.MustLoadMonsterConfig("../../assets/monsters.yaml")
-	keys := monsterPkg.MonsterConfig.GetAllMonsterKeys()
-	sort.Strings(keys)
+	keys := catalogMonsterKeys()
 	dragons := 0
 	for _, key := range keys {
 		if monsterPkg.NewMonster3DFromConfig(0, 0, key, cs.game.config).MonsterType != monsterPkg.TypeDragon {
@@ -306,7 +324,7 @@ func TestElvenBowAllAuthoredDragonFamilies(t *testing.T) {
 			hit := func() int {
 				m.HitPoints = m.MaxHitPoints
 				ar := Arrow{ID: "dragon-bonus", Active: true, LifeTime: 100, Damage: 10000, Owner: ProjectileOwnerPlayer, BowKey: "elven_bow", DamageType: "physical"}
-				cs.applyProjectileDamage(&ar, "arrow", m, ar.ID)
+				cs.applyProjectileDamage(&ar, m, ar.ID)
 				return m.MaxHitPoints - m.HitPoints
 			}
 			withBonus := hit()
@@ -322,38 +340,41 @@ func TestElvenBowAllAuthoredDragonFamilies(t *testing.T) {
 	}
 }
 
-func TestStaffCooldownMainHandPresentationContract(t *testing.T) {
+// Caster staff perks work from either hand: an off-hand staff cuts spell
+// cooldown exactly as in the main hand, a bagged one does nothing, and two
+// staves never stack - the stronger counts. Cards carry no hand note.
+func TestStaffCooldownWorksFromEitherHand(t *testing.T) {
+	cooldown := func(cs *CombatSystem, main, off string) int {
+		ch := gmReferenceChar(cs.game.config)
+		ch.Equipment = map[items.EquipSlot]items.Item{}
+		for slot, key := range map[items.EquipSlot]string{items.SlotMainHand: main, items.SlotOffHand: off} {
+			if key != "" {
+				ch.Equipment[slot] = items.CreateWeaponFromYAML(key)
+			}
+		}
+		return cs.SpellCooldownFrames(ch, "firebolt")
+	}
+	cs := newTestCombatSystemWithConfig(t)
+	base := cooldown(cs, "", "")
 	for _, key := range []string{"archmage_staff", "lanista_scepter", "verdant_eye_scepter"} {
-		for _, where := range []string{"main", "off", "bag"} {
-			t.Run(key+"/"+where, func(t *testing.T) {
-				cs := newTestCombatSystemWithConfig(t)
-				ch := gmReferenceChar(cs.game.config)
-				ch.Equipment = map[items.EquipSlot]items.Item{}
-				it := items.CreateWeaponFromYAML(key)
-				base := cs.SpellCooldownFrames(ch, "firebolt")
-				if where == "main" {
-					ch.Equipment[items.SlotMainHand] = it
+		t.Run(key, func(t *testing.T) {
+			main, off := cooldown(cs, key, ""), cooldown(cs, "", key)
+			if main >= base || off != main {
+				t.Fatalf("cooldown main=%d off=%d baseline=%d", main, off, base)
+			}
+			it := items.CreateWeaponFromYAML(key)
+			for _, full := range []bool{false, true} {
+				text := GetItemTooltipRows(it, gmReferenceChar(cs.game.config), cs, full).String()
+				if !strings.Contains(text, "Spell cooldown -") || strings.Contains(text, "hand only") {
+					t.Fatalf("card (full=%v):\n%s", full, text)
 				}
-				if where == "off" {
-					ch.Equipment[items.SlotOffHand] = it
-				}
-				got := cs.SpellCooldownFrames(ch, "firebolt")
-				if where == "main" {
-					if got >= base {
-						t.Fatalf("main-hand cooldown=%d baseline=%d", got, base)
-					}
-				} else if got != base {
-					t.Fatalf("inactive cooldown=%d want %d", got, base)
-				}
-				def, _ := config.GetWeaponDefinition(key)
-				for _, full := range []bool{false, true} {
-					for _, text := range []string{GetItemTooltipRows(it, ch, cs, full).String(), GetItemTooltipRows(items.CreateWeaponFromYAML(items.GetWeaponKeyByName(def.Name)), nil, nil, full).String()} {
-						if !strings.Contains(text, "(main hand only)") {
-							t.Fatalf("card hides hand restriction (full=%v):\n%s", full, text)
-						}
-					}
-				}
-			})
+			}
+		})
+	}
+	strong := cooldown(cs, "archmage_staff", "")
+	for _, pair := range [][2]string{{"archmage_staff", "lanista_scepter"}, {"lanista_scepter", "archmage_staff"}} {
+		if got := cooldown(cs, pair[0], pair[1]); got != strong {
+			t.Fatalf("%s + %s: cooldown=%d, want the stronger staff alone (%d)", pair[0], pair[1], got, strong)
 		}
 	}
 }
@@ -400,8 +421,8 @@ func TestSpellDisintegrateLaunchSnapshot(t *testing.T) {
 // only player/crossfire payloads can disintegrate, and all respect immunity.
 func TestProjectileDisintegrateOwnerContract(t *testing.T) {
 	for _, kind := range []string{"arrow", "magic_projectile"} {
-		for _, owner := range []ProjectileOwner{ProjectileOwnerPlayer, ProjectileOwnerBoundUndead, ProjectileOwnerReflected} {
-			for _, state := range []string{"landed", "undead", "dragon", "warded", "sealed", "dodged"} {
+		for _, owner := range []ProjectileOwner{ProjectileOwnerPlayer, ProjectileOwnerPartyAlly, ProjectileOwnerReflected} {
+			for _, state := range []string{"landed", "undead", "dragon", "boss", "warded", "sealed", "dodged"} {
 				t.Run(fmt.Sprintf("%s/owner=%v/%s", kind, owner, state), func(t *testing.T) {
 					cs := newTestCombatSystemWithConfig(t)
 					g := cs.game
@@ -411,6 +432,8 @@ func TestProjectileDisintegrateOwnerContract(t *testing.T) {
 					switch state {
 					case "undead", "dragon":
 						m.MonsterType = state
+					case "boss":
+						m.Boss = true
 					case "warded":
 						m.BossWarded = true
 					case "sealed":
@@ -430,6 +453,10 @@ func TestProjectileDisintegrateOwnerContract(t *testing.T) {
 					wantDead := state == "landed" && owner != ProjectileOwnerReflected
 					if dead := !m.IsAlive(); dead != wantDead {
 						t.Fatalf("dead=%v want %v", dead, wantDead)
+					}
+					// A 1-damage bolt can only reach the sear's damage through the sear.
+					if lost := m.MaxHitPoints - m.HitPoints; state == "boss" && (lost >= m.MaxHitPoints*config.InstakillSearMaxHPPct/100) != (owner != ProjectileOwnerReflected) {
+						t.Fatalf("boss lost %d (owner %v)", lost, owner)
 					}
 				})
 			}
@@ -468,6 +495,34 @@ func TestProjectileDoesNotAcquireTargetsDuringFlight(t *testing.T) {
 			cs.CheckProjectileMonsterCollisions()
 			if m.HitPoints >= want || g.arrows[0].Active {
 				t.Fatal("physical contact did not land the existing projectile")
+			}
+		})
+	}
+}
+
+// The Maw devours any target left at or under its threshold - a boss too; a
+// target left above it survives the hit.
+func TestMawExecuteDevoursEveryClass(t *testing.T) {
+	for _, c := range []struct {
+		class string
+		above bool
+	}{{"ordinary", false}, {"boss", false}, {"boss", true}} {
+		t.Run(fmt.Sprintf("%s/above=%v", c.class, c.above), func(t *testing.T) {
+			cs := newTestCombatSystemWithConfig(t)
+			def, ok := config.GetWeaponDefinition("wyrmcleaver")
+			if !ok || def.ExecuteBelowPct <= 0 {
+				t.Fatal("fixture: wyrmcleaver must author execute_below_pct")
+			}
+			m := mkTestMonster("Maw target", 10000)
+			m.HitPoints = 10000*def.ExecuteBelowPct/100 - 100
+			if c.above {
+				m.HitPoints = 10000*def.ExecuteBelowPct/100 + 100
+			}
+			m.Boss = c.class == "boss"
+			cs.game.world.Monsters = []*monsterPkg.Monster3D{m}
+			cs.ApplyDamageToMonster(m, 1, testWeapon(def.Name), false)
+			if devoured := countCombatLog(cs.game, "devours") > 0; devoured == c.above || m.IsAlive() != c.above {
+				t.Fatalf("devoured=%v alive=%v", devoured, m.IsAlive())
 			}
 		})
 	}

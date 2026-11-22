@@ -15,60 +15,79 @@ import (
 // deterministic particles in the weapon's own element and silhouette; weapons
 // without a style keep the category swing in drawMeleeParticles.
 
-// meleeFxStyledLingerFrames extends the lifetime of styled swings so their
+// meleeFxStyledLingerSeconds extends the lifetime of styled swings so their
 // dissolve tails (blood droplets, debris, wisps) have room to play out.
-const meleeFxStyledLingerFrames = 44 // ~0.37s at 120 TPS
+const meleeFxStyledLingerSeconds = 0.37
 
 // meleeFxStyleDraw maps graphics.slash_fx to its bespoke renderer
 // (legendaries here, rares + naginata in render_melee_fx_rare.go).
 var meleeFxStyleDraw = map[string]func(*Renderer, *ebiten.Image, SlashEffect, float64, float64, float64){
-	"shellknocker":      (*Renderer).drawMeleeFxShellknocker,
-	"rainfang":          (*Renderer).drawMeleeFxRainfang,
-	"war_fan":           (*Renderer).drawMeleeFxWarFan,
-	"katana":            (*Renderer).drawMeleeFxKatana,
-	"solstice_thermal":  (*Renderer).drawMeleeFxSolsticeThermal,
-	"solstice_anchor":   (*Renderer).drawMeleeFxSolsticeAnchor,
-	"solstice_transfer": (*Renderer).drawMeleeFxSolsticeTransfer,
-	"muramasa":          (*Renderer).drawMeleeFxMuramasa,
-	"tonbogiri":         (*Renderer).drawMeleeFxTonbogiri,
-	"kage_kunai":        (*Renderer).drawMeleeFxKageKunai,
-	"idol_breaker":      (*Renderer).drawMeleeFxIdolBreaker,
-	"silver_sword":      (*Renderer).drawMeleeFxSilverSword,
-	"gold_sword":        (*Renderer).drawMeleeFxGoldSword,
-	"agility_katar":     (*Renderer).drawMeleeFxAgilityKatar,
-	"gorehorn":          (*Renderer).drawMeleeFxGorehorn,
-	"serpent_fang":      (*Renderer).drawMeleeFxSerpentFang,
-	"naginata":          (*Renderer).drawMeleeFxNaginata,
-	"arena_gladius":     (*Renderer).drawMeleeFxArenaGladius,
-	"arena_labrys":      (*Renderer).drawMeleeFxArenaLabrys,
-	"arena_morningstar": (*Renderer).drawMeleeFxArenaMorningstar,
-	"arena_hasta":       (*Renderer).drawMeleeFxArenaHasta,
-	"arena_trident":     (*Renderer).drawMeleeFxArenaTrident,
-	"arena_parry":       (*Renderer).drawMeleeFxArenaParry,
-	"arena_lion":        (*Renderer).drawMeleeFxArenaLion,
-	"arena_cesti":       (*Renderer).drawMeleeFxArenaCesti,
-	"clock_cogfang":     (*Renderer).drawMeleeFxClockCogfang,
-	"clock_chime":       (*Renderer).drawMeleeFxClockChime,
-	"clock_minute":      (*Renderer).drawMeleeFxClockMinute,
-	"clock_mainspring":  (*Renderer).drawMeleeFxClockMainspring,
-	"clock_escapement":  (*Renderer).drawMeleeFxClockEscapement,
-	"dragon_fang":       (*Renderer).drawMeleeFxDragonFang,
-	"dragon_jaws":       (*Renderer).drawMeleeFxDragonJaws,
-	"dragon_ember_egg":  (*Renderer).drawMeleeFxDragonEmberEgg,
-	"dragon_broodspike": (*Renderer).drawMeleeFxDragonBroodspike,
-	"dragon_tarn":       (*Renderer).drawMeleeFxDragonTarn,
-	"dragon_hatchling":  (*Renderer).drawMeleeFxDragonHatchling,
-	"dragon_roar":       (*Renderer).drawMeleeFxDragonRoar,
-	"tech_vibro":        (*Renderer).drawMeleeFxTechVibro,
+	"solstice_stone_script": (*Renderer).drawMeleeFxStoneScript,
+	"shellknocker":          (*Renderer).drawMeleeFxShellknocker,
+	"rainfang":              (*Renderer).drawMeleeFxRainfang,
+	"war_fan":               (*Renderer).drawMeleeFxWarFan,
+	"katana":                (*Renderer).drawMeleeFxKatana,
+	"solstice_thermal":      (*Renderer).drawMeleeFxSolsticeThermal,
+	"solstice_anchor":       (*Renderer).drawMeleeFxSolsticeAnchor,
+	"solstice_transfer":     (*Renderer).drawMeleeFxSolsticeTransfer,
+	"muramasa":              (*Renderer).drawMeleeFxMuramasa,
+	"tonbogiri":             (*Renderer).drawMeleeFxTonbogiri,
+	"kage_kunai":            (*Renderer).drawMeleeFxKageKunai,
+	"idol_breaker":          (*Renderer).drawMeleeFxIdolBreaker,
+	"silver_sword":          (*Renderer).drawMeleeFxSilverSword,
+	"gold_sword":            (*Renderer).drawMeleeFxGoldSword,
+	"agility_katar":         (*Renderer).drawMeleeFxAgilityKatar,
+	"gorehorn":              (*Renderer).drawMeleeFxGorehorn,
+	"serpent_fang":          (*Renderer).drawMeleeFxSerpentFang,
+	"naginata":              (*Renderer).drawMeleeFxNaginata,
+	"arena_gladius":         (*Renderer).drawMeleeFxArenaGladius,
+	"arena_labrys":          (*Renderer).drawMeleeFxArenaLabrys,
+	"arena_morningstar":     (*Renderer).drawMeleeFxArenaMorningstar,
+	"arena_hasta":           (*Renderer).drawMeleeFxArenaHasta,
+	"arena_trident":         (*Renderer).drawMeleeFxArenaTrident,
+	"arena_parry":           (*Renderer).drawMeleeFxArenaParry,
+	"arena_lion":            (*Renderer).drawMeleeFxArenaLion,
+	gauntletStrikeStyle:     (*Renderer).drawMeleeFxArenaCesti,
+	"clock_cogfang":         (*Renderer).drawMeleeFxClockCogfang,
+	"clock_chime":           (*Renderer).drawMeleeFxClockChime,
+	"clock_minute":          (*Renderer).drawMeleeFxClockMinute,
+	"clock_mainspring":      (*Renderer).drawMeleeFxClockMainspring,
+	"dragon_fang":           (*Renderer).drawMeleeFxDragonFang,
+	"dragon_jaws":           (*Renderer).drawMeleeFxDragonJaws,
+	"dragon_ember_egg":      (*Renderer).drawMeleeFxDragonEmberEgg,
+	"dragon_broodspike":     (*Renderer).drawMeleeFxDragonBroodspike,
+	"dragon_tarn":           (*Renderer).drawMeleeFxDragonTarn,
+	"dragon_hatchling":      (*Renderer).drawMeleeFxDragonHatchling,
+	"dragon_roar":           (*Renderer).drawMeleeFxDragonRoar,
+	"tech_vibro":            (*Renderer).drawMeleeFxTechVibro,
 }
 
 // validateWeaponFxStyles fails fast when a weapon effect names a style with no
-// renderer - a YAML typo would otherwise silently fall back to the stock FX.
+// renderer - a YAML typo would otherwise silently fall back to the stock FX -
+// and when a weapon has no body to draw: a melee weapon without its procedural
+// model, a ranged weapon of a held category without a held model.
 func validateWeaponFxStyles() {
 	if config.GlobalWeapons == nil {
 		return
 	}
 	for key, def := range config.GlobalWeapons.Weapons {
+		model := ""
+		if def.Graphics != nil {
+			model = def.Graphics.HeldModel
+		}
+		if model != "" {
+			asset, ok := rangedHeldAssets[model]
+			if !ok || !def.IsRanged() || asset.kind.category() != def.Category {
+				panic(fmt.Sprintf("weapon %q: invalid held_model %q for category %q", key, model, def.Category))
+			}
+		} else if def.IsRanged() && rangedHeldCategories[def.Category] {
+			panic(fmt.Sprintf("weapon %q: a ranged %s needs a held_model", key, def.Category))
+		}
+		if body, ok := weaponBodyModels[key]; def.Melee != nil && !ok {
+			panic(fmt.Sprintf("weapon %q: a melee weapon needs a procedural body in meleeBodies", key))
+		} else if ok && (body.family() == familyGauntlet) != drawsGauntletStrike(def) {
+			panic(fmt.Sprintf("weapon %q: gauntlet bodies are drawn only by a punch (martial_arts) or the %s style", key, gauntletStrikeStyle))
+		}
 		if def.Graphics == nil {
 			continue
 		}
@@ -79,7 +98,7 @@ func validateWeaponFxStyles() {
 		}
 		if def.Graphics.ProjectileFx != "" {
 			fx, ok := weaponProjectileFxStyles[def.Graphics.ProjectileFx]
-			if !ok || fx.side == nil || fx.headOn == nil {
+			if !ok || (fx.volume == nil && (fx.side == nil || fx.headOn == nil)) {
 				panic(fmt.Sprintf("weapon %q: unknown weapon projectile_fx style %q", key, def.Graphics.ProjectileFx))
 			}
 		}
@@ -304,7 +323,7 @@ func (r *Renderer) drawMeleeFxTonbogiri(screen *ebiten.Image, s SlashEffect, cx,
 		return
 	}
 	seed := seedFromID(s.ID)
-	fc := int(r.game.frameCount)
+	sec := r.game.worldSeconds()
 	h := screenH * meleeSizeScale
 	emerald := [3]int{90, 225, 140}
 	skyCyan := [3]int{130, 235, 235}
@@ -327,7 +346,7 @@ func (r *Renderer) drawMeleeFxTonbogiri(screen *ebiten.Image, s SlashEffect, cx,
 		path:  func(t float64) (float64, float64) { return baseX, baseY - reach*t },
 		width: func(t float64) float64 { return (4 + 6*(1-t)) * widthScale },
 		color: func(t float64) [3]int {
-			return mixColor(emerald, skyCyan, 0.5+0.5*math.Sin(t*9+float64(fc)*0.25))
+			return mixColor(emerald, skyCyan, 0.5+0.5*math.Sin(t*9+sec*30))
 		},
 		alpha:  func(t float64) float64 { return 0.45 + 0.55*t },
 		length: reach,
@@ -456,7 +475,7 @@ func (r *Renderer) drawMeleeFxIdolBreaker(screen *ebiten.Image, s SlashEffect, c
 			r.drawWeaponShard(screen, sx, sy, math.Max(2, sz*f), c, fade*(1-u*u)*0.9*f*f, ug, seed+k*37, false)
 		}
 	}
-	fc := int(r.game.frameCount)
+	sec := r.game.worldSeconds()
 	const embers = 7
 	for k := 0; k < embers; k++ {
 		eb := auraHash(seed, k, 55, 0) * 0.3
@@ -464,7 +483,7 @@ func (r *Renderer) drawMeleeFxIdolBreaker(screen *ebiten.Image, s SlashEffect, c
 			continue
 		}
 		eu := (u - eb) / (1 - eb)
-		tw := 0.5 + 0.5*math.Sin(float64(fc)*0.3+auraHash(seed, k, 56, 0)*2*math.Pi)
+		tw := 0.5 + 0.5*math.Sin(sec*36+auraHash(seed, k, 56, 0)*2*math.Pi)
 		ex := impX + (auraHash(seed, k, 57, 0)-0.5)*h*0.14 + math.Sin(eu*5)*thick*0.4
 		ey := impY - eu*h*0.14
 		r.drawSparkStar(screen, ex, ey, math.Max(2, thick*0.22*(1-eu*0.5)),

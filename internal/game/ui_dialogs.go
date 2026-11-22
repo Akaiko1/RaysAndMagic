@@ -5,123 +5,164 @@ import (
 	"image"
 	"image/color"
 	"math/rand"
+	"strconv"
 	"strings"
 	uitext "ugataima/assets/text"
 
 	"ugataima/internal/character"
+	"ugataima/internal/config"
 	"ugataima/internal/highscore"
 	"ugataima/internal/items"
+	"ugataima/internal/quests"
 	"ugataima/internal/spells"
+	"ugataima/internal/stats"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
-type statMeta struct {
-	Name string
-	Ptr  *int
-}
-
-// statHoldInitialDelay - frames the user has to hold the mouse on a +button
-// before hold-to-repeat starts firing. Configured for the game's 120 TPS so
-// ~340 ms keeps single clicks pure (no accidental double-spend) while a
-// deliberate hold takes over fast.
-// statHoldRepeatRate - frames between hold-fired increments after the delay.
-// At 120 TPS ~ 67 ms / ~15 stats per second when held.
+// statHoldDelaySeconds - how long the user has to hold the mouse on a
+// +button before hold-to-repeat starts firing: long enough to keep single
+// clicks pure (no accidental double-spend) while a deliberate hold takes over
+// fast. statHoldRepeatSeconds - the gap between hold-fired increments after
+// the delay, ~15 stats per second when held.
 const (
-	statHoldInitialDelay = 40 // ~0.33s at 120 TPS
-	statHoldRepeatRate   = 8  // ~0.07s at 120 TPS
+	statHoldDelaySeconds  = 0.33
+	statHoldRepeatSeconds = 0.07
 )
 
-// drawStatPointRow draws a single stat row with name, value, and + button
-func (ui *UISystem) drawStatPointRow(screen *ebiten.Image, name string, value int, y, plusX, plusY, btnW, btnH int, canAdd, isHover bool) {
-	drawUIText(screen, fmt.Sprintf("%s: %d", name, value), plusX-148, y)
-
-	// Check if stat is already at max (99)
-	atMax := value >= MaxStatValue
-	canActuallyAdd := canAdd && !atMax
-
-	ui.drawButtonFrame(screen, plusX, plusY, btnW, btnH, canActuallyAdd && isHover)
-	if atMax {
-		drawFilledRect(screen, plusX+3, plusY+3, btnW-6, btnH-6, color.RGBA{0, 0, 0, 100})
+// drawStatPlusButton is one stat's "+": the stat-growth badge itself (its
+// art is already a framed tile), rimmed on hover, dimmed at the cap or with
+// no points left.
+func (ui *UISystem) drawStatPlusButton(screen *ebiten.Image, r layoutRect, live, hover bool) {
+	icon := layoutRect{r.x + (r.w-24)/2, r.y + (r.h-24)/2, 24, 24}
+	sprite := ui.game.sprites.GetSprite(statBadgeStyle.icon)
+	if live && hover {
+		ui.drawHUDIconHoverGlow(screen, statBadgeStyle.icon, icon)
 	}
-	ui.drawInterfaceIcon(screen, "icon_stat_up", plusX+2, plusY+2, btnW-4, btnH-4)
+	drawImageScaled(screen, sprite, icon.x, icon.y, icon.w, icon.h)
+	if !live {
+		drawFilledRect(screen, icon.x, icon.y, icon.w, icon.h, color.RGBA{0, 0, 0, 150})
+	}
 }
 
-// drawStatDistributionPopup draws the stat allocation popup for the selected character
+// drawStatDistributionPopup is where a hero spends stat points: who, how many
+// points are left, and every stat with where AUTO would put the rest.
 func (ui *UISystem) drawStatDistributionPopup(screen *ebiten.Image) {
-	// Bound to statPopupCharIdx - the character whose "+" button was clicked
-	// (set at the open site in ui_hud.go). NOT selectedChar: in turn-based mode
-	// selectedChar tracks the active turn, so binding to it opened the wrong
-	// character's popup when you clicked "+" on someone who had already acted.
+	// Bound to statPopupCharIdx - the character whose chip was clicked. NOT
+	// selectedChar: in turn-based mode selectedChar tracks the active turn.
 	charIdx := ui.game.statPopupCharIdx
-	if charIdx < 0 || charIdx >= len(ui.game.party.Members) {
+	if charIdx < 0 || charIdx >= len(ui.game.party.Members) || ui.game.party.Members[charIdx] == nil {
 		return
 	}
-	member := ui.game.party.Members[charIdx]
+	g := ui.game
+	member := g.party.Members[charIdx]
 	interactive := ui.topModalLayer() == modalLayerStat
+	// The popup owns this hover layer: discard tips from the HUD beneath it.
+	ui.discardLowerHoverText()
 
-	// Popup dimensions
-	screenW := ui.game.config.GetScreenWidth()
-	screenH := ui.game.config.GetScreenHeight()
+	screenW, screenH := g.config.GetScreenWidth(), g.config.GetScreenHeight()
 	popup := statPopupRect(screenW, screenH)
-	popupX, popupY, popupW, popupH := popup.x, popup.y, popup.w, popup.h
+	drawFilledRect(screen, 0, 0, screenW, screenH, color.RGBA{0, 0, 0, 120})
+	ui.drawThemeFrame(screen, frameGold, popup.x, popup.y, popup.w, popup.h)
 
-	// Draw background
-	drawPortraitFrame(screen, popupX, popupY, popupW, popupH)
+	// Header: the HUD chip's badge, then who is growing.
+	textX := popup.x + 50
+	ui.drawInterfaceIcon(screen, statBadgeStyle.icon, popup.x+16, popup.y+16, 24, 24)
+	headW := statPopupCloseRect(popup).x - 8 - textX
+	drawUITextColored(screen, clipUIText(member.Name, headW), textX, popup.y+14, gameplayInk.heading)
+	drawUITextColored(screen, clipUIText(fmt.Sprintf("Level %d %s", member.Level, member.ClassDisplayName()), headW), textX, popup.y+32, gameplayInk.muted)
+	drawFilledRect(screen, popup.x+16, popup.y+statPopupHeaderRule, popup.w-32, 1, gameplayInk.edge)
 
-	// Title
-	drawUIText(screen, "Distribute Stat Points", popupX+16, popupY+16)
-	drawUIText(screen, "Points left:", popupX+16, popupY+44)
-	drawUIText(screen, fmt.Sprintf("%d", member.FreeStatPoints), popupX+120, popupY+44)
-
-	// Stat list
-	statList := []statMeta{
-		{"Might", &member.Might},
-		{"Intellect", &member.Intellect},
-		{"Personality", &member.Personality},
-		{"Endurance", &member.Endurance},
-		{"Accuracy", &member.Accuracy},
-		{"Speed", &member.Speed},
-		{"Luck", &member.Luck},
+	// Points: the focal number, then the build AUTO follows.
+	points := member.FreeStatPoints
+	pointsInk := statBadgeStyle.tint
+	if points == 0 {
+		pointsInk = gameplayInk.muted
 	}
+	num := strconv.Itoa(points)
+	numW := uiTextWidth(num) * 2
+	drawScaledMetalCenteredText(screen, num, popup.x+16+numW/2, popup.y+statPopupPointsMid, 2, pointsInk)
+	labelX := popup.x + 16 + numW + 10
+	drawUITextColored(screen, "points to spend", labelX, popup.y+statPopupPointsMid-uiTextCharHeight, gameplayInk.text)
+	build := g.autoBuildFor(member.Class)
+	buildName := build.Name
+	if build.Key == config.DefaultAutoBuildKey {
+		buildName = "class default"
+	}
+	drawUITextColored(screen, clipUIText("Build: "+buildName, statPopupAutoRect(popup).x-labelX-8), labelX, popup.y+statPopupPointsMid+2, gameplayInk.muted)
+
 	mouseX, mouseY := uiCursorPosition()
-	for i, stat := range statList {
+	auto := statPopupAutoRect(popup)
+	autoLive := interactive && points > 0
+	autoHover := autoLive && isMouseHoveringBox(mouseX, mouseY, auto.x, auto.y, auto.right(), auto.bottom())
+	ui.drawButtonFrame(screen, auto.x, auto.y, auto.w, auto.h, autoHover)
+	autoInk := gameplayInk.muted
+	if autoLive {
+		autoInk = statBadgeStyle.tint
+	}
+	drawCenteredTextWithShadow(screen, "Auto", auto.x, auto.y, auto.w, auto.h, autoInk)
+	if autoHover {
+		ui.queueTooltip([]string{"Spend every point by this build", "Builds: Settings > Gameplay"}, mouseX+12, mouseY+8)
+	}
+	ui.onClick(auto, interactive, func() {
+		g.autoDistributeMemberStatPoints(member)
+	})
+	drawFilledRect(screen, popup.x+16, popup.y+statPopupRowsRule, popup.w-32, 1, gameplayInk.edge)
+
+	// Stats: name, value, AUTO's share of the remaining points, "+".
+	plan := ui.autoStatPlan(member, build.AutoStatsConfig)
+	ghostInk := statBadgeStyle.tint
+	if !autoHover {
+		ghostInk = color.RGBA{lerpByte(ghostInk.R, 0, 0.25), lerpByte(ghostInk.G, 0, 0.25), lerpByte(ghostInk.B, 0, 0.25), 255}
+	}
+	for i, key := range stats.Names {
+		stat := member.BaseStatField(key)
+		row := statPopupRowRect(popup, i)
 		plus := statPlusButtonRect(popup, i)
-		plusX, plusY, btnW, btnH := plus.x, plus.y, plus.w, plus.h
-		y := plusY + statPlusButtonLift
-		canAdd := member.FreeStatPoints > 0
-		isHover := mouseX >= plusX && mouseX < plusX+btnW && mouseY >= plusY && mouseY < plusY+btnH
-		ui.drawStatPointRow(screen, stat.Name, *stat.Ptr, y, plusX, plusY, btnW, btnH, canAdd, isHover)
-		ui.onDisplayedInput(uiCommandHold, layoutRect{plusX, plusY, btnW, btnH}, func() {
+		textY := row.y + (row.h-uiTextCharHeight)/2
+		rowHover := interactive && isMouseHoveringBox(mouseX, mouseY, row.x, row.y, row.right(), row.bottom())
+		if rowHover {
+			drawFilledRect(screen, row.x, row.y, row.w, row.h, gameplayInk.selected)
+			ui.queueCardTooltip(statTooltipRows(key), nil, nil, nil, "", mouseX+12, row.bottom()+2)
+		}
+		drawUITextColored(screen, stats.Title(key), row.x+8, textY, gameplayInk.text)
+		drawRightUIText(screen, strconv.Itoa(*stat), row.x+statPopupValueRight, textY, gameplayInk.heading)
+		if gain := plan.ValueByName(key); gain > 0 {
+			drawUITextColored(screen, fmt.Sprintf("+%d", gain), row.x+statPopupValueRight+8, textY, ghostInk)
+		}
+		canAdd := points > 0 && *stat < MaxStatValue
+		plusHover := interactive && isMouseHoveringBox(mouseX, mouseY, plus.x, plus.y, plus.right(), plus.bottom())
+		ui.drawStatPlusButton(screen, plus, canAdd, plusHover)
+		ui.onDisplayedInput(uiCommandHold, plus, func() {
 			mouseX, mouseY := pointerPosition()
-			isHover := isMouseHoveringBox(mouseX, mouseY, plusX, plusY, plusX+btnW, plusY+btnH)
+			isHover := isMouseHoveringBox(mouseX, mouseY, plus.x, plus.y, plus.right(), plus.bottom())
 			mousePressed := pointerLeftPressed()
-			clickIn := interactive && ui.game.consumeLeftClickIn(plusX, plusY, plusX+btnW, plusY+btnH)
+			clickIn := interactive && g.consumeLeftClickIn(plus.x, plus.y, plus.right(), plus.bottom())
 
 			// Hold-to-repeat: once the user keeps the button held over the same
-			// +button past statHoldInitialDelay, fire an extra increment every
-			// statHoldRepeatRate frames. Single clicks still come through clickIn
+			// +button past statHoldDelaySeconds, fire an extra increment every
+			// statHoldRepeatSeconds. Single clicks still come through clickIn
 			// above unchanged.
 			if !ui.displayedInput.processingClick && interactive && isHover && mousePressed {
-				if ui.statHoldStat == stat.Name {
+				if ui.statHoldStat == key {
 					ui.statHoldFrames++
-					if ui.statHoldFrames > statHoldInitialDelay &&
-						(ui.statHoldFrames-statHoldInitialDelay)%statHoldRepeatRate == 0 {
+					delay, every := g.framesForSeconds(statHoldDelaySeconds), g.framesForSeconds(statHoldRepeatSeconds)
+					if ui.statHoldFrames > delay && (ui.statHoldFrames-delay)%every == 0 {
 						clickIn = true
 					}
 				} else {
-					ui.statHoldStat = stat.Name
+					ui.statHoldStat = key
 					ui.statHoldFrames = 0
 				}
-			} else if !ui.displayedInput.processingClick && ui.statHoldStat == stat.Name {
+			} else if !ui.displayedInput.processingClick && ui.statHoldStat == key {
 				ui.statHoldStat = ""
 				ui.statHoldFrames = 0
 			}
 
-			if clickIn && member.FreeStatPoints > 0 && *stat.Ptr < MaxStatValue {
-				(*stat.Ptr)++
+			if clickIn && member.FreeStatPoints > 0 && *stat < MaxStatValue {
+				(*stat)++
 				member.FreeStatPoints--
-				member.RecalculateMaxStatsGrantingGain(ui.game.config)
+				member.RecalculateMaxStatsGrantingGain(g.config)
 			}
 		})
 	}
@@ -130,7 +171,7 @@ func (ui *UISystem) drawStatDistributionPopup(screen *ebiten.Image) {
 	closeRect := statPopupCloseRect(popup)
 	ui.drawPopupCloseButton(screen, closeRect.x, closeRect.y, closeRect.w, interactive, func() {
 		if !ui.justOpenedStatPopup {
-			ui.game.statPopupOpen = false
+			g.statPopupOpen = false
 		}
 	})
 
@@ -140,26 +181,60 @@ func (ui *UISystem) drawStatDistributionPopup(screen *ebiten.Image) {
 	}
 }
 
-// drawMemberPickerPopup is the shared centered pick-a-party-member overlay
-// behind the revival/heal/promotion pickers: dim, panel, title+prompt, one
-// hoverable row per target index. rowLabel formats a row; onPick fires on a
-// row click. onCancel==nil means not cancellable (no close X, ESC ignored).
-func statPopupRect(screenW, screenH int) layoutRect {
-	return centeredRect(screenW, screenH, 340, 320)
+// autoStatPlan is AUTO's share of a hero's remaining points per stat,
+// memoized until the hero, their stats or the build change.
+func (ui *UISystem) autoStatPlan(member *character.MMCharacter, build config.AutoStatsConfig) stats.StatBonuses {
+	key := statPlanKey{member: member, base: member.BaseStats(), free: member.FreeStatPoints,
+		speed: build.Speed, endurance: build.Endurance, primary: build.Primary, secondary: build.Secondary}
+	if ui.statPlan.key != key {
+		c := *member
+		spendAutoStatPoints(&c, build)
+		ui.statPlan = statPlanMemo{key, c.BaseStats().Sub(key.base)}
+	}
+	return ui.statPlan.plan
 }
 
-// Stat popup rows: one "+" button per stat, its label baseline
-// statPlusButtonLift below the button top.
+type statPlanKey struct {
+	member                 *character.MMCharacter
+	base                   stats.StatBonuses
+	free, speed, endurance int
+	primary, secondary     string
+}
+
+type statPlanMemo struct {
+	key  statPlanKey
+	plan stats.StatBonuses
+}
+
+// Stat popup geometry, shared by drawing, the hold-repeat "+" and tests.
 const (
-	statPlusButtonSize = 28
-	statPlusButtonLift = 4
-	statPopupRowTop    = 80
-	statPopupRowPitch  = 36
+	statPopupW          = 320
+	statPopupHeaderRule = 54
+	statPopupPointsMid  = 80
+	statPopupRowsRule   = 106
+	statPopupRowTop     = 114
+	statPopupRowPitch   = 32
+	statPopupRowH       = 28
+	statPopupValueRight = 176
 )
 
+func statPopupRect(screenW, screenH int) layoutRect {
+	h := statPopupRowTop + len(stats.Names)*statPopupRowPitch - (statPopupRowPitch - statPopupRowH) + 14
+	return centeredRect(screenW, screenH, statPopupW, h)
+}
+
+func statPopupRowRect(popup layoutRect, row int) layoutRect {
+	return layoutRect{popup.x + 12, popup.y + statPopupRowTop + row*statPopupRowPitch, popup.w - 24, statPopupRowH}
+}
+
 func statPlusButtonRect(popup layoutRect, row int) layoutRect {
-	y := popup.y + statPopupRowTop + row*statPopupRowPitch - statPlusButtonLift
-	return layoutRect{popup.x + 180, y, statPlusButtonSize, statPlusButtonSize}
+	r := statPopupRowRect(popup, row)
+	return layoutRect{r.right() - statPopupRowH - 4, r.y, statPopupRowH, statPopupRowH}
+}
+
+// statPopupAutoRect sits beside the points, under the close button's column.
+func statPopupAutoRect(popup layoutRect) layoutRect {
+	return layoutRect{popup.right() - 16 - 80, popup.y + statPopupPointsMid - 14, 80, 28}
 }
 
 func statPopupCloseRect(popup layoutRect) layoutRect {
@@ -174,6 +249,10 @@ func rosterScreenRect(screenW, screenH int) layoutRect {
 	return centeredRect(screenW, screenH, 560, 360)
 }
 
+// drawMemberPickerPopup is the shared centered pick-a-party-member overlay
+// behind the revival/heal/promotion pickers: dim, panel, title+prompt, one
+// hoverable row per target index. rowLabel formats a row; onPick fires on a
+// row click. onCancel==nil means not cancellable (no close X, ESC ignored).
 func (ui *UISystem) drawMemberPickerPopup(screen *ebiten.Image, title, prompt string, popupW int, targets []int, rowLabel func(idx int) string, onPick func(idx int), onCancel func(), interactive bool) {
 	screenW := ui.game.config.GetScreenWidth()
 	screenH := ui.game.config.GetScreenHeight()
@@ -200,12 +279,7 @@ func (ui *UISystem) drawMemberPickerPopup(screen *ebiten.Image, title, prompt st
 			drawFilledRect(screen, popupX+16, y-2, popupW-32, rowH, color.RGBA{60, 120, 180, 200})
 		}
 		drawUIText(screen, rowLabel(idx), popupX+24, y+6)
-		ui.onDisplayedInput(uiCommandClick, layoutRect{popupX + 16, y - 2, (popupX + popupW - 16) - (popupX + 16), (y - 2 + rowH) - (y - 2)}, func() {
-			if interactive && ui.game.consumeLeftClickIn(popupX+16, y-2, popupX+popupW-16, y-2+rowH) {
-				onPick(idx)
-				return
-			}
-		})
+		ui.onClick(layoutRect{popupX + 16, y - 2, popupW - 32, rowH}, interactive, func() { onPick(idx) })
 	}
 
 	if onCancel == nil {
@@ -356,11 +430,7 @@ func (ui *UISystem) drawRosterManager(screen *ebiten.Image, area layoutRect, int
 			drawFilledRect(screen, leftX, y-2, colW, rowH, color.RGBA{60, 120, 180, 180})
 		}
 		drawUIText(screen, label(m), leftX+6, y+6)
-		ui.onDisplayedInput(uiCommandClick, layoutRect{leftX, y - 2, (leftX + colW) - (leftX), (y - 2 + rowH) - (y - 2)}, func() {
-			if interactive && g.consumeLeftClickIn(leftX, y-2, leftX+colW, y-2+rowH) {
-				g.rosterSelectedActive = i
-			}
-		})
+		ui.onClick(layoutRect{leftX, y - 2, colW, rowH}, interactive, func() { g.rosterSelectedActive = i })
 	}
 
 	// Shared by the tavern tab and standalone roster: every recruit is reachable.
@@ -383,10 +453,8 @@ func (ui *UISystem) drawRosterManager(screen *ebiten.Image, area layoutRect, int
 			r     layoutRect
 			delta int
 		}{{up, -1}, {down, 1}} {
-			ui.onDisplayedInput(uiCommandClick, button.r, func() {
-				if interactive && g.consumeLeftClickIn(button.r.x, button.r.y, button.r.right(), button.r.bottom()) {
-					g.rosterScroll = min(maxScroll, max(0, start+button.delta))
-				}
+			ui.onClick(button.r, interactive, func() {
+				g.rosterScroll = min(maxScroll, max(0, start+button.delta))
 			})
 		}
 	}
@@ -402,12 +470,10 @@ func (ui *UISystem) drawRosterManager(screen *ebiten.Image, area layoutRect, int
 			drawFilledRect(screen, rightX, y-2, colW, rowH, color.RGBA{60, 120, 180, 180})
 		}
 		drawUIText(screen, label(m), rightX+6, y+6)
-		ui.onDisplayedInput(uiCommandClick, layoutRect{rightX, y - 2, (rightX + colW) - (rightX), (y - 2 + rowH) - (y - 2)}, func() {
-			if interactive && g.consumeLeftClickIn(rightX, y-2, rightX+colW, y-2+rowH) {
-				if g.rosterSelectedActive >= 0 {
-					g.requestRosterSwap(g.rosterSelectedActive, j)
-					g.rosterSelectedActive = -1
-				}
+		ui.onClick(layoutRect{rightX, y - 2, colW, rowH}, interactive, func() {
+			if g.rosterSelectedActive >= 0 {
+				g.requestRosterSwap(g.rosterSelectedActive, j)
+				g.rosterSelectedActive = -1
 			}
 		})
 	}
@@ -423,14 +489,8 @@ func (ui *UISystem) drawRosterManager(screen *ebiten.Image, area layoutRect, int
 func (ui *UISystem) drawPromotionPickerPopup(screen *ebiten.Image) {
 	g := ui.game
 	kind := g.promotionPickerKind
-	var targets []int
-	title := "Who Becomes the Archmage?"
-	if kind == character.PromotionArchmage {
-		targets = g.eligibleArchmageIndices()
-	} else {
-		targets = g.eligibleLichIndices()
-		title = "Who Becomes the Lich?"
-	}
+	targets := g.eligiblePromotionIndices(kind)
+	title := "Who Becomes the " + kind.Title() + "?"
 	if len(targets) == 0 {
 		g.promotionPickerOpen = false
 		return
@@ -449,100 +509,162 @@ func (ui *UISystem) drawPromotionPickerPopup(screen *ebiten.Image) {
 		nil, ui.topModalLayer() == modalLayerPromotion)
 }
 
-// drawLevelUpChoicePopup draws the level-up choice selection overlay.
+// drawLevelUpChoicePopup is a hero's skill choice: the HUD chip's crown and
+// gold, one framed row per offer (spell icon, or the mastery rank ladder), and
+// for "pick K of N" pickers a Confirm button that wakes when enough are chosen.
 func (ui *UISystem) drawLevelUpChoicePopup(screen *ebiten.Image) {
-	req := ui.game.currentLevelUpChoice()
-	if req == nil || req.charIndex < 0 || req.charIndex >= len(ui.game.party.Members) {
+	g := ui.game
+	req := g.currentLevelUpChoice()
+	if req == nil || req.charIndex < 0 || req.charIndex >= len(g.party.Members) || g.party.Members[req.charIndex] == nil {
 		return
 	}
 	ui.registerDisplayedModalMouse((*InputHandler).handleLevelUpChoiceMouseInput, modalLayerLevelChoice)
 
-	member := ui.game.party.Members[req.charIndex]
-	screenW := ui.game.config.GetScreenWidth()
-	screenH := ui.game.config.GetScreenHeight()
-	popupX, popupY, popupW, popupH, startY, rowH := levelUpChoiceLayout(req, screenW, screenH)
+	member := g.party.Members[req.charIndex]
+	live := ui.topModalLayer() == modalLayerLevelChoice
+	screenW, screenH := g.config.GetScreenWidth(), g.config.GetScreenHeight()
+	p := makeLevelUpChoicePanel(req, screenW, screenH)
 	mouseX, mouseY := uiCursorPosition()
 
-	// Dim background
 	drawFilledRect(screen, 0, 0, screenW, screenH, color.RGBA{0, 0, 0, 140})
+	ui.drawThemeFrame(screen, frameGold, p.panel.x, p.panel.y, p.panel.w, p.panel.h)
 
-	// Panel
-	drawPortraitFrame(screen, popupX, popupY, popupW, popupH)
-
-	title := req.title
-	if title == "" {
-		title = "Level Up Choice"
-	}
-	drawUIText(screen, title, popupX+16, popupY+16)
+	title, subtitle := fmt.Sprintf("%s reached level %d", member.Name, req.level), "Choose one"
 	if req.isMultiSelect() {
-		drawUIText(screen, fmt.Sprintf("%s: choose %d (%d selected)", member.Name, req.maxSelections, req.selectedCount()), popupX+16, popupY+36)
-	} else {
-		drawUIText(screen, fmt.Sprintf("%s reached level %d", member.Name, req.level), popupX+16, popupY+36)
+		title, subtitle = req.title, fmt.Sprintf("%s: choose %d", member.Name, req.maxSelections)
+	} else if req.title != "" {
+		title = req.title
 	}
+	textX := p.emblem.right() + 10
+	ui.drawInterfaceIcon(screen, skillBadgeStyle.icon, p.emblem.x, p.emblem.y, p.emblem.w, p.emblem.h)
+	headW := statPopupCloseRect(p.panel).x - 8 - textX
+	drawUITextColored(screen, clipUIText(title, headW), textX, p.panel.y+14, gameplayInk.heading)
+	drawUITextColored(screen, clipUIText(subtitle, headW), textX, p.panel.y+32, gameplayInk.muted)
+	drawFilledRect(screen, p.panel.x+16, p.panel.y+levelUpChoiceRule, p.panel.w-32, 1, gameplayInk.edge)
 
+	// One school across the offers (a promotion picker) needs no school tag.
+	firstSchool, mixedSchools := "", false
+	for _, option := range req.options {
+		if def, err := spells.GetSpellDefinitionByID(option.spellID); option.spellID != "" && err == nil {
+			if firstSchool == "" {
+				firstSchool = def.School
+			}
+			mixedSchools = mixedSchools || def.School != firstSchool
+		}
+	}
 	for i, option := range req.options {
-		y := startY + i*rowH
-		if i == req.selection {
-			drawFilledRect(screen, popupX+16, y-2, popupW-32, rowH, color.RGBA{60, 120, 180, 200})
+		r := p.target(i)
+		focused := i == req.selection
+		chosen := req.isMultiSelect() && i < len(req.selected) && req.selected[i]
+		if chosen {
+			drawFilledRect(screen, r.x, r.y, r.w, r.h, gameplayInk.selected)
 		}
-		// Multi-select: a check icon marks toggled options; cursor uses the icon too.
-		if req.isMultiSelect() && i < len(req.selected) && req.selected[i] {
-			ui.drawInterfaceIcon(screen, "icon_level_choice", popupX+20, y, 16, 16)
-		} else if !req.isMultiSelect() && i == req.selection {
-			ui.drawInterfaceIcon(screen, "icon_level_choice", popupX+20, y, 16, 16)
+		if focused {
+			ui.drawButtonFrame(screen, r.x, r.y, r.w, r.h, true)
 		}
-		if option.hasMastery && option.masteryCurrent != "" && option.masteryNext != "" {
-			segments := []coloredTextSegment{
-				{text: option.masteryPrefix, color: color.White},
-				{text: option.masteryCurrent, color: color.RGBA{240, 220, 80, 255}},
-				{text: " -> ", color: color.White},
-				{text: option.masteryNext, color: color.RGBA{80, 220, 80, 255}},
-			}
-			drawColoredTextSegments(screen, popupX+40, y, segments)
-		} else {
-			drawUIText(screen, option.label, popupX+40, y)
-		}
-
-		if isMouseHoveringBox(mouseX, mouseY, popupX+16, y-2, popupX+popupW-16, y-2+rowH) {
-			var tooltip character.CardRows
-			switch strings.ToLower(option.choice.Type) {
-			case "spell":
-				tooltip = GetSpellTooltipRows(option.spellID, member, ui.game.combat, tooltipDetailHeld())
-			case "weapon_mastery", "armor_mastery":
-				tooltip = masteryTooltipRowsForSkill(option.skillType)
-			case "magic_mastery":
-				tooltip = magicMasteryTooltipRows(option.school)
-			}
-			if len(tooltip) > 0 {
-				lines := tooltip
-				if strings.ToLower(option.choice.Type) == "spell" {
-					plate := color.Color(nil)
-					if def, err := spells.GetSpellDefinitionByID(option.spellID); err == nil {
-						plate = schoolPlateColor(def.School)
-					}
-					ui.queueCardTooltip(lines, nil, plate, nil, spellTooltipIconName(option.spellID), mouseX+16, mouseY+8)
-				} else {
-					ui.queueCardTooltip(lines, nil, nil, nil, "", mouseX+16, mouseY+8)
-				}
-			}
+		ui.drawLevelUpOption(screen, r, option, focused, chosen, req.isMultiSelect(), mixedSchools)
+		if live && isMouseHoveringBox(mouseX, mouseY, r.x, r.y, r.right(), r.bottom()) {
+			ui.queueLevelUpOptionTooltip(member, option, mouseX+16, r.bottom()+2)
 		}
 	}
 
 	if req.isMultiSelect() {
-		// Confirm row, drawn just below the options.
-		cy := startY + len(req.options)*rowH
 		ready := req.selectedCount() == req.maxSelections
-		confirmCol := color.RGBA{150, 150, 150, 255}
+		c := p.confirm
+		ui.drawButtonFrame(screen, c.x, c.y, c.w, c.h, ready && req.selection == req.confirmRowIndex())
+		ink := gameplayInk.muted
 		if ready {
-			confirmCol = color.RGBA{90, 220, 90, 255}
+			ink = skillBadgeStyle.tint
 		}
-		if req.selection == req.confirmRowIndex() {
-			drawFilledRect(screen, popupX+16, cy-2, popupW-32, rowH, color.RGBA{60, 120, 180, 200})
-		}
-		drawUITextColored(screen, "Confirm", popupX+40, cy, confirmCol)
-		drawUIText(screen, "Up/Down move - Space toggles - Enter confirms", popupX+16, popupY+popupH-22)
+		drawCenteredTextWithShadow(screen, "Confirm", c.x, c.y, c.w, c.h, ink)
+		count := fmt.Sprintf("%d of %d chosen", req.selectedCount(), req.maxSelections)
+		drawUITextColored(screen, count, p.panel.x+16, c.y+(c.h-uiTextCharHeight)/2, gameplayInk.text)
+		drawUITextColored(screen, "Up/Down, Space toggles, Enter confirms", p.panel.x+16, p.footerY, gameplayInk.muted)
 	} else {
-		drawUIText(screen, "Use Up/Down or click, Enter to choose", popupX+16, popupY+popupH-22)
+		drawUITextColored(screen, "Up/Down and Enter, or click", p.panel.x+16, p.footerY, gameplayInk.muted)
+	}
+
+	close := statPopupCloseRect(p.panel)
+	ui.drawPopupCloseButton(screen, close.x, close.y, close.w, live, g.closeLevelUpChoice)
+}
+
+// drawLevelUpOption fills one offer row: what it teaches on the left, what it
+// changes on the right, and a check box in pickers.
+func (ui *UISystem) drawLevelUpOption(screen *ebiten.Image, r layoutRect, option levelUpChoiceOption, focused, chosen, multi, tagSchool bool) {
+	icon := layoutRect{r.x + 6, r.y + (r.h-24)/2, 24, 24}
+	textY := r.y + (r.h-uiTextCharHeight)/2
+	right := r.right() - 10
+	if multi {
+		box := layoutRect{right - 12, r.y + (r.h-12)/2, 12, 12}
+		drawBuildCheck(screen, box, chosen, gameplayInk.focus)
+		right = box.x - 10
+	}
+	nameInk := gameplayInk.text
+	if focused || chosen {
+		nameInk = gameplayInk.heading
+	}
+
+	name, detail := option.label, []coloredTextSegment(nil)
+	switch {
+	case option.spellID != "":
+		ui.drawInterfaceIcon(screen, spellTooltipIconName(option.spellID), icon.x, icon.y, icon.w, icon.h)
+		if def, err := spells.GetSpellDefinitionByID(option.spellID); err == nil {
+			name = def.Name
+			if tagSchool {
+				detail = []coloredTextSegment{{text: character.MagicSchoolID(def.School).DisplayName(), color: SchoolTextColor(def.School)}}
+			}
+		}
+	case option.hasMastery:
+		drawMasteryLadder(screen, icon, option.masteryRank)
+		name = strings.TrimSuffix(option.masteryPrefix, ": ")
+		detail = []coloredTextSegment{
+			{text: option.masteryCurrent, color: gameplayInk.muted},
+			{text: " -> ", color: gameplayInk.muted},
+			{text: option.masteryNext, color: skillBadgeStyle.tint},
+		}
+	}
+	if detailW := coloredTextWidth(detail); detailW > 0 {
+		drawColoredTextSegments(screen, right-detailW, textY, detail)
+		right -= detailW + 12
+	}
+	nameX := icon.right() + 10
+	drawUITextColored(screen, clipUIText(name, right-nameX), nameX, textY, nameInk)
+}
+
+// drawMasteryLadder is the four mastery ranks as pips: held ranks lit in ink,
+// the rank this offer grants in gold, the rest dark.
+func drawMasteryLadder(screen *ebiten.Image, r layoutRect, current int) {
+	const pip, gap = 4, 2
+	ranks := int(character.MasteryGrandMaster) + 1
+	x := r.x + (r.w-(ranks*pip+(ranks-1)*gap))/2
+	for i := 0; i < ranks; i++ {
+		h := 6 + 3*i
+		ink := gameplayInk.edge
+		switch {
+		case i <= current:
+			ink = gameplayInk.heading
+		case i == current+1:
+			ink = skillBadgeStyle.tint
+		}
+		drawFilledRect(screen, x+i*(pip+gap), r.bottom()-4-h, pip, h, ink)
+	}
+}
+
+// queueLevelUpOptionTooltip offers the spell card or the mastery reference at
+// (x, y), below the hovered row so the row itself stays readable.
+func (ui *UISystem) queueLevelUpOptionTooltip(member *character.MMCharacter, option levelUpChoiceOption, x, y int) {
+	switch strings.ToLower(option.choice.Type) {
+	case "spell":
+		plate := color.Color(nil)
+		if def, err := spells.GetSpellDefinitionByID(option.spellID); err == nil {
+			plate = schoolPlateColor(def.School)
+		}
+		rows := GetSpellTooltipRows(option.spellID, member, ui.game.combat, tooltipDetailHeld())
+		ui.queueCardTooltip(rows, nil, plate, nil, spellTooltipIconName(option.spellID), x, y)
+	case "weapon_mastery", "armor_mastery":
+		ui.queueCardTooltip(masteryTooltipRowsForSkill(option.skillType), nil, nil, nil, "", x, y)
+	case "magic_mastery":
+		ui.queueCardTooltip(magicMasteryTooltipRows(option.school), nil, nil, nil, "", x, y)
 	}
 }
 
@@ -593,6 +715,12 @@ func (ui *UISystem) drawNPCDialog(screen *ebiten.Image) {
 	case dialogKindSkillTrainer:
 		ui.drawSkillTrainerDialog(screen, dialogX, dialogY, dialogWidth, dialogHeight)
 	case dialogKindMerchant:
+		// Set-shop merchants (the Clockmaker) group their stock under folder
+		// tabs; a shop+talk dialog draws them among its own service tabs. The
+		// visible slice is shared with the click handler (merchantVisibleStock).
+		if tabs := ui.game.merchantShopTabs(); len(tabs) > 0 {
+			ui.drawShopFolderTabs(screen, dialogX, dialogY, tabs)
+		}
 		ui.drawMerchantDialog(screen, dialogX, dialogY, dialogWidth, dialogHeight)
 	case dialogKindArenaGladiator:
 		ui.drawArenaGladiatorDialog(screen, dialogX, dialogY, dialogWidth, dialogHeight)
@@ -789,11 +917,7 @@ func (ui *UISystem) drawFolderTabs(screen *ebiten.Image, labels []string, enable
 		tabX, tabY, tabW, tabH := r.x, r.y, r.w, r.h
 		ui.drawDialogTab(screen, layoutRect{tabX, tabY, tabW, tabH}, ui.game.dialogTab == i)
 		drawCenteredUIText(screen, label, tabX, tabY, tabW, tabH)
-		ui.onDisplayedInput(uiCommandClick, layoutRect{tabX, tabY, (tabX + tabW) - (tabX), (tabY + tabH) - (tabY)}, func() {
-			if interactive && ui.game.consumeLeftClickIn(tabX, tabY, tabX+tabW, tabY+tabH) {
-				ui.game.switchDialogTab(i)
-			}
-		})
+		ui.onClick(layoutRect{tabX, tabY, tabW, tabH}, interactive, func() { ui.game.switchDialogTab(i) })
 	}
 }
 
@@ -909,7 +1033,7 @@ func (ui *UISystem) drawSpellTraderDialog(screen *ebiten.Image, dialogX, dialogY
 		// Cost under the icon, in its own line of the cell.
 		costX, costY, costW, costH := spellTraderPriceRect(x, y)
 		drawCenteredTextWithShadow(screen, clipUIText(uitext.Text("dialog.gold_price_short", npcSpell.Cost), costW), costX, costY, costW, costH,
-			purchasePriceColor(canLearn && !alreadyKnows && ui.game.party.Gold >= npcSpell.Cost))
+			purchasePriceColor(canLearn && !alreadyKnows && ui.game.canAfford(npcSpell.Cost)))
 
 		// Dim overlay if known.
 		if alreadyKnows {
@@ -1142,22 +1266,78 @@ func (g *MMGame) merchantSellPrice(base int) int {
 	return base + base*g.partyMerchantTier()*MerchantPricePctPerTier/100
 }
 
-// merchantStockPriceText is the price line under a stock cell in the entry's
-// effective currency: haggled gold, an item count (plus compacted coins), or
-// flat arena points.
-func (g *MMGame) merchantStockPriceText(npc *character.NPC, entry *character.MerchantStockItem) string {
-	currency := entry.EffectiveCurrency(npc.Currency)
-	if _, ok := character.CurrencyItemKey(currency); ok {
-		if entry.GoldCost > 0 {
-			// Two currencies on one narrow line: compact the coins.
-			return uitext.Text("dialog.stack_additional_cost", entry.Cost, compactCoinAmount(entry.GoldCost))
+// Goods a merchant has an authored offer for are lit in the bag grid: a round
+// lamplight aura behind the icon and a soft warm light over it, breathing with
+// the badge pulse. Round, not a halo around the icon's square, which reads as
+// a frame; the aura has faded out by the neighbouring icon.
+const (
+	merchantWantedAuraScale  = 1.9 // aura diameter over the cell size
+	merchantWantedAuraAlpha  = 1.0
+	merchantWantedLightScale = 1.0 // light diameter over the cell size
+	merchantWantedLightAlpha = 0.36
+)
+
+var merchantWantedGlowTint = [3]float32{1, 0.86, 0.55}
+
+// uiSoftGlow is the renderer's radial glow texture for UI lights; nil without
+// a renderer (a headless harness draws no light).
+func (ui *UISystem) uiSoftGlow() *ebiten.Image {
+	if ui.game.gameLoop == nil || ui.game.gameLoop.renderer == nil {
+		return nil
+	}
+	return ui.game.gameLoop.renderer.ensureSoftGlow()
+}
+
+// drawWantedGoodsLight paints one pass of the wanted-goods light centred on a
+// cell: the aura before the icon (over=false), the additive light after it.
+func drawWantedGoodsLight(screen, glow *ebiten.Image, x, y, w, h int, pulse float64, over bool) {
+	if glow == nil {
+		return
+	}
+	scale, alpha := merchantWantedAuraScale, merchantWantedAuraAlpha
+	op := &ebiten.DrawImageOptions{Filter: ebiten.FilterLinear}
+	if over {
+		scale, alpha = merchantWantedLightScale, merchantWantedLightAlpha
+		op.Blend = ebiten.BlendLighter
+	}
+	size := scale * float64(max(w, h))
+	op.GeoM.Scale(size/softGlowSize, size/softGlowSize)
+	op.GeoM.Translate(float64(x)+float64(w)/2-size/2, float64(y)+float64(h)/2-size/2)
+	a := float32(alpha * pulse)
+	t := merchantWantedGlowTint
+	op.ColorScale.Scale(t[0]*a, t[1]*a, t[2]*a, a)
+	uiDrawImage(screen, glow, op)
+}
+
+// merchantBarterGoodsMax is how many goods one price line can show: each good
+// is an icon and a count, and the line stops short of the next cell.
+const merchantBarterGoodsMax = 2
+
+// drawBarterPriceLine fills a stock cell's price line with the goods a barter
+// costs - each good's icon, then its count - centred. Each count takes the
+// purchase colour of that good alone, so the line names what is missing.
+func (ui *UISystem) drawBarterPriceLine(screen *ebiten.Image, costs []character.BarterCost, x, y, w, h int) {
+	const iconGap, goodsGap = 2, 6
+	icon := h - 2
+	total := 0
+	for i, c := range costs {
+		if i > 0 {
+			total += goodsGap
 		}
-		return fmt.Sprintf("x%d", entry.Cost)
+		total += icon + iconGap + uiTextWidth(strconv.Itoa(c.Count))
 	}
-	if currency == character.CurrencyArenaPoints {
-		return uitext.Text("dialog.arena_price_short", entry.Cost)
+	cx := x + (w-total)/2
+	for i, c := range costs {
+		if i > 0 {
+			cx += goodsGap
+		}
+		ui.drawItemIcon(screen, c.Item, cx, y+1, icon, icon, 0, true, false, nil)
+		cx += icon + iconGap
+		label := strconv.Itoa(c.Count)
+		tw := uiTextWidth(label)
+		drawCenteredTextWithShadow(screen, label, cx, y, tw, h, purchasePriceColor(ui.game.party.CountItemsByName(c.Item.Name) >= c.Count))
+		cx += tw
 	}
-	return uitext.Text("dialog.gold_price_short", g.merchantBuyPrice(entry.Cost))
 }
 
 // drawMerchantDialog draws an icon-based buy/sell UI: a paginated stock grid on
@@ -1205,8 +1385,8 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 	drawUIText(screen, clipUIText(header, merchantGridW), leftX, gridTop-72)
 	// The bag header doubles as the drag-to-buy hint at a shop that pays no
 	// coin: a separate line under it would sit on the first row of icons.
-	drawUIText(screen, clipUIText(merchantBagHeaderLabel(ui.game.dialogNPC), merchantGridW), rightX, gridTop-72)
-	categoryInteractive := merchantInteractive && !ui.game.stashDragActive && !ui.game.stashDragPickedUp
+	drawUIText(screen, clipUIText(merchantBagHeaderLabel(ui.game.dialogNPC, ui.game.merchantSellsHere()), merchantGridW), rightX, gridTop-72)
+	categoryInteractive := merchantInteractive && !ui.game.stashDrag.active && !ui.game.stashDragPickedUp
 	ui.drawItemCategoryTabs(screen, leftX, gridTop-48, merchantGridW, ui.game.merchantBuyCategory, categoryInteractive,
 		func(tab int) { ui.game.setMerchantCategory(true, tab) })
 	ui.drawItemCategoryTabs(screen, rightX, gridTop-48, merchantGridW, ui.game.merchantSellCategory, categoryInteractive,
@@ -1214,13 +1394,7 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 
 	var tooltipItem items.Item
 	var tooltipHasItem bool
-
-	// Set-shop merchants (the Clockmaker) group their stock under folder tabs;
-	// the classic single grid stays for untabbed shops. The visible slice is
-	// shared with the click handler (merchantVisibleStock) so indices agree.
-	if tabs := ui.game.merchantShopTabs(); len(tabs) > 0 {
-		ui.drawShopFolderTabs(screen, dialogX, dialogY, tabs)
-	}
+	var tooltipEntry *character.MerchantStockItem
 
 	// Buy grid (left): merchant stock.
 	stock := ui.game.merchantVisibleStock()
@@ -1252,22 +1426,25 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 				drawRectBorder(screen, x-2, y-2, w+4, h+4, 2, color.RGBA{210, 170, 80, 230})
 				tooltipItem = entry.Item
 				tooltipHasItem = true
+				tooltipEntry = entry
 			}
 			displayItem := entry.Item
 			if entry.RewardKey != "" {
 				displayItem.Quantity = entry.Quantity
 			}
 			ui.drawInventoryItemIcon(screen, displayItem, x, y, w, h, 4, !soldOut)
-			priceText := ui.game.merchantStockPriceText(ui.game.dialogNPC, entry)
-			if soldOut {
+			px, py, pw, ph := merchantPriceRect(x, y, w, h)
+			quote := ui.game.quoteMerchantEntry(entry)
+			if quote.kind == priceBarter && !soldOut {
+				ui.drawBarterPriceLine(screen, entry.Barter, px, py, pw, ph)
+				continue
+			}
+			priceColor := purchasePriceColor(ui.game.merchantMaxUnits(entry) > 0)
+			priceText := quote.shelfLabel()
+			if soldOut && quote.kind != priceReward {
 				priceText = uitext.Text("dialog.sold_out")
 			}
-			px, py, pw, ph := merchantPriceRect(x, y, w, h)
-			if ui.game.dialogNPC.FreeGoods {
-				priceText = uitext.Text("caravan.take")
-			}
-			drawCenteredTextWithShadow(screen, merchantPriceLabel(priceText), px, py, pw, ph,
-				purchasePriceColor(ui.game.merchantMaxUnits(entry) > 0))
+			drawCenteredTextWithShadow(screen, merchantPriceLabel(priceText), px, py, pw, ph, priceColor)
 		}
 	}
 	ui.drawPager(screen, leftX, pagerY, merchantGridW, &ui.game.merchantBuyPage, buyPages, true, ui.game.resetDialogClickTracker)
@@ -1275,7 +1452,7 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 	// Bag grid (right): the party's own goods. It is ALWAYS drawn - even at a
 	// shop that pays no coin - because it is the drop target of a drag-to-buy.
 	// Only the sale half (drag sources, sell prices) needs a coin till.
-	buysGoods := merchantBuysForGold(ui.game.dialogNPC)
+	buysGoods := ui.game.merchantSellsHere()
 	{
 		inv := ui.game.merchantBagItems()
 		view := ui.game.merchantBagViewIndices()
@@ -1295,7 +1472,12 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 			if merchantInteractive && buysGoods && idx < len(ui.game.party.Inventory) {
 				ui.stashInvSource(idx, image.Rect(x, y, x+w, y+h))
 			}
-			value := item.Attributes["value"]
+			price, special := ui.game.merchantUnitSellPrice(item)
+			wanted := buysGoods && special
+			pulse := ui.game.badgeAuraPulse(ui.game.uiSeconds())
+			if wanted {
+				drawWantedGoodsLight(screen, ui.uiSoftGlow(), x, y, w, h, pulse, false)
+			}
 			if merchantInteractive && isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h) {
 				drawRectBorder(screen, x-2, y-2, w+4, h+4, 2, color.RGBA{210, 170, 80, 230})
 				tooltipItem = item
@@ -1304,11 +1486,14 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 					ui.fullArtCardKey = key
 				}
 			}
-			ui.drawInventoryItemIcon(screen, item, x, y, w, h, 4, !buysGoods || value > 0)
+			ui.drawInventoryItemIcon(screen, item, x, y, w, h, 4, !buysGoods || price > 0)
+			if wanted {
+				drawWantedGoodsLight(screen, ui.uiSoftGlow(), x, y, w, h, pulse, true)
+			}
 			if buysGoods && idx < len(ui.game.party.Inventory) {
 				priceText := uitext.Text("dialog.no_value")
-				if value > 0 {
-					priceText = uitext.Text("dialog.gold_price_short", ui.game.merchantSellPrice(value))
+				if price > 0 {
+					priceText = uitext.Text("dialog.gold_price_short", price)
 				}
 				px, py, pw, ph := merchantPriceRect(x, y, w, h)
 				drawCenteredUIText(screen, merchantPriceLabel(priceText), px, py, pw, ph)
@@ -1330,9 +1515,9 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 			bagGrid := image.Rect(rightX, gridTop, rightX+merchantGridW, pagerY)
 			src, ok := decodeStashFrom(ui.game.stashDragFrom)
 			switch {
-			case ok && src.kind == stashKindBag && ptInRect(ui.game.stashDragCurX, ui.game.stashDragCurY, stockGrid):
-				ui.beginMerchantSellPicker(src.idx)
-			case ok && src.kind == stashKindShop && ptInRect(ui.game.stashDragCurX, ui.game.stashDragCurY, bagGrid):
+			case ok && src.kind == stashKindBag && ptInRect(ui.game.stashDrag.curX, ui.game.stashDrag.curY, stockGrid):
+				ui.beginMerchantSellPicker(src.idx, ui.game.stashDragSplitQuantity)
+			case ok && src.kind == stashKindShop && ptInRect(ui.game.stashDrag.curX, ui.game.stashDrag.curY, bagGrid):
 				ui.beginMerchantBuyPicker(src.idx)
 			}
 			ui.game.clearStashDrag()
@@ -1343,6 +1528,15 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 	// The shop and editor share the base card, independent of selected character.
 	if tooltipHasItem {
 		tip := GetItemTooltipRows(tooltipItem, nil, ui.game.combat, tooltipDetailHeld())
+		if tooltipEntry != nil && len(tooltipEntry.Barter) > 0 {
+			// The price line shows icons; the card names the goods and what
+			// the party carries of each.
+			tip.Add(character.CardRowSpacer, "")
+			tip.Add(character.CardRowResult, uitext.Text("dialog.barter_price"))
+			for _, c := range tooltipEntry.Barter {
+				tip.Add(character.CardRowDetail, uitext.Text("dialog.barter_good", c.Count, c.Item.Name, ui.game.party.CountItemsByName(c.Item.Name)))
+			}
+		}
 		if len(tip) > 0 {
 			lines := ui.appendCardArtHintRows(tip, itemCardKey(tooltipItem))
 			ui.queueItemTooltip(lines, tooltipItem, nil, mouseX+16, mouseY+8)
@@ -1576,12 +1770,7 @@ func (ui *UISystem) drawGameOverOverlay(screen *ebiten.Image) {
 		by := startY + i*(btnH+gap)
 		hover := isMouseHoveringBox(mx, my, bx, by, bx+btnW, by+btnH)
 		ui.drawMenuButton(screen, b.label, bx, by, btnW, btnH, hover)
-		ui.onDisplayedInput(uiCommandClick, layoutRect{bx, by, (bx + btnW) - (bx), (by + btnH) - (by)}, func() {
-			if ui.topModalLayer() == modalLayerGameOver && g.consumeLeftClickIn(bx, by, bx+btnW, by+btnH) {
-				b.action()
-				return
-			}
-		})
+		ui.onGatedClick(layoutRect{bx, by, btnW, btnH}, func() bool { return ui.topModalLayer() == modalLayerGameOver }, b.action)
 	}
 }
 
@@ -1652,53 +1841,24 @@ func (ui *UISystem) drawVictoryOverlay(screen *ebiten.Image) {
 	}
 }
 
-// drawHighScoresOverlay draws the high scores table
-func (ui *UISystem) drawHighScoresOverlay(screen *ebiten.Image) {
-	w := ui.game.config.GetScreenWidth()
-	h := ui.game.config.GetScreenHeight()
-
-	// Darken background
-	drawFilledRect(screen, 0, 0, w, h, color.RGBA{0, 0, 30, 220})
-
-	scores, err := highscore.Load()
-	if err != nil {
-		drawUIText(screen, "Error loading high scores", w/2-90, h/2)
-		return
-	}
-
-	centerX := w / 2
-	startY := 60
-
-	// Header
-	drawUIText(screen, "HIGH SCORES", centerX-75, startY)
-
-	// Column headers
-	drawUIText(screen, "Rank  Name           Score    Time", centerX-140, startY+40)
-	drawFilledRect(screen, centerX-140, startY+56, 290, 1, color.RGBA{120, 120, 150, 255})
-
-	// Entries
-	if len(scores.Entries) == 0 {
-		drawUIText(screen, "No scores yet!", centerX-50, startY+80)
-	} else {
-		for i, entry := range scores.Entries {
-			line := fmt.Sprintf("%2d.   %-14s %6d   %s", i+1, truncateName(entry.PlayerName, 14), entry.Score, entry.PlayTime)
-			drawUIText(screen, line, centerX-140, startY+80+i*20)
-		}
-	}
-
-	// Instructions
-	drawUIText(screen, "Press ESC to close", centerX-70, h-50)
-}
-
 // drawQuestsContent draws the quests tab content
 func (ui *UISystem) drawQuestsContent(screen *ebiten.Image, content layoutRect) {
 	layout := computeQuestContentLayout(content, nil, 0)
-	drawScaledMetalCenteredText(screen, uitext.Text("ui.quest_journal"), layout.title.x+layout.title.w/2, layout.title.y+8, 2, rarityGold)
+	heading := uitext.Text("ui.quest_journal")
+	if ui.questChronicle {
+		heading = uitext.Text("ui.story_chronicle")
+	}
+	drawScaledMetalCenteredText(screen, heading, layout.title.x+layout.title.w/2, layout.title.y+8, 2, rarityGold)
 	if ui.game.sprites.HasSprite("theme_quest_seal") {
 		drawImageScaled(screen, ui.game.sprites.GetSprite("theme_quest_seal"), layout.title.x+layout.title.w/2-144, layout.title.y-10, 36, 36)
 	}
 	listTop, _, _ := questCardListAvailable(content)
 	emptyX := layout.pager.x
+	ui.drawChronicleToggle(screen, layout.title)
+	if ui.questChronicle {
+		ui.drawChronicle(screen, content)
+		return
+	}
 
 	// Check if quest manager is available
 	if ui.game.questManager == nil {
@@ -1706,7 +1866,7 @@ func (ui *UISystem) drawQuestsContent(screen *ebiten.Image, content layoutRect) 
 		return
 	}
 
-	allQuests := ui.game.questManager.GetAllQuests()
+	allQuests := ui.game.journalQuests()
 	if len(allQuests) == 0 {
 		drawUIText(screen, "No active quests.", emptyX, listTop)
 		return
@@ -1738,28 +1898,21 @@ func (ui *UISystem) drawQuestsContent(screen *ebiten.Image, content layoutRect) 
 		ui.drawJournalEntry(screen, quest, row, copy)
 	}
 
-	ui.drawQuestPager(screen, layout.pager.x, layout.pager.y, layout.pager.w, layout.totalPages)
+	ui.drawPager(screen, layout.pager.x, layout.pager.y, layout.pager.w, &ui.questPage, layout.totalPages, !ui.modalLayerOwnsInput())
 }
 
-// drawQuestPager draws "Page X/Y" plus prev/next buttons under the quest list
-// and handles their clicks. No-op when every quest fits on one page.
-func (ui *UISystem) drawQuestPager(screen *ebiten.Image, x, y, width, totalPages int) {
-	if totalPages <= 1 {
-		return
+// questPurseSummary is a claim's purse in words: currencies and XP, then the
+// rank a promotion grants. Items are announced as they land.
+func questPurseSummary(r quests.QuestRewards) string {
+	p := questPromotion(r)
+	if p == character.PromotionNone {
+		return questRewardSummary(r.Gold, r.ArenaPoints, r.Experience)
 	}
-	interactive := !ui.modalLayerOwnsInput()
-	ui.drawPagerButton(screen, x, y, "<", interactive && ui.questPage > 0, func() {
-		ui.questPage--
-	})
-	ui.drawPagerButton(screen, x+width-pagerBtnW, y, ">", interactive && ui.questPage < totalPages-1, func() {
-		ui.questPage++
-	})
-	drawCenteredUIText(screen, fmt.Sprintf("Page %d/%d", ui.questPage+1, totalPages), x, y+2, width, pagerBtnH-2)
-}
-
-// claimQuestReward claims the reward for a completed quest (UI journal entry).
-func (ui *UISystem) claimQuestReward(questID string) {
-	ui.game.claimQuestReward(questID)
+	rank := uitext.Text("ui.reward_rank", p.Title())
+	if r.Gold == 0 && r.ArenaPoints == 0 && r.Experience == 0 {
+		return rank
+	}
+	return questRewardSummary(r.Gold, r.ArenaPoints, r.Experience) + " / " + rank
 }
 
 // questRewardSummary is the shared UI/log wording for quest currencies and XP.
@@ -1781,79 +1934,100 @@ func questRewardSummary(gold, arenaPoints, experience int) string {
 }
 
 // claimQuestReward claims a completed quest's reward and marks it claimed.
-// This is the single source of truth for the quest journal (J) and NPC turn-in.
-func (g *MMGame) claimQuestReward(questID string) bool {
+// This is the single source of truth for the quest journal (J, giver nil) and
+// NPC turn-in; a promotion nobody can take refuses before anything commits.
+func (g *MMGame) claimQuestReward(questID string, giver *character.NPC) bool {
 	if g.questManager == nil {
 		return false
 	}
-	if q := g.questManager.GetQuest(questID); q != nil && q.Definition.NextQuest != "" && g.questManager.GetQuest(q.Definition.NextQuest) == nil {
-		if err := g.canActivateQuest(q.Definition.NextQuest); err != nil {
-			g.AddCombatMessage("Cannot start next chapter: " + err.Error())
+	if q := g.questManager.GetQuest(questID); q != nil {
+		if reply := g.promotionRefusal(questPromotion(q.Definition.Rewards), giver, questID); reply != "" {
+			g.AddCombatMessage(reply)
 			return false
 		}
 	}
-	var poolItem *items.Item
-	var guaranteed []items.Item
-	if quest := g.questManager.GetQuest(questID); quest != nil && quest.Definition != nil {
-		for _, key := range quest.Definition.Rewards.Items {
-			item, err := items.TryCreateItemFromYAML(key)
-			if err != nil {
-				g.AddCombatMessage(fmt.Sprintf("Cannot claim reward: %s", err))
-				return false
-			}
-			guaranteed = append(guaranteed, item)
-		}
-		item, ok, err := rollQuestPoolItem(quest.Definition.Rewards.ItemPool)
-		if err != nil {
-			g.AddCombatMessage(fmt.Sprintf("Cannot claim reward: %s", err.Error()))
+	if q := g.questManager.GetQuest(questID); q != nil && q.Definition.NextQuest != "" && g.questManager.GetQuest(q.Definition.NextQuest) == nil {
+		if err := g.canActivateQuest(q.Definition.NextQuest); err != nil {
+			g.AddCombatMessage(uitext.Text("combat.cannot_start_next_chapter", err.Error()))
 			return false
 		}
-		if ok {
-			poolItem = &item
+	}
+	var loot []items.Item
+	if quest := g.questManager.GetQuest(questID); quest != nil && quest.Definition != nil {
+		var err error
+		if loot, err = questItemRewards(quest.Definition.Rewards); err != nil {
+			g.AddCombatMessage(uitext.Text("combat.cannot_claim_reward", err))
+			return false
 		}
 	}
 	rewards, err := g.questManager.ClaimRewards(questID, g.currentQuestDay())
 	if err != nil {
-		g.AddCombatMessage(fmt.Sprintf("Cannot claim reward: %s", err.Error()))
+		g.AddCombatMessage(uitext.Text("combat.cannot_claim_reward", err.Error()))
 		return false
 	}
 	g.syncQuestProps()
 	g.recordProfileQuestResolution(g.questManager.GetQuest(questID))
 	g.unlockCaravan()
+	if quest := g.questManager.GetQuest(questID); quest != nil {
+		g.AddCombatMessage(uitext.Text("combat.quest_completed_received", quest.Definition.Name, questPurseSummary(*rewards)))
+	}
+	g.payQuestRewards(rewards, loot)
+	if q := g.questManager.GetQuest(questID); q != nil && q.Definition.NextQuest != "" {
+		if g.questManager.GetQuest(q.Definition.NextQuest) == nil {
+			if err := g.activateQuest(q.Definition.NextQuest); err != nil {
+				g.AddCombatMessage(uitext.Text("combat.next_chapter", err.Error()))
+			} else {
+				next := g.questManager.GetQuest(q.Definition.NextQuest)
+				g.AddCombatMessage(uitext.Text("combat.next_chapter_read_the_journal_for", next.Definition.Name))
+			}
+		}
+	}
+	return true
+}
+
+// questItemRewards materializes a quest's reward items before the claim
+// commits: every items key and ONE roll of item_pool. A broken content key
+// therefore leaves the reward unclaimed and safe to retry.
+func questItemRewards(rewards quests.QuestRewards) ([]items.Item, error) {
+	var loot []items.Item
+	for _, key := range rewards.Items {
+		item, err := items.TryCreateItemFromYAML(key)
+		if err != nil {
+			return nil, err
+		}
+		loot = append(loot, item)
+	}
+	item, ok, err := rollQuestPoolItem(rewards.ItemPool)
+	if err != nil {
+		return nil, err
+	}
+	if ok {
+		loot = append(loot, item)
+	}
+	return loot, nil
+}
+
+// payQuestRewards hands a claimed quest's purse to the party, for a turn-in
+// and an encounter's auto-claim alike: gold, arena points, shared XP (Learning
+// and bench training apply), the materialized items and a promotion.
+func (g *MMGame) payQuestRewards(rewards *quests.QuestRewards, loot []items.Item) {
+	if p := questPromotion(*rewards); p != character.PromotionNone {
+		g.promoteEligibleMember(p, -1)
+	}
 	if rewards.Gold > 0 {
 		g.awardGold(rewards.Gold)
 	}
 	if rewards.ArenaPoints > 0 {
 		g.awardArenaPoints(rewards.ArenaPoints)
 	}
-	// Single XP source so Learning bonuses and bench training apply (active party,
-	// reserve, and captives all share quest XP).
 	if rewards.Experience > 0 {
 		g.grantSharedXP(rewards.Experience)
 	}
-	if quest := g.questManager.GetQuest(questID); quest != nil {
-		g.AddCombatMessage(fmt.Sprintf("Quest '%s' completed! Received %s!",
-			quest.Definition.Name, questRewardSummary(rewards.Gold, rewards.ArenaPoints, rewards.Experience)))
-	}
-	for _, item := range guaranteed {
+	for _, item := range loot {
 		g.party.AddItem(item)
-		g.AddCombatMessage("You receive " + item.Name + ".")
+		g.AddCombatMessage(uitext.Text("combat.you_receive", item.Name))
 	}
-	if q := g.questManager.GetQuest(questID); q != nil && q.Definition.NextQuest != "" {
-		if g.questManager.GetQuest(q.Definition.NextQuest) == nil {
-			if err := g.activateQuest(q.Definition.NextQuest); err != nil {
-				g.AddCombatMessage("Next chapter: " + err.Error())
-			} else {
-				next := g.questManager.GetQuest(q.Definition.NextQuest)
-				g.AddCombatMessage("Next chapter: " + next.Definition.Name + ". Read the journal for directions.")
-			}
-		}
-	}
-	if poolItem != nil {
-		g.party.AddItem(*poolItem)
-		g.AddCombatMessage(fmt.Sprintf("You receive %s.", poolItem.Name))
-	}
-	return true
+	g.announceLegendaryDrops(loot)
 }
 
 // rollQuestPoolItem materializes ONE item before the quest manager commits the
@@ -1868,9 +2042,4 @@ func rollQuestPoolItem(pool []string) (items.Item, bool, error) {
 		return items.Item{}, false, err
 	}
 	return it, true, nil
-}
-
-// truncateName truncates a name to maxLen displayed characters.
-func truncateName(name string, maxLen int) string {
-	return clipUIText(name, maxLen*uiTextCharWidth)
 }

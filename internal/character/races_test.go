@@ -2,21 +2,24 @@ package character
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"ugataima/internal/config"
+	"ugataima/internal/stats"
 )
 
 func racesTestConfig() *config.Config {
 	return &config.Config{
 		Characters: config.CharacterConfig{
 			Classes: map[string]config.ClassStats{
-				"knight": {Might: 15, Intellect: 10, Personality: 10, Endurance: 15, Accuracy: 12, Speed: 10, Luck: 10},
-				"archer": {Might: 12, Intellect: 10, Personality: 10, Endurance: 10, Accuracy: 15, Speed: 12, Luck: 10},
+				"knight": {Base: stats.StatBonuses{Might: 15, Intellect: 10, Personality: 10, Endurance: 15, Accuracy: 12, Speed: 10, Luck: 10}},
+				"archer": {Base: stats.StatBonuses{Might: 12, Intellect: 10, Personality: 10, Endurance: 10, Accuracy: 15, Speed: 12, Luck: 10}},
 			},
 			Races: map[string]config.RaceStats{
-				"human":    {},
-				"half_orc": {Might: 3, Endurance: 2, Intellect: -2, Personality: -2, Speed: -1},
-				"halfling": {Accuracy: 2, Speed: 2, Luck: 2, Might: -3, Endurance: -1},
+				"human": {},
+				"half_orc": {Shifts: stats.StatBonuses{Might: 3, Endurance: 2, Intellect: -2, Personality: -2, Speed: -1},
+					Replaces: &config.RaceSkillSwap{Class: "knight", Skill: "impenetrable_defense", With: "orcish_fury"}},
+				"halfling": {Shifts: stats.StatBonuses{Accuracy: 2, Speed: 2, Luck: 2, Might: -3, Endurance: -1}, PassiveSkill: "halfling_guile"},
 			},
 			HitPoints:   config.HitPointsConfig{EnduranceMultiplier: 2, LevelMultiplier: 3},
 			SpellPoints: config.SpellPointsConfig{LevelMultiplier: 2},
@@ -87,8 +90,8 @@ func TestNewParty_TavernRecruitsStartInReserve(t *testing.T) {
 
 func TestEnsureRacialTraitsCaseTable(t *testing.T) {
 	cfg := racesTestConfig()
-	cfg.Characters.Races["celestial"] = config.RaceStats{}
-	cfg.Characters.Races["dark_elf"] = config.RaceStats{}
+	cfg.Characters.Races["celestial"] = config.RaceStats{PassiveSkill: "celestial_providence"}
+	cfg.Characters.Races["dark_elf"] = config.RaceStats{PassiveSkill: "dark_elf_binding"}
 	tests := []struct {
 		name        string
 		race        string
@@ -195,5 +198,31 @@ func TestRacialSkillReplacementIdempotence(t *testing.T) {
 				})
 			}
 		}
+	}
+}
+
+func TestValidateRaceSkills(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		race    config.RaceStats
+		wantErr string
+	}{
+		{"shipped swap", config.RaceStats{Replaces: &config.RaceSkillSwap{Class: "knight", Skill: "impenetrable_defense", With: "orcish_fury"}}, ""},
+		{"known passive", config.RaceStats{PassiveSkill: "halfling_guile"}, ""},
+		{"unknown passive", config.RaceStats{PassiveSkill: "halfling_guiile"}, "passive_skill"},
+		{"unknown replacement", config.RaceStats{Replaces: &config.RaceSkillSwap{Class: "knight", Skill: "impenetrable_defense", With: "orc_fury"}}, "replaces.with"},
+		{"skill outside the kit", config.RaceStats{Replaces: &config.RaceSkillSwap{Class: "knight", Skill: "meditation", With: "orcish_fury"}}, "not in the knight kit"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := racesTestConfig()
+			knight := cfg.Characters.Classes["knight"]
+			knight.Skills = []string{"sword", "impenetrable_defense"}
+			cfg.Characters.Classes["knight"] = knight
+			cfg.Characters.Races = map[string]config.RaceStats{"test": tc.race}
+			err := ValidateRaceSkills(cfg)
+			if (err == nil) != (tc.wantErr == "") || (err != nil && !strings.Contains(err.Error(), tc.wantErr)) {
+				t.Fatalf("ValidateRaceSkills = %v, want %q", err, tc.wantErr)
+			}
+		})
 	}
 }

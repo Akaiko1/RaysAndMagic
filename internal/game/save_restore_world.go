@@ -2,6 +2,7 @@ package game
 
 import (
 	"ugataima/internal/character"
+	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/quests"
 	"ugataima/internal/world"
@@ -21,16 +22,7 @@ func (g *MMGame) restoreSavedNPCs(wm *world.WorldManager, save *GameSave) {
 				// unified coordinates.
 				nsX, nsY = wm.ProjectWorldPos(ns.MapKey, ns.X, ns.Y)
 			}
-			for _, npc := range w.NPCs {
-				// Coordinate match when the save has them; legacy saves
-				// (X==Y==0) fall back to the old name match.
-				if ns.X != 0 || ns.Y != 0 {
-					if npc.X != nsX || npc.Y != nsY || npc.Name != ns.Name {
-						continue
-					}
-				} else if npc.Name != ns.Name {
-					continue
-				}
+			for _, npc := range savedNPCTargets(wm, w.NPCs, ns, nsX, nsY, !ok) {
 				npc.Visited = ns.Visited
 				npc.PropUseStarted = 0 // restore the settled prop pose, never replay consumption
 				npc.DoorAttempts = ns.DoorAttempts
@@ -44,17 +36,18 @@ func (g *MMGame) restoreSavedNPCs(wm *world.WorldManager, save *GameSave) {
 					g.party.NonKeyDoorsOpened = 1
 					g.loadNeedsResave = true
 				}
-				// Stock restores by item NAME (order is presentation-only and can
-				// change between versions); duplicate names consume sequentially.
-				// A saved name missing from the current YAML is simply dropped.
+				// Stock restores by ware key (order is presentation-only and can
+				// change between versions); duplicate keys consume sequentially.
+				// A ware missing from the current YAML is simply dropped.
 				if len(ns.Stock) > 0 {
 					cursor := make(map[string]int, len(ns.Stock))
 					for _, saved := range ns.Stock {
-						from := cursor[saved.Name]
+						key := savedStockKey(saved)
+						from := cursor[key]
 						for i := from; i < len(npc.MerchantStock); i++ {
-							if npc.MerchantStock[i].Item.Name == saved.Name {
+							if config.CatalogKey(npc.MerchantStock[i].Item) == key {
 								npc.MerchantStock[i].Quantity = saved.Quantity
-								cursor[saved.Name] = i + 1
+								cursor[key] = i + 1
 								break
 							}
 						}
@@ -69,6 +62,89 @@ func (g *MMGame) restoreSavedNPCs(wm *world.WorldManager, save *GameSave) {
 	if g.world != nil {
 		g.registerMapStaticCollision()
 	}
+}
+
+// savedPos is the one save-side position rule: a position in the merged world
+// persists as its region and map-local coordinates (corridors snap to the
+// nearest region interior); any other position is kept as it is. A keyed
+// record (a return pose) uses LocalizeKeyedWorldPos instead.
+func savedPos(wm *world.WorldManager, merged bool, mapKey string, x, y float64) (string, float64, float64) {
+	if merged && wm != nil {
+		if key, lx, ly, ok := wm.LocalizeWorldPos(x, y); ok {
+			return key, lx, ly
+		}
+	}
+	return mapKey, x, y
+}
+
+// savedSpot is savedPos for a record whose spot is its identity (an NPC,
+// npcSaveMatches): the region-local position kept exact, also on the border
+// ring that savedPos snaps inward.
+func savedSpot(wm *world.WorldManager, merged bool, mapKey string, x, y float64) (string, float64, float64) {
+	key, lx, ly := savedPos(wm, merged, mapKey, x, y)
+	if merged && wm != nil {
+		lx, ly = wm.LocalizeRegionWorldPos(key, x, y)
+	}
+	return key, lx, ly
+}
+
+// loadedPos is savedPos's inverse: a region-tagged position projected into
+// the merged world.
+func loadedPos(wm *world.WorldManager, mapKey string, x, y float64) (float64, float64) {
+	if wm != nil && wm.OpenWorld != nil && wm.IsOpenWorldRegion(mapKey) {
+		return wm.ProjectWorldPos(mapKey, x, y)
+	}
+	return x, y
+}
+
+// savedStockKey is a saved ware's catalog key: its key, or - in a save from
+// before keys - the weapon or item its (possibly former) name names.
+func savedStockKey(saved NPCStockSave) string {
+	if saved.Key != "" {
+		return config.CanonicalItemKey(saved.Key)
+	}
+	if _, key, ok := config.GetWeaponDefinitionByName(saved.Name); ok {
+		return key
+	}
+	if _, key, ok := config.GetItemDefinitionByName(saved.Name); ok {
+		return key
+	}
+	return ""
+}
+
+// npcSaveMatches is a saved NPC record's identity: its npcs.yaml key - its
+// name in saves from before keys were saved, so a later rename keeps the
+// state - and its spot (x, y projected to the live world) when saved.
+func npcSaveMatches(npc *character.NPC, ns NPCSave, x, y float64) bool {
+	return npcSaveNamesNPC(npc, ns) && ((ns.X == 0 && ns.Y == 0) || (npc.X == x && npc.Y == y))
+}
+
+func npcSaveNamesNPC(npc *character.NPC, ns NPCSave) bool {
+	if ns.Key != "" {
+		return npc.Key == ns.Key
+	}
+	return npc.Name == ns.Name
+}
+
+// savedNPCTargets lists the live NPCs a record restores (npcSaveMatches). A
+// merged-region record no NPC matches may be from before spots were exact
+// (savedSpot), when an NPC on the border ring of the record's region was saved
+// at the spot LocalizeWorldPos snaps it to.
+func savedNPCTargets(wm *world.WorldManager, npcs []*character.NPC, ns NPCSave, x, y float64, merged bool) []*character.NPC {
+	var exact, legacy []*character.NPC
+	for _, npc := range npcs {
+		if npcSaveMatches(npc, ns, x, y) {
+			exact = append(exact, npc)
+		} else if merged && len(exact) == 0 && npcSaveNamesNPC(npc, ns) && (ns.X != 0 || ns.Y != 0) {
+			if key, lx, ly, _ := wm.LocalizeWorldPos(npc.X, npc.Y); key == ns.MapKey && lx == ns.X && ly == ns.Y {
+				legacy = append(legacy, npc)
+			}
+		}
+	}
+	if len(exact) > 0 {
+		return exact
+	}
+	return legacy
 }
 
 func (g *MMGame) restoreSavedContainers(wm *world.WorldManager, save *GameSave) {
@@ -116,33 +192,27 @@ func (g *MMGame) restoreSavedContainers(wm *world.WorldManager, save *GameSave) 
 		tileSize := g.config.GetTileSize()
 		for i := range g.groundContainers {
 			c := &g.groundContainers[i]
-			if wm.IsOpenWorldRegion(c.MapKey) {
-				c.X, c.Y = wm.ProjectWorldPos(c.MapKey, c.X, c.Y)
-			}
+			c.X, c.Y = loadedPos(wm, c.MapKey, c.X, c.Y)
 		}
 		for i := range g.persistentDamageZones {
 			z := &g.persistentDamageZones[i]
-			if wm.IsOpenWorldRegion(z.MapKey) {
-				z.X, z.Y = wm.ProjectWorldPos(z.MapKey, z.X, z.Y)
-			}
+			z.X, z.Y = loadedPos(wm, z.MapKey, z.X, z.Y)
 		}
 		for i := range g.traps {
 			t := &g.traps[i]
 			if wm.IsOpenWorldRegion(t.MapKey) {
-				t.X, t.Y = wm.ProjectWorldPos(t.MapKey, t.X, t.Y)
+				t.X, t.Y = loadedPos(wm, t.MapKey, t.X, t.Y)
 				t.TileX, t.TileY = TileIndex(t.X, tileSize), TileIndex(t.Y, tileSize)
 			}
 		}
 		for key, pose := range g.mapReturnPoses {
 			if wm.IsOpenWorldRegion(key) {
-				pose.X, pose.Y = wm.ProjectWorldPos(key, pose.X, pose.Y)
+				pose.X, pose.Y = loadedPos(wm, key, pose.X, pose.Y)
 				pose.Angle = wm.ProjectAngle(key, pose.Angle)
 				g.mapReturnPoses[key] = pose
 			}
 		}
-		if wm.IsOpenWorldRegion(g.underwaterReturnMap) {
-			g.underwaterReturnX, g.underwaterReturnY = wm.ProjectWorldPos(g.underwaterReturnMap, g.underwaterReturnX, g.underwaterReturnY)
-		}
+		g.underwaterReturnX, g.underwaterReturnY = loadedPos(wm, g.underwaterReturnMap, g.underwaterReturnX, g.underwaterReturnY)
 	}
 }
 

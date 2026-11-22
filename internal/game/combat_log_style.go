@@ -21,30 +21,33 @@ import (
 type logTone int
 
 const (
-	logToneNone   logTone = iota // system lines, misses
-	logToneGood                  // the party deals damage, heals, kills
-	logToneBad                   // the party is hit, afflicted, knocked out
-	logToneReward                // experience, loot, levels
+	logToneNone    logTone = iota // system lines, misses
+	logToneGood                   // the party deals damage, heals, kills
+	logToneBad                    // the party is hit, afflicted, knocked out
+	logToneReward                 // experience, loot, levels
+	logToneWatcher                // the Pursuers' captain speaks (watcher.go)
 )
 
 var logToneStripes = map[logTone]color.RGBA{
-	logToneGood:   {90, 200, 110, 255},
-	logToneBad:    {230, 80, 70, 255},
-	logToneReward: {240, 200, 60, 255},
+	logToneGood:    {90, 200, 110, 255},
+	logToneBad:     {230, 80, 70, 255},
+	logToneReward:  {240, 200, 60, 255},
+	logToneWatcher: storyCaptainInk,
 }
 
 // The prose dims so names and numbers carry the line.
 var (
-	logPlain   = color.RGBA{175, 175, 185, 255}
-	logMuted   = color.RGBA{130, 130, 140, 255}
-	logHero    = color.RGBA{255, 235, 200, 255}
-	logAlly    = keywordColors["utility"]
-	logEnemy   = color.RGBA{240, 120, 110, 255}
-	logNeutral = color.RGBA{210, 190, 130, 255}
-	logTrue    = color.RGBA{255, 255, 255, 255}
-	logPoison  = color.RGBA{190, 210, 70, 255}
-	logLowHP   = color.RGBA{240, 190, 70, 255}
-	logDyingHP = color.RGBA{240, 90, 80, 255}
+	logPlain    = color.RGBA{175, 175, 185, 255}
+	logMuted    = color.RGBA{130, 130, 140, 255}
+	logHero     = color.RGBA{255, 235, 200, 255}
+	logAlly     = keywordColors["utility"]
+	logEnemy    = color.RGBA{240, 120, 110, 255}
+	logNeutral  = color.RGBA{210, 190, 130, 255}
+	logPhysical = color.RGBA{255, 255, 255, 255} // physical damage, lifted off the prose
+	logTrue     = color.RGBA{255, 95, 195, 255}  // true damage: a hue no school or log role uses
+	logPoison   = color.RGBA{190, 210, 70, 255}
+	logLowHP    = color.RGBA{240, 190, 70, 255}
+	logDyingHP  = color.RGBA{240, 90, 80, 255}
 )
 
 // logPart is a styled argument of logCombat; any other argument prints plain.
@@ -79,6 +82,14 @@ func (p logJoined) logSegments() []coloredTextSegment {
 		segs = append(segs, part.logSegments()...)
 	}
 	return segs
+}
+
+// partyAttackerName names a party hit's source: its hero, else the party.
+func partyAttackerName(attacker *character.MMCharacter) string {
+	if attacker == nil {
+		return "The party"
+	}
+	return attacker.Name
 }
 
 // logHeroText is a party-side actor named by text ("The party", a hero).
@@ -124,18 +135,34 @@ func logMonsterSide(m *monsterPkg.Monster3D) color.RGBA {
 }
 
 // logDamage is a damage figure in the color of its school.
+// logDamage is a damage number in its school's tint; no school is true damage.
 func logDamage(n int, school string) logPart {
+	if school == "" {
+		return logTrueDamage(n)
+	}
 	return logStyled{strconv.Itoa(n), logSchoolColor(school)}
+}
+
+// logDamageSchool names a hit's school in its tint; no school is true damage.
+func logDamageSchool(school string) logPart {
+	if school == "" {
+		return logStyled{"true", logTrue}
+	}
+	return logSchoolWord(school, school)
 }
 
 // logSchoolColor is a school's tint in the log: the tooltip palette, with
 // physical lifted to white so it stands off the grey prose.
 func logSchoolColor(school string) color.Color {
 	if school == monsterPkg.DamagePhysical.String() {
-		return logTrue
+		return logPhysical
 	}
-	return SchoolColor(school)
+	return SchoolTextColor(school)
 }
+
+// logHPPaid is HP a hero pays (Sacrifice, Strong Magic): no damage, so no
+// school's or true damage's tint.
+func logHPPaid(n int) logPart { return logStyled{strconv.Itoa(n), logPhysical} }
 
 // logTrueDamage is true damage, which no school or armor touches.
 func logTrueDamage(n int) logPart { return logStyled{strconv.Itoa(n), logTrue} }
@@ -305,6 +332,14 @@ func (g *MMGame) logCombat(tone logTone, format string, args ...any) {
 		text += s.text
 	}
 	g.appendCombatLog(combatLogEntry{Text: text, Color: logPlain, Segments: segs, Tone: tone})
+}
+
+// logCombatLine logs a catalog line rendered with logSlot for each styled
+// part - uitext.Text("combat.x", logSlot, logSlot) - the parts filling the
+// slots in order. The key stays explicit at the call site for the catalog
+// audit.
+func (g *MMGame) logCombatLine(tone logTone, line string, parts ...any) {
+	g.logCombat(tone, styledFormat(line), parts...)
 }
 
 // logTurnDivider marks where a turn-based side starts acting. A divider with

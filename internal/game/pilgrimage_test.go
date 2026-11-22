@@ -124,16 +124,16 @@ func TestPilgrimageSetEligibilityAndCap(t *testing.T) {
 		} else if !slices.Equal(allowedClasses, d.AllowedClasses) {
 			t.Fatalf("%s allows %v, unlike the rest of the set %v", key, d.AllowedClasses, allowedClasses)
 		}
-		might += d.BonusMight
-		luck += d.BonusLuck
-		personality += d.BonusPersonality
-		accuracy += d.BonusAccuracy
+		might += d.StatBonus.Might
+		luck += d.StatBonus.Luck
+		personality += d.StatBonus.Personality
+		accuracy += d.StatBonus.Accuracy
 		armor += d.ArmorClassBase
 	}
-	might += set.BonusMight
-	luck += set.BonusLuck
-	personality += set.BonusPersonality
-	accuracy += set.BonusAccuracy
+	might += set.StatBonus.Might
+	luck += set.StatBonus.Luck
+	personality += set.StatBonus.Personality
+	accuracy += set.StatBonus.Accuracy
 	armor += set.BonusArmorClass
 	if len(allowedClasses) == 0 || len(allowedClasses) == len(cfg.Characters.Classes) {
 		t.Fatalf("the set must be class-gated to exercise both outcomes, allows %v", allowedClasses)
@@ -293,7 +293,7 @@ func TestPilgrimageShippedChain(t *testing.T) {
 			}
 			g.dialogNPC = mira
 			(&InputHandler{game: g}).handleTurnInQuest("unbroken_mountain")
-			if mira.Visited || g.claimQuestReward("unbroken_mountain") {
+			if mira.Visited || g.claimQuestReward("unbroken_mountain", nil) {
 				t.Fatal("Mira concluded early or duplicate claim")
 			}
 			if g.party.GetTotalItems() != before+rewardsThrough(0) {
@@ -338,7 +338,7 @@ func TestPilgrimageShippedChain(t *testing.T) {
 			}
 			interact("pilgrim_sluice_travelers")
 			interact("pilgrim_sluice_monastery")
-			if !g.claimQuestReward("unbroken_desert") {
+			if !g.claimQuestReward("unbroken_desert", nil) {
 				t.Fatal("desert incomplete")
 			}
 			q = g.questManager.GetQuest("unbroken_jungle")
@@ -429,7 +429,7 @@ func TestPilgrimageShippedChain(t *testing.T) {
 					}
 				}
 			}
-			if !g.claimQuestReward("unbroken_jungle") {
+			if !g.claimQuestReward("unbroken_jungle", nil) {
 				t.Fatal("jungle incomplete")
 			}
 			if g.party.GetTotalItems() != before+rewardsThrough(len(chain)-1) {

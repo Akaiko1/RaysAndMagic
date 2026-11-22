@@ -4,6 +4,7 @@ import (
 	"math"
 	"math/rand"
 
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	damagecalc "ugataima/internal/damage"
 	monsterPkg "ugataima/internal/monster"
@@ -11,8 +12,8 @@ import (
 )
 
 // The Brood Mother's fire-trap field. One boss owns one field: every volley
-// interval she re-sows trap_volley_count fire traps on random walkable tiles
-// within trap_volley_radius_tiles of herself, and the NEW volley replaces the
+// interval she re-sows abilities.trap_volley.count fire traps on random walkable
+// tiles within its radius_tiles of herself, and the NEW volley replaces the
 // old field (user spec). A party member's tile igniting consumes that trap and
 // burns the whole party. Positions are tile coords on the current world.
 
@@ -66,10 +67,10 @@ func restoreBossFireTraps(saves []bossFireTrap, fallbackMapKey string, wm *world
 	return transformBossFireTraps(saves, fallbackMapKey, false, wm.ProjectTile)
 }
 
-// tryBossTrapVolley is called from the boss action paths and owns both cadence
-// counters: RT ticks frames, while TB ticks once per monster pass.
-func (cs *CombatSystem) tryBossTrapVolley(m *monsterPkg.Monster3D, turnBased bool) {
-	if m == nil || m.TrapVolleyCount <= 0 || !m.IsAlive() || cs.bossDisabled(m) || cs.bossEvasive(m) {
+// tryBossTrapVolley is called from the boss action paths once TrapVolleyCD
+// (spent by Monster3D.TickAbilityClocks) has run out.
+func (cs *CombatSystem) tryBossTrapVolley(m *monsterPkg.Monster3D) {
+	if m == nil || m.Abilities.TrapVolley.Count <= 0 || !m.IsAlive() || cs.bossDisabled(m) || cs.bossEvasive(m) {
 		return
 	}
 	// A provoked boss owns the field; a passive nesting mother sows nothing until
@@ -77,31 +78,22 @@ func (cs *CombatSystem) tryBossTrapVolley(m *monsterPkg.Monster3D, turnBased boo
 	if !m.IsEngagingPlayer && !m.IsInCombat() {
 		return
 	}
-	if turnBased {
-		// Decrement THEN test, mirroring the RT frames counter: a volley fires
-		// every interval-th pass, not every interval+1 (off-by-one otherwise).
-		if m.TrapVolleyTurnCD > 0 {
-			m.TickTrapVolleyCooldownTurn()
-		}
-		if m.TrapVolleyTurnCD > 0 {
-			return
-		}
-	} else {
-		if m.TrapVolleyCDFrames > 0 {
-			m.TickTrapVolleyCooldownFrame()
-		}
-		if m.TrapVolleyCDFrames > 0 {
-			return
-		}
+	if m.TrapVolleyCD.Active() {
+		return
 	}
 	if cs.attackOriginBlocked(m.X, m.Y) {
 		return
 	}
-	m.ArmTrapVolleyCooldown(cs.game.config.GetTPS())
-	cs.game.sowBossTrapField(m)
-	if len(cs.game.bossFireTraps) > 0 {
-		cs.game.observeOverwatchAttack(m)
-	}
+	m.ArmTrapVolleyCooldown()
+	// Sowing the field is the attack Overwatch answers; a trap that later
+	// erupts under the party is not a new action.
+	cs.monsterActionScope(m, nil, func() bool {
+		cs.game.sowBossTrapField(m)
+		if len(cs.game.bossFireTraps) > 0 {
+			cs.recordMonsterPartyAttack(m)
+		}
+		return true
+	})
 }
 
 // sowBossTrapField replaces the field with a fresh volley around the boss.
@@ -112,13 +104,13 @@ func (g *MMGame) sowBossTrapField(m *monsterPkg.Monster3D) {
 	}
 	ts := float64(g.config.GetTileSize())
 	cx, cy := TileIndex(m.X, ts), TileIndex(m.Y, ts)
-	radius := m.TrapVolleyRadiusTiles
+	radius := m.Abilities.TrapVolley.RadiusTiles
 	extent := int(math.Ceil(radius))
-	seen := make(map[[2]int]bool, m.TrapVolleyCount)
-	field := make([]bossFireTrap, 0, m.TrapVolleyCount)
+	seen := make(map[[2]int]bool, m.Abilities.TrapVolley.Count)
+	field := make([]bossFireTrap, 0, m.Abilities.TrapVolley.Count)
 	// Random rejection sampling with a generous attempt budget; a cramped
 	// arena simply gets a thinner field.
-	for attempts := 0; attempts < m.TrapVolleyCount*10 && len(field) < m.TrapVolleyCount; attempts++ {
+	for attempts := 0; attempts < m.Abilities.TrapVolley.Count*10 && len(field) < m.Abilities.TrapVolley.Count; attempts++ {
 		dx := rand.Intn(2*extent+1) - extent
 		dy := rand.Intn(2*extent+1) - extent
 		// Euclidean radius, matching the game-wide convention - a square would
@@ -139,7 +131,7 @@ func (g *MMGame) sowBossTrapField(m *monsterPkg.Monster3D) {
 	}
 	g.bossFireTraps = field
 	g.bossFireTrapsOwner = m.ID
-	g.logCombat(logToneBad, "%s seeds the ground with %s!", logMonsterName(m), logSchoolWord(monsterPkg.DamageFire.String(), "smouldering eggs"))
+	g.logCombatLine(logToneBad, uitext.Text("combat.seeds_the_ground_with", logSlot, logSlot), logMonsterName(m), logSchoolWord(monsterPkg.DamageFire.String(), "smouldering eggs"))
 }
 
 // checkBossFireTraps runs every frame in both modes: clears an orphaned field
@@ -173,13 +165,15 @@ func (g *MMGame) detonateBossFireTrap(owner *monsterPkg.Monster3D) {
 	if cs == nil {
 		return
 	}
-	g.logCombat(logToneBad, "The ground erupts in %s!", logSchoolWord(monsterPkg.DamageFire.String(), "brood-fire"))
+	g.logCombatLine(logToneBad, uitext.Text("combat.the_ground_erupts_in", logSlot), logSchoolWord(monsterPkg.DamageFire.String(), "brood-fire"))
 	g.CreateSpellHitEffect(g.camera.X, g.camera.Y, "fire", 26, 9, nil)
 	g.addScreenShake(3, 5)
-	// The field carries authored trap damage only, not the owner's true_damage.
+	// A trap carries its share of the owner's attack, not the owner's true_damage.
 	hit := monsterCharacterHit{
-		Parts:      owner.OutgoingDamage(damagecalc.Parts{Normal: owner.TrapVolleyDamage}),
+		Parts:      owner.OutgoingDamage(damagecalc.Parts{Normal: attackShare(owner, owner.Abilities.TrapVolley.DamagePercent)}),
 		DamageType: monsterPkg.DamageFire.String(),
+		Hazard:     true,
+		NoRiders:   !owner.Abilities.TrapVolley.Riders.Carried(),
 	}
 	cs.forEachDamageablePartyMember(func(_ int, member *character.MMCharacter) {
 		cs.monsterHitCharacter(owner, member, "Brood-fire trap", hit)

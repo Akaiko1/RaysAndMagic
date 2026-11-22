@@ -1,0 +1,60 @@
+# The Pursuers' captain watches the party (watcher.go, docs/story-plan.md).
+# He speaks once per line, never before intro_event, his first story plate
+# (a story boss's line may queue while that plate waits). when: camp |
+# monster_killed. A kill line answers the listed monsters (keys), or - with
+# no monsters - boss: true joins the pool for any other boss.
+# story: true marks a main-quest boss's line: it always plays. Every other
+# line is a rare random remark (config.yaml watcher: chances, a per-run
+# budget, days apart), so each run hears a different few.
+# after: a story event or another line that must be seen; until: a list -
+# any one of them seen closes the line. Stage 3 starts at the Raising or the
+# first Elder Dragon kill, whichever comes first, and picks the line set.
+# party_hurt / night: camp lines that play only then, ahead of the rest.
+# Plain words, one flourish at most; he never names what the Light is.
+
+speaker: "Oruun"
+portrait: story_captain_portrait
+intro_event: captain_first
+
+lines:
+  # --- Camp: he has noticed the party ---
+  - {id: camp_told_it, when: camp, until: [raising, kill_elder_dragon], text: "Sleep. Nothing will come for you tonight. I have told it not to."}
+  - {id: camp_fire_seen, when: camp, until: [raising, kill_elder_dragon], text: "Your fire can be seen from the shore. I see it."}
+  - {id: camp_long_road, when: camp, until: [tower], text: "You walk a long way for the tower. Has it told you why it needs you?"}
+  - {id: camp_count_wounds, when: camp, until: [raising, kill_elder_dragon], text: "Count your wounds before you sleep. I count them too."}
+  - {id: camp_mage_hands, when: camp, until: [raising, kill_elder_dragon], text: "Your mage holds the Light in two hands and does not know what it is. The tower likes it that way."}
+  - {id: camp_ash, when: camp, until: [raising, kill_elder_dragon], text: "The tower calls you ash-walkers. Ask it what burned."}
+  - {id: camp_tower_late, when: camp, after: tower, until: [raising, kill_elder_dragon], text: "The tower has an empty chair and no one to sit in it. It is looking at you."}
+  # --- Camp: context, ahead of the rest ---
+  - {id: camp_hurt_wait, when: camp, party_hurt: true, text: "You are bleeding. Rest. I can wait."}
+  - {id: camp_hurt_use, when: camp, party_hurt: true, text: "Not yet. You are no use to me dead."}
+  - {id: camp_night_fire, when: camp, night: true, text: "At night your fire is the brightest thing on this coast. I like to look at it."}
+  # --- Camp: the dragon hunt, no Archmage raised ---
+  - {id: camp_dragons_built, when: camp, after: kill_elder_dragon, until: [raising], text: "The tower built those dragons to stop me. You are killing them for it. Or for me."}
+  - {id: camp_seals_secret, when: camp, after: kill_elder_dragon, until: [raising], text: "Your pilgrim thinks the seals keep the dragons in. They keep the tower's secret in."}
+  - {id: camp_one_less, when: camp, after: kill_elder_dragon, until: [raising], text: "Every dragon you kill is one less thing between my ship and the tower."}
+  # --- Camp: an Archmage has been raised ---
+  - {id: camp_in_you, when: camp, after: raising, text: "It is in you now. I can see it from the sea."}
+  - {id: camp_sleeps_lighter, when: camp, after: raising, text: "Your Archmage sleeps lighter than the rest of you. The Light does that."}
+  - {id: camp_keep_safe, when: camp, after: raising, text: "Keep it safe. I would hate to see it broken, like the last one."}
+  - {id: camp_best_thing, when: camp, after: raising, text: "The tower gave you its best thing. It always does, just before it runs."}
+  # --- Camp: after his Enforcer falls ---
+  - {id: camp_others, when: camp, after: kill_alien_enforcer, text: "You took my Enforcer. I have others. I have time."}
+  - {id: camp_coming_up, when: camp, after: kill_alien_enforcer, text: "Sleep while you can. I am coming up myself."}
+
+  # --- Kills: lines of their own (story: the main-quest bosses) ---
+  - {id: kill_thief_bug, when: monster_killed, monsters: [golden_thief_bug], text: "That gold thing was mine. It picked up rings. I have more of them."}
+  - {id: kill_orc_warlord, when: monster_killed, monsters: [orc_hero_boss], text: "I promised that orc a crown. He would have made a poor king. You saved me the cost."}
+  - {id: kill_samurai, when: monster_killed, monsters: [old_samurai], text: "The rot got into him before you did. It gets into everything the tower ever touched."}
+  - {id: kill_lich_king, when: monster_killed, monsters: [lich_king], text: "The broken one is dead. Go back to the tower. Take what they give you."}
+  - {id: kill_elder_dragon, when: monster_killed, story: true, monsters: [elder_dragon, elder_dragon_red, elder_dragon_green, elder_dragon_gold], text: "The tower built those to stop me. One fewer, and I did not lift a hand."}
+  - {id: kill_brood_mother, when: monster_killed, story: true, monsters: [dragon_brood_mother], text: "That was the last of the tower's breeders. Now there is only you between us."}
+  - {id: kill_god_of_death, when: monster_killed, story: true, monsters: [ancient_god_of_death], text: "The tower's watchman in the sand is gone. You have opened a door it was guarding."}
+  - {id: kill_alien_enforcer, when: monster_killed, story: true, monsters: [alien_enforcer], text: "You broke my Enforcer. Then I will come up myself."}
+  - {id: kill_solstice, when: monster_killed, monsters: [solstice_aureth, solstice_talura, solstice_vaelith, solstice_neressa], text: "The ruins in the jungle still keep their old hours. Whoever built them is not coming back."}
+
+  # --- Kills: any other boss ---
+  - {id: kill_pool_well_done, when: monster_killed, boss: true, text: "Well done. Keep going."}
+  - {id: kill_pool_stronger, when: monster_killed, boss: true, text: "That one was strong. You are stronger. Good."}
+  - {id: kill_pool_saw, when: monster_killed, boss: true, text: "I saw that from the sea."}
+  - {id: kill_pool_pleased, when: monster_killed, boss: true, text: "Another one. The tower will be pleased. So am I."}

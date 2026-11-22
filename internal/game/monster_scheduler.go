@@ -18,9 +18,8 @@ func (gl *GameLoop) runMonsterFrame() {
 		}
 		// Workers finish status damage before any pending special can release.
 		// Charges publish their own movement; finish observing the AI walk first.
-		dt := 1 / float64(max(1, gl.game.config.GetTPS()))
-		gl.game.tickMonsterTelegraphs(dt, false)
-		gl.game.tickEnvironment(dt, false)
+		gl.game.tickMonsterTelegraphs(false)
+		gl.game.tickEnvironment(false)
 	}
 	// Parallel RT updates can nominate the same logical post from one frozen
 	// snapshot. Serial arbitration runs before combat so only one can strike.
@@ -46,7 +45,7 @@ func (gl *GameLoop) prepareMonsterFrame() {
 	// that hate a trait (hates.yaml) know whether to turn hostile on sight.
 	monster.PartyTraits["lich"] = gl.game.party.HasLich()
 
-	// Cache bound undead so the AI-target lookup (bound-undead seek / mob
+	// Cache the party allies so the AI-target lookup (ally seek / mob
 	// retaliation) stays cheap when none exist - the overwhelmingly common case.
 	gl.game.refreshMonsterAIState()
 	if !gl.game.turnBasedMode {
@@ -99,9 +98,8 @@ func (gl *GameLoop) resolveMonsterFrameActions() {
 	// Alarm bells: an engaged rally monster wakes its neighbours (serial pass -
 	// the parallel update must not mutate other monsters).
 	gl.game.rallyAggroedAlarms()
-	// Transit stacks are cosmetic only: they reuse the band fan without changing
-	// band membership or physical positions.
-	gl.updateCombatTransitVisualStacks()
+	// The tile fan is cosmetic only: monsters sharing a tile are drawn apart.
+	gl.updateTileFans()
 
 	// Update monster hit tint timers
 	gl.game.UpdateMonsterHitTintTimers()
@@ -111,4 +109,18 @@ func (gl *GameLoop) resolveMonsterFrameActions() {
 		gl.game.combat.HandleMonsterInteractions()
 	}
 
+}
+
+// updateTileFans draws the live monsters sharing a tile apart, seen from the
+// logical camera (monster.UpdateTileFans); presentation only.
+func (gl *GameLoop) updateTileFans() {
+	g := gl.game
+	if g == nil || g.world == nil || g.config == nil {
+		return
+	}
+	camX, camY := g.partyFightPos()
+	gl.tileFanBuf = monster.UpdateTileFans(g.world.Monsters, monster.TileFanFrame{
+		Tile: float64(g.config.GetTileSize()), TPS: g.config.GetTPS(), CamX: camX, CamY: camY,
+		Fighting: func(m *monster.Monster3D) bool { return combatStackParticipant(g, m) },
+	}, gl.tileFanBuf)
 }

@@ -61,7 +61,7 @@ func TestRosterImportantItemsDisplayedConfirmation(t *testing.T) {
 						character.NPCConfigInstance = &character.NPCConfig{NPCs: map[string]*character.NPCData{
 							"shop":   {Currency: "item:wolf_pelt"},
 							"mixed":  {Inventory: []*character.NPCItem{{CurrencyItem: "spider_silk"}}},
-							"statue": {Summons: []*character.NPCSummon{{Statuette: "Offering"}}},
+							"statue": {Summons: []*character.NPCSummon{{Statuette: "black_dragon_statuette"}}},
 						}}
 						hero := g.party.Members[0]
 						hero.Inventory = nil
@@ -82,7 +82,7 @@ func TestRosterImportantItemsDisplayedConfirmation(t *testing.T) {
 						case "stock currency":
 							it = items.CreateItemFromYAML("spider_silk")
 						case "statuette":
-							it.Name, it.Type = "Offering", items.ItemTrinket
+							it = items.CreateItemFromYAML("black_dragon_statuette")
 						case "ordinary":
 							it = items.CreateItemFromYAML("health_potion")
 						}

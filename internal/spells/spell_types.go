@@ -11,14 +11,17 @@ import (
 	"ugataima/internal/stats"
 )
 
+// DurationSeconds selects authored gameplay seconds without applying a hidden multiplier.
+// Casts, projectiles and UI all resolve the same optional mastery ladder.
+func (d SpellDefinition) DurationSeconds(tier int) int {
+	if len(d.DurationByMastery) == 0 {
+		return 0
+	}
+	return config.TierValue([4]int(d.DurationByMastery), tier)
+}
+
 // SpellID represents dynamic spell identifiers loaded from YAML
 type SpellID string
-
-const (
-	// SpellCategoryBuff marks a beneficial timed spell that has no personal
-	// cooldown in real-time mode. Turn-based casts still spend an action.
-	SpellCategoryBuff = "buff"
-)
 
 // String returns the string representation of a spell ID
 func (s SpellID) String() string {
@@ -27,14 +30,19 @@ func (s SpellID) String() string {
 
 // SpellDefinition represents the complete definition of a spell loaded from YAML
 type SpellDefinition struct {
+	Mechanic              *config.SpellMechanicConfig
 	ID                    SpellID
 	Name                  string
 	Description           string
 	School                string
 	SpellPointsCost       int
 	Category              string
-	CooldownSeconds       float64 // RT cast cooldown (seconds) at reference Speed; authored per spell (required)
+	ReuseSeconds          int     // Personal lockout, shared across casting entry points.
+	CooldownSeconds       float64 // RT recovery at reference Speed; authored for non-buffs only.
 	DamageByMastery       []int   // exact damage per mastery tier (Novice..GM); wins over the cost formula
+	DamageBase            int
+	DamageSource          string
+	DamageDivisor         int
 	SummonMonster         string  // monster key summoned as a party ally
 	SummonMax             int     // live cap for this spell's summons
 	SummonHPByMastery     []int   // spawned HP per mastery tier (Novice..GM)
@@ -47,7 +55,7 @@ type SpellDefinition struct {
 	ZoneBurnSeconds       float64 // zone hits ignite the victim for this long
 	StandeeDestroyChance  float64 // chance to topple a crossed-standee tile it hits
 	SparesParty           bool    // party-centred nova that does not hurt the party
-	Duration              int     // Duration in seconds (0 for instant spells)
+	DurationByMastery     []int   // Exact gameplay seconds, Novice..Grandmaster; empty for instant/charged effects.
 	DisintegrateChance    float64
 	AoeRadiusTiles        float64 // 0 = single-target; >0 = splash radius in tiles
 	ProjectileSize        int
@@ -64,7 +72,6 @@ type SpellDefinition struct {
 	// AoE-stun effect (Darkness): >0 radius stuns all monsters in range, no damage
 	StunRadiusTiles     float64
 	StunDurationSeconds int
-	StunDurationTurns   int
 	DealsNoDamage       bool // zero direct damage (Disintegrate: only the instakill roll matters)
 	// Party combat buffs (duration seconds)
 	ResistBuffPct                      int // Day of the Gods: % incoming damage reduction
@@ -137,6 +144,7 @@ func GetSpellDefinitionByID(spellID SpellID) (SpellDefinition, error) {
 	}
 
 	return SpellDefinition{
+		Mechanic:                           configDef.Mechanic,
 		ID:                                 spellID,
 		Name:                               configDef.Name,
 		Description:                        configDef.Description,
@@ -144,7 +152,8 @@ func GetSpellDefinitionByID(spellID SpellID) (SpellDefinition, error) {
 		SpellPointsCost:                    configDef.SpellPointsCost,
 		Category:                           strings.ToLower(strings.TrimSpace(configDef.Category)),
 		CooldownSeconds:                    configDef.CooldownSeconds,
-		Duration:                           configDef.Duration,
+		ReuseSeconds:                       configDef.ReuseSeconds,
+		DurationByMastery:                  configDef.DurationByMastery,
 		DisintegrateChance:                 configDef.DisintegrateChance,
 		AoeRadiusTiles:                     configDef.AoeRadiusTiles,
 		ProjectileSize:                     configDef.ProjectileSize,
@@ -159,7 +168,6 @@ func GetSpellDefinitionByID(spellID SpellID) (SpellDefinition, error) {
 		MasteryDamagePerTier:               configDef.MasteryDamagePerTier,
 		StunRadiusTiles:                    configDef.StunRadiusTiles,
 		StunDurationSeconds:                configDef.StunDurationSeconds,
-		StunDurationTurns:                  configDef.StunDurationTurns,
 		DealsNoDamage:                      configDef.DealsNoDamage,
 		ResistBuffPct:                      configDef.ResistBuffPct,
 		ResistBuffPctGrandmaster:           configDef.ResistBuffPctGrandmaster,
@@ -180,6 +188,9 @@ func GetSpellDefinitionByID(spellID SpellID) (SpellDefinition, error) {
 		PartyAoeRadiusTiles:                configDef.PartyAoeRadiusTiles,
 		MapWide:                            configDef.MapWide,
 		DamageByMastery:                    configDef.DamageByMastery,
+		DamageBase:                         configDef.DamageBase,
+		DamageSource:                       configDef.DamageSource,
+		DamageDivisor:                      configDef.DamageDivisor,
 		SummonMonster:                      configDef.SummonMonster,
 		SummonMax:                          configDef.SummonMax,
 		SummonHPByMastery:                  configDef.SummonHPByMastery,
@@ -216,11 +227,46 @@ func GetSpellDefinitionByID(spellID SpellID) (SpellDefinition, error) {
 	}, nil
 }
 
-// IsBuff reports whether this is a YAML-authored beneficial timed effect. Buff
-// spells deliberately have no personal real-time cooldown so a party can be
-// prepared without waiting between each cast.
+// DamageType is the hit's element, which can differ from the school learned.
+// Combat and cards use this same authored override.
+func (d SpellDefinition) DamageType() string {
+	school := d.School
+	if d.Mechanic != nil && d.Mechanic.DamageSchool != "" {
+		school = d.Mechanic.DamageSchool
+	}
+	kind, err := damagecalc.ParseType(school)
+	if err != nil {
+		return damagecalc.Physical.String()
+	}
+	return kind.String()
+}
+
+// IsBuff reads the explicit YAML category for timed and charged enchantments
+// (buff or combat_buff). Combat and presentation consume the same validated authoring.
 func (d SpellDefinition) IsBuff() bool {
-	return d.Category == SpellCategoryBuff
+	return d.Category == config.SpellCategoryBuff || d.Category == config.SpellCategoryCombatBuff
+}
+
+// GrantsStatBuff: the spell raises the party's stats (Bless).
+func (d SpellDefinition) GrantsStatBuff() bool {
+	return d.StatBonus > 0 || len(d.StatBonuses) > 0
+}
+
+// GrantsCombatBuff: the spell grants a party combat buff - resistance,
+// outgoing or incoming damage (Day of the Gods, Hour of Power, Stone Skin).
+func (d SpellDefinition) GrantsCombatBuff() bool {
+	return d.ResistBuffPct > 0 || d.ResistBuffSchoolPct > 0 || d.OutgoingDamageBonus > 0 || d.IncomingDamageReduction > 0
+}
+
+// HasAutocast reports a mechanic the caster may set to cast itself.
+func (d SpellDefinition) HasAutocast() bool {
+	return d.Mechanic != nil && d.Mechanic.Autocast
+}
+
+// HasRTCooldown is false only for a plain buff; a combat_buff keeps its
+// authored recovery. Every cast still costs mana and a TB action.
+func (d SpellDefinition) HasRTCooldown() bool {
+	return d.Category != config.SpellCategoryBuff
 }
 
 // IsOffensive reports whether this spell harms or disables enemies - i.e. it
@@ -229,6 +275,9 @@ func (d SpellDefinition) IsBuff() bool {
 // damage zones (Hot Steam) are flagged utility yet are clearly offensive.
 // Heals, revives, buffs and pure utility (vision/movement) all return false.
 func (d SpellDefinition) IsOffensive() bool {
+	if d.Mechanic.IsOffensive() {
+		return true
+	}
 	return d.IsProjectile ||
 		d.AoeRadiusTiles > 0 ||
 		d.StunRadiusTiles > 0 ||
@@ -245,7 +294,13 @@ func (d SpellDefinition) IsOffensive() bool {
 // with the current caster; all views come from effectLines, so wording cannot
 // drift.
 func (d SpellDefinition) CoreEffectLines() []string {
-	return d.effectLines(effectViewCore)
+	return d.CoreEffectLinesForMastery(-1)
+}
+
+// CoreEffectLinesForMastery resolves mechanic magnitudes for one hero; -1
+// preserves the full mastery ladder used by shops and editor catalogs.
+func (d SpellDefinition) CoreEffectLinesForMastery(tier int) []string {
+	return d.effectLinesAtMastery(effectViewCore, tier)
 }
 
 // CardEffectLines keeps base values but omits rows the editor renders separately.
@@ -261,6 +316,11 @@ func (d SpellDefinition) BuffMechanicLines() []string {
 
 type effectView uint8
 
+// TargetsAlly identifies personal enchantments, not party-wide support spells.
+func (d SpellDefinition) TargetsAlly() bool {
+	return d.Mechanic.TargetsAlly()
+}
+
 const (
 	effectViewCore effectView = iota
 	effectViewCard
@@ -268,8 +328,15 @@ const (
 )
 
 func (d SpellDefinition) effectLines(view effectView) []string {
+	return d.effectLinesAtMastery(view, -1)
+}
+
+func (d SpellDefinition) effectLinesAtMastery(view effectView, tier int) []string {
 	includeStructured := view == effectViewCard
 	var out []string
+	if d.Mechanic != nil {
+		out = append(out, d.Mechanic.SummaryText(tier, d.DurationByMastery))
+	}
 	// Every authored field states itself here, so the game tooltip, the editor
 	// card and the shop line can never disagree about a new spell.
 	if d.SummonMonster != "" {
@@ -285,17 +352,17 @@ func (d SpellDefinition) effectLines(view effectView) []string {
 		out = append(out, uitext.Text("spell.teleports_the_party_tiles_straight_ahead_refused", d.JumpTiles))
 	}
 	if d.DisintegrateChance > 0 {
-		out = append(out, uitext.Text("spell.disintegrate_chance_to_instantly_kill_on_hit", d.DisintegrateChance*100))
+		out = append(out, uitext.Text("spell.disintegrate_chance_to_instantly_kill_on_hit", d.DisintegrateChance*100, config.InstakillSearMaxHPPct))
 	}
 	if d.StunChance > 0 {
 		line := uitext.Text("spell.stun_chance_on_hit", d.StunChance*100)
 		if d.StunDurationSeconds > 0 {
-			line += uitext.Text("spell.stun_duration", d.StunDurationSeconds, tbTurns(d.StunDurationTurns))
+			line += uitext.Text("spell.stun_duration", config.DurationText(d.StunDurationSeconds))
 		}
 		out = append(out, line)
 	}
 	if d.StunRadiusTiles > 0 {
-		out = append(out, uitext.Text("spell.stuns_every_monster_within_tiles_for_s", d.StunRadiusTiles, d.StunDurationSeconds, tbTurns(d.StunDurationTurns)))
+		out = append(out, uitext.Text("spell.stuns_every_monster_within_tiles_for_s", d.StunRadiusTiles, config.DurationText(d.StunDurationSeconds)))
 	}
 	if d.StunChance > 0 || d.StunRadiusTiles > 0 {
 		out = append(out, uitext.Text("spell.repeated_stuns_wear_off_diminishing_returns_then"))
@@ -440,20 +507,12 @@ func OutgoingDamageTarget(damageType string) string {
 // PerStatBonusLines states a per-stat party bonus map in canonical stat order.
 func PerStatBonusLines(bonuses map[string]int) []string {
 	var out []string
-	for _, key := range config.StatNames {
+	for _, key := range stats.Names {
 		if v := bonuses[key]; v != 0 {
 			out = append(out, uitext.Text("spell.whole_party", v, strings.ToUpper(key[:1])+key[1:]))
 		}
 	}
 	return out
-}
-
-// tbTurns renders a turn-based span: "1 TB turn", "3 TB turns".
-func tbTurns(n int) string {
-	if n == 1 {
-		return "1 TB turn"
-	}
-	return fmt.Sprintf("%d TB turns", n)
 }
 
 // SchoolScalesWithPersonality reports whether a school's spells scale with

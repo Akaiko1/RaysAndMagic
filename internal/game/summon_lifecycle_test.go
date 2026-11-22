@@ -134,7 +134,7 @@ func TestCharmAggressionAndReward(t *testing.T) {
 	m2 := monsterPkg.NewMonster3DFromConfig(0, 0, "goblin", cfg)
 	game.world.Monsters = []*monsterPkg.Monster3D{m2}
 	game.combat.applyPacify(m2, 120, "Charm")
-	m2.PacifiedFramesRemaining = 1
+	m2.PacifiedClock = framesClock(1)
 	gl.updateControlledMonsters()
 	if !m2.Pacified {
 		t.Fatal("TB thinking must not expire Charm")
@@ -170,7 +170,7 @@ func TestPartyHitsBreakCharmOnEveryTarget(t *testing.T) {
 	}{
 		{name: "melee_dodged", targets: []tile{{1, 0}}, dodge: true,
 			apply: func(_ *testing.T, cs *CombatSystem, targets []*monsterPkg.Monster3D) {
-				cs.ApplyDamageToMonster(targets[0], 10, "Iron Sword", false)
+				cs.ApplyDamageToMonster(targets[0], 10, testWeapon("Iron Sword"), false)
 			}},
 		{name: "melee_arc", targets: []tile{{1, 0}, {1, -1}, {1, 1}},
 			apply: func(t *testing.T, cs *CombatSystem, _ []*monsterPkg.Monster3D) {
@@ -186,12 +186,12 @@ func TestPartyHitsBreakCharmOnEveryTarget(t *testing.T) {
 				if !ok || def == nil || def.AoeRadiusTiles < 1 {
 					t.Fatal("tonbogiri missing or its splash cannot reach the next tile")
 				}
-				cs.ApplyDamageToMonster(targets[0], 20, def.Name, false)
+				cs.ApplyDamageToMonster(targets[0], 20, testWeapon(def.Name), false)
 			}},
 		{name: "spell_aoe", targets: []tile{{1, 0}, {2, 0}},
 			apply: func(_ *testing.T, cs *CombatSystem, targets []*monsterPkg.Monster3D) {
 				bolt := &MagicProjectile{ID: "test_fireball", Active: true, LifeTime: 1, Damage: 20, SpellType: "fireball"}
-				cs.applyProjectileDamage(bolt, "magic_projectile", targets[0], bolt.ID)
+				cs.applyProjectileDamage(bolt, targets[0], bolt.ID)
 			}},
 	} {
 		for _, tb := range []bool{false, true} {
@@ -327,7 +327,7 @@ func TestControlledMonsterRewardRules(t *testing.T) {
 		game.world.Monsters = []*monsterPkg.Monster3D{target}
 		game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
 		game.combat.applyPacify(target, 120, "Charm")
-		assertReward(t, target, func() { game.combat.ApplyDamageToMonster(target, 999, "Iron Sword", false) })
+		assertReward(t, target, func() { game.combat.ApplyDamageToMonster(target, 999, testWeapon("Iron Sword"), false) })
 	})
 
 	t.Run("charmed_boss_add", func(t *testing.T) {
@@ -337,6 +337,6 @@ func TestControlledMonsterRewardRules(t *testing.T) {
 		game.world.Monsters = []*monsterPkg.Monster3D{target}
 		game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
 		game.combat.applyPacify(target, 120, "Charm")
-		assertReward(t, target, func() { game.combat.ApplyDamageToMonster(target, 999, "Iron Sword", false) })
+		assertReward(t, target, func() { game.combat.ApplyDamageToMonster(target, 999, testWeapon("Iron Sword"), false) })
 	})
 }

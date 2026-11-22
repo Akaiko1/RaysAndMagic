@@ -31,7 +31,7 @@ func (g *MMGame) prepareAdventureLoot(key string, v *AdventureVisit) {
 		} else {
 			loot.Items, loot.Gold, loot.ArenaPoints = g.rollCratePool(c)
 		}
-		v.Loot["crate:"+n.Key] = loot
+		v.Loot[config.CrateID(n.Key)] = loot
 	}
 	for _, m := range w.Monsters {
 		if m.EncounterRewards == nil {

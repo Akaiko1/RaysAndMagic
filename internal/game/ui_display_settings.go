@@ -9,14 +9,22 @@ import (
 
 // The Display tab reuses the Sound tab's rows: a framed box with a label, and
 // across the slider track one button per interface size preset (row 0) or
-// the font list (row 1), followed by the 3D props toggle (row 2).
+// the font list (row 1), followed by the 3D props toggle (row 2) and the two
+// fit-to-tile choices, which share the last box and are separate keyboard rows.
 
 const (
 	displayRowSize = iota
 	displayRowFont
 	displayRowProps
+	displayRowFitTrees
+	displayRowFitMonuments
 	displayRows
 )
+
+// displayBoxes are the framed boxes; displayBox is the one a keyboard row is in.
+const displayBoxes = displayRowFitTrees + 1
+
+func displayBox(row int) int { return min(row, displayRowFitTrees) }
 
 // displayFontItemH is one entry of the open font list.
 const displayFontItemH = 26
@@ -59,13 +67,50 @@ func displayPropsToggleRect(px, py, panelW int) layoutRect {
 	return layoutRect{r.x2 - 104, r.y1 - 10, 104, 40}
 }
 
+// The fit-to-tile choices: trees with small props, monuments with the other
+// placed objects. Both toggles take the wider label's width and sit at the
+// right end of the row, the monuments one last.
+var displayFitLabels = [2]string{"Trees", "Monuments"}
+
+// Room for the keyboard focus ring of either toggle.
+const displayFitGap = 12
+
+func displayFitToggleRect(px, py, panelW int, monuments bool) layoutRect {
+	r := displaySliderRect(px, py, panelW, displayRowFitTrees)
+	w := 46 + max(uiTextWidth(displayFitLabels[0]), uiTextWidth(displayFitLabels[1])) + 14
+	x := r.x2 - w
+	if !monuments {
+		x -= w + displayFitGap
+	}
+	return layoutRect{x, r.y1 - 10, w, 40}
+}
+
+// drawSettingsCheckbox is the framed toggle of the Display tab: a check box
+// and a label that brighten together when the choice is on.
+func (ui *UISystem) drawSettingsCheckbox(screen *ebiten.Image, toggle layoutRect, label string, enabled bool) {
+	mx, my := uiCursorPosition()
+	hover := ui.audioSettingsOwnsInput() && isMouseHoveringBox(mx, my, toggle.x, toggle.y, toggle.right(), toggle.bottom())
+	ui.drawButtonFrame(screen, toggle.x, toggle.y, toggle.w, toggle.h, enabled || hover)
+	ink := gameplayInk.muted
+	if enabled {
+		ink = gameplayInk.heading
+	}
+	cx, cy := toggle.x+14, toggle.y+11
+	drawRectBorder(screen, cx, cy, 18, 18, 1, ink)
+	if enabled {
+		uiStrokeLine(screen, float32(cx+4), float32(cy+9), float32(cx+8), float32(cy+13), 2, ink, true)
+		uiStrokeLine(screen, float32(cx+8), float32(cy+13), float32(cx+15), float32(cy+5), 2, ink, true)
+	}
+	drawUITextColored(screen, label, toggle.x+46, toggle.y+(toggle.h-uiTextCharHeight)/2, ink)
+}
+
 func (ui *UISystem) drawDisplaySettings(screen *ebiten.Image, px, py, panelW, contentInset int) {
 	g := ui.game
 	drawCenteredUIText(screen, "Interface and world appearance", px+32, py+100, panelW-64, 18)
-	for row := 0; row < displayRows; row++ {
+	for row := 0; row < displayBoxes; row++ {
 		box := displaySelectionRect(px, py, panelW, contentInset, row)
 		border := color.RGBA{68, 65, 55, 255}
-		if row == g.audioSettingsSelection {
+		if row == displayBox(g.audioSettingsSelection) {
 			border = color.RGBA{177, 149, 89, 255}
 		}
 		drawFilledRect(screen, box.x1, box.y1, box.x2-box.x1, box.y2-box.y1, color.RGBA{24, 27, 30, 255})
@@ -132,27 +177,37 @@ func (ui *UISystem) drawDisplaySettings(screen *ebiten.Image, px, py, panelW, co
 	drawUITextColored(screen, "3D props", propBox.x1+50, pr.y1-6, gameplayInk.heading)
 	drawUITextColored(screen, "Off restores original sprites", propBox.x1+50, pr.y1+14, gameplayInk.muted)
 	toggle := displayPropsToggleRect(px, py, panelW)
-	enabled := g.props3DEnabled()
-	mx, my := uiCursorPosition()
-	hover := ui.audioSettingsOwnsInput() && isMouseHoveringBox(mx, my, toggle.x, toggle.y, toggle.right(), toggle.bottom())
-	ui.drawButtonFrame(screen, toggle.x, toggle.y, toggle.w, toggle.h, enabled || hover)
-	ink := gameplayInk.muted
 	label := "OFF"
-	if enabled {
-		ink, label = gameplayInk.heading, "ON"
+	if g.props3DEnabled() {
+		label = "ON"
 	}
-	cx, cy := toggle.x+14, toggle.y+11
-	drawRectBorder(screen, cx, cy, 18, 18, 1, ink)
-	if enabled {
-		uiStrokeLine(screen, float32(cx+4), float32(cy+9), float32(cx+8), float32(cy+13), 2, ink, true)
-		uiStrokeLine(screen, float32(cx+8), float32(cy+13), float32(cx+15), float32(cy+5), 2, ink, true)
-	}
-	drawUITextColored(screen, label, toggle.x+46, toggle.y+(toggle.h-uiTextCharHeight)/2, ink)
+	ui.drawSettingsCheckbox(screen, toggle, label, g.props3DEnabled())
 	ui.settingsClick(toggle, func() {
 		g.audioSettingsSelection = displayRowProps
 		g.fontListOpen = false
 		g.setProps3D(!g.props3DEnabled())
 	})
+
+	// Fit to tile: an object inside its tile for a glyph, then the two choices.
+	fitBox := displaySelectionRect(px, py, panelW, contentInset, displayRowFitTrees)
+	fr2 := displaySliderRect(px, py, panelW, displayRowFitTrees)
+	drawRectBorder(screen, fitBox.x1+12, fr2.y1-1, 22, 22, 1, gameplayInk.focus)
+	drawFilledRect(screen, fitBox.x1+18, fr2.y1+7, 10, 13, gameplayInk.focus)
+	drawUITextColored(screen, "Fit to tile", fitBox.x1+50, fr2.y1-6, gameplayInk.heading)
+	drawUITextColored(screen, "Large objects scale down", fitBox.x1+50, fr2.y1+14, gameplayInk.muted)
+	for i, row := range []int{displayRowFitTrees, displayRowFitMonuments} {
+		monuments := row == displayRowFitMonuments
+		r := displayFitToggleRect(px, py, panelW, monuments)
+		ui.drawSettingsCheckbox(screen, r, displayFitLabels[i], g.fitToTile(monuments))
+		if g.audioSettingsSelection == row {
+			drawRectBorder(screen, r.x-3, r.y-3, r.w+6, r.h+6, 1, gameplayInk.focus)
+		}
+		ui.settingsClick(r, func() {
+			g.audioSettingsSelection = row
+			g.fontListOpen = false
+			g.setFitToTile(monuments, !g.fitToTile(monuments))
+		})
+	}
 
 	if g.fontListOpen {
 		ui.drawFontList(screen, px, py, panelW)

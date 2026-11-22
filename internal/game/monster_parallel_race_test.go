@@ -7,6 +7,7 @@ import (
 	"ugataima/internal/config"
 	"ugataima/internal/monster"
 	"ugataima/internal/threading"
+	"ugataima/internal/threading/entities"
 	"ugataima/internal/world"
 )
 
@@ -66,6 +67,8 @@ func TestRace_MonsterParallelUpdate(t *testing.T) {
 	w := wm.GetCurrentWorld()
 
 	g := newTestGame(cfg, w)
+	// The pool whatever the forest holds: this test is about its workers.
+	cfg.Engine.ParallelMonsterMinimum = 1
 	g.threading = threading.NewThreadingComponents(cfg)
 	defer g.threading.Shutdown()
 	w.RegisterMonstersWithCollisionSystem(g.collisionSystem)
@@ -103,14 +106,11 @@ func TestRace_MonsterParallelUpdate(t *testing.T) {
 	}
 }
 
-// TestRace_ProjectileImpactScreenShake exercises the production path
-// (GameLoop.updateProjectilesParallel: ConvertProjectilesToWrappers +
-// EntityUpdater.UpdateProjectilesParallel) with several magic projectiles that
-// all collide on the same tick, landing in different worker chunks.
-// MagicProjectileWrapper.OnCollision -> CreateSpellHitEffectFromSpell ->
-// addScreenShake reads-then-writes g.screenShake with no lock (unlike
-// impactLights/spellHitEffects, which ARE guarded by hitEffectsMu) - two
-// simultaneous impacts on different workers race on it.
+// TestRace_ProjectileImpactScreenShake runs the production projectile tick
+// (ConvertProjectilesToWrappers + entities.UpdateProjectiles) with thousands
+// of magic projectiles that all collide on the same tick. Impacts end in
+// CreateSpellHitEffectFromSpell -> addScreenShake, an unlocked read-then-write
+// of g.screenShake: the tick must keep it on one goroutine.
 //
 // Run: go test ./internal/game/ -race -run TestRace_ProjectileImpactScreenShake -v
 func TestRace_ProjectileImpactScreenShake(t *testing.T) {
@@ -134,13 +134,7 @@ func TestRace_ProjectileImpactScreenShake(t *testing.T) {
 
 	w := newTestWorld(cfg)
 	g := newTestGame(cfg, w)
-	g.threading = threading.NewThreadingComponents(cfg)
-	defer g.threading.Shutdown()
 
-	// addScreenShake's body is a couple of float comparisons - too small a
-	// window for the race detector to catch at low contention. Use enough
-	// projectiles that many workers land in CreateSpellHitEffectFromSpell's
-	// unlocked addScreenShake call at the same instant.
 	const n = 4000
 	g.magicProjectiles = make([]MagicProjectile, n)
 	for i := range g.magicProjectiles {
@@ -163,6 +157,6 @@ func TestRace_ProjectileImpactScreenShake(t *testing.T) {
 			g.magicProjectiles[i].LifeTime = 10
 		}
 		projectiles := g.ConvertProjectilesToWrappers()
-		g.threading.EntityUpdater.UpdateProjectilesParallel(projectiles, alwaysBlocked)
+		entities.UpdateProjectiles(projectiles, alwaysBlocked)
 	}
 }

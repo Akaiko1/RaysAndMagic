@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"unsafe"
 )
 
 // StatBonuses is a per-stat additive bonus block - the unit of every temporary
@@ -45,6 +46,14 @@ var fieldIndexByName = func() map[string]int {
 	return m
 }()
 
+// Title is a canonical stat name as players read it ("might" -> "Might").
+func Title(name string) string {
+	if name == "" {
+		return ""
+	}
+	return strings.ToUpper(name[:1]) + name[1:]
+}
+
 // IsName reports whether s is a canonical lowercase stat name.
 func IsName(s string) bool {
 	_, ok := fieldIndexByName[s]
@@ -61,6 +70,27 @@ func Uniform(n int) StatBonuses {
 	return b
 }
 
+// fieldOffsets are the stat fields' byte offsets in Names order, read once
+// from the struct: At indexes by them with no reflection on the hot
+// effective-stat path (zero allocations).
+var fieldOffsets = func() []uintptr {
+	t := reflect.TypeOf(StatBonuses{})
+	out := make([]uintptr, t.NumField())
+	for i := range out {
+		f := t.Field(i)
+		if f.Type.Kind() != reflect.Int {
+			panic("stats: every StatBonuses field must be an int")
+		}
+		out[i] = f.Offset
+	}
+	return out
+}()
+
+// At returns a pointer to the i-th stat in Names order.
+func (b *StatBonuses) At(i int) *int {
+	return (*int)(unsafe.Add(unsafe.Pointer(b), fieldOffsets[i]))
+}
+
 // fieldByName returns a pointer to the field for a canonical lowercase stat
 // name; FromMap and ValueByName both derive from it. Nil for unknown names.
 func (b *StatBonuses) fieldByName(name string) *int {
@@ -68,7 +98,7 @@ func (b *StatBonuses) fieldByName(name string) *int {
 	if !ok {
 		return nil
 	}
-	return reflect.ValueOf(b).Elem().Field(i).Addr().Interface().(*int)
+	return b.At(i)
 }
 
 // FromMap builds a StatBonuses from a lowercase stat-name map (the spells.yaml
@@ -101,13 +131,18 @@ func (b StatBonuses) ToMap() map[string]int {
 
 // Add returns the per-stat sum of two bonus blocks.
 func (b StatBonuses) Add(o StatBonuses) StatBonuses {
-	out := b
-	vo := reflect.ValueOf(&out).Elem()
-	va := reflect.ValueOf(o)
-	for i := 0; i < vo.NumField(); i++ {
-		vo.Field(i).SetInt(vo.Field(i).Int() + va.Field(i).Int())
+	for i := range Names {
+		*b.At(i) += *o.At(i)
 	}
-	return out
+	return b
+}
+
+// Sub returns the per-stat difference b - o.
+func (b StatBonuses) Sub(o StatBonuses) StatBonuses {
+	for i := range Names {
+		*b.At(i) -= *o.At(i)
+	}
+	return b
 }
 
 // IsZero reports whether the block carries no bonus at all.
@@ -147,7 +182,7 @@ func (b StatBonuses) Summary() string {
 	parts := make([]string, 0, len(Names))
 	for _, n := range Names {
 		if v := b.ValueByName(n); v != 0 {
-			parts = append(parts, signed(v)+" "+strings.ToUpper(n[:1])+n[1:])
+			parts = append(parts, signed(v)+" "+Title(n))
 		}
 	}
 	return strings.Join(parts, ", ")

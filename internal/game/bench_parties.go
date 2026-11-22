@@ -1,17 +1,16 @@
 package game
 
 import (
-	"bytes"
 	"fmt"
 	"maps"
 	"os"
 	"slices"
 
-	"gopkg.in/yaml.v3"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/spells"
+	"ugataima/internal/strictyaml"
 )
 
 // BenchCatalog holds benchmark parties: realistic builds at fixed levels for
@@ -60,9 +59,7 @@ func LoadBenchCatalog(path string) (*BenchCatalog, error) {
 		return nil, err
 	}
 	var cat BenchCatalog
-	dec := yaml.NewDecoder(bytes.NewReader(raw))
-	dec.KnownFields(true)
-	if err := dec.Decode(&cat); err != nil {
+	if err := strictyaml.Decode(raw, &cat); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	if len(cat.Levels) == 0 || len(cat.Parties) == 0 {
@@ -184,7 +181,7 @@ func (g *MMGame) buildBenchMembers(p BenchParty, level int) ([]*character.MMChar
 		class, _ := character.ClassFromKey(data.Class)
 		build := data.Builds[level]
 		m := character.CreateCharacter(data.Name, class, g.config)
-		if data.Race != "" && data.Race != "human" {
+		if data.Race != "" {
 			if _, ok := g.config.Characters.Races[data.Race]; !ok {
 				return nil, fmt.Errorf("bench: %s has unknown race %q", data.Name, data.Race)
 			}
@@ -194,7 +191,7 @@ func (g *MMGame) buildBenchMembers(p BenchParty, level int) ([]*character.MMChar
 			m.Experience += xpStepCost(m.Level)
 			g.combat.checkLevelUp(m, false)
 		}
-		autoDistributeStatPoints(m, g.config)
+		autoDistributeStatPoints(m, autoClassStats(m.Class, g.config), g.config)
 		for key, tier := range build.Skills {
 			skill, ok := character.SkillTypeFromKey(key)
 			mastery, okTier := character.MasteryFromKey(tier)
@@ -229,12 +226,12 @@ func (g *MMGame) buildBenchMembers(p BenchParty, level int) ([]*character.MMChar
 		}
 		// The build lists everything worn; the kit keeps only its readied spell.
 		for slot := range m.Equipment {
-			if slot != items.SlotSpell {
+			if slot != items.SlotQuickAction {
 				delete(m.Equipment, slot)
 			}
 		}
 		for _, key := range build.Equipment {
-			it, err := benchGear(key)
+			it, err := items.FromKey(key)
 			if err != nil {
 				return nil, err
 			}
@@ -242,24 +239,13 @@ func (g *MMGame) buildBenchMembers(p BenchParty, level int) ([]*character.MMChar
 				return nil, fmt.Errorf("bench: %s cannot equip %s", data.Name, key)
 			}
 		}
-		if build.Spell != "" {
-			action, err := benchQuickItem(build.Spell)
-			if err != nil || action.Type == items.ItemConsumable || !canBindQuickItem(m, &action) {
-				return nil, fmt.Errorf("bench: %s cannot ready %s", data.Name, build.Spell)
+		if build.Spell == "" {
+			if kit := m.Equipment[items.SlotQuickAction].SpellEffect; slices.Contains(p.WithoutSpells, string(kit)) {
+				return nil, fmt.Errorf("bench: %s still readies the kit's %s; ready another action", data.Name, kit)
 			}
-			m.Equipment[items.SlotSpell] = action
-		} else if kit := m.Equipment[items.SlotSpell].SpellEffect; slices.Contains(p.WithoutSpells, string(kit)) {
-			return nil, fmt.Errorf("bench: %s still readies the kit's %s; ready another action", data.Name, kit)
 		}
-		if len(build.Quick) > len(m.QuickSlots) {
-			return nil, fmt.Errorf("bench: %s has %d quick slots", data.Name, len(m.QuickSlots))
-		}
-		for i, key := range build.Quick {
-			it, err := benchQuickItem(key)
-			if err != nil || !canBindQuickItem(m, &it) {
-				return nil, fmt.Errorf("bench: %s cannot quick-slot %s", data.Name, key)
-			}
-			m.QuickSlots[i] = &it
+		if err := readyBuildActions(m, build.Spell, build.Quick); err != nil {
+			return nil, fmt.Errorf("bench: %w", err)
 		}
 		m.CalculateDerivedStats(g.config)
 		m.HitPoints, m.SpellPoints = m.MaxHitPoints, m.MaxSpellPoints
@@ -314,7 +300,7 @@ func (g *MMGame) applyBenchPartyState(p BenchParty, level int) error {
 	// drinking reaches it (a quick slot serves only its own hero).
 	for _, m := range g.party.Members {
 		for i, q := range m.QuickSlots {
-			if q == nil || benchShortcut(*q) {
+			if q == nil || q.VirtualAction() {
 				continue
 			}
 			bag := g.party.Bag()
@@ -336,22 +322,28 @@ func (g *MMGame) applyBenchPartyState(p BenchParty, level int) error {
 	return nil
 }
 
-// benchShortcut: a quick-slot entry that points at a spell, technique, trap
-// or flask stock instead of holding a carried item.
-func benchShortcut(it items.Item) bool {
-	switch it.Type {
-	case items.ItemBattleSpell, items.ItemUtilitySpell, items.ItemTechnique, items.ItemTrap, items.ItemThrowable:
-		return true
+// readyBuildActions readies a built hero's action (a spell, flask, trap or
+// technique; "" keeps the class kit's) and binds the quick-slot bar.
+func readyBuildActions(m *character.MMCharacter, action string, quick []string) error {
+	if action != "" {
+		it, err := benchQuickItem(action)
+		if err != nil || it.Type == items.ItemConsumable || !canBindQuickItem(m, &it) {
+			return fmt.Errorf("%s cannot ready %s", m.Name, action)
+		}
+		m.Equipment[items.SlotQuickAction] = it
 	}
-	return false
-}
-
-// benchGear creates a weapons.yaml or items.yaml piece by key.
-func benchGear(key string) (items.Item, error) {
-	if _, ok := config.GlobalWeapons.Weapons[key]; ok {
-		return items.TryCreateWeaponFromYAML(key)
+	if len(quick) > len(m.QuickSlots) {
+		return fmt.Errorf("%s has %d quick slots", m.Name, len(m.QuickSlots))
 	}
-	return items.TryCreateItemFromYAML(key)
+	for i, key := range quick {
+		it, err := benchQuickItem(key)
+		if err != nil || !canBindQuickItem(m, &it) {
+			return fmt.Errorf("%s cannot quick-slot %s", m.Name, key)
+		}
+		m.QuickSlots[i] = &it
+	}
+	m.QuickSecondRow = len(quick) > character.QuickSlotsPerRow
+	return nil
 }
 
 // benchQuickItem resolves a quick-slot key the way the tabs bind it: a spell,

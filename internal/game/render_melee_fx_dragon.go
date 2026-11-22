@@ -161,7 +161,7 @@ func (r *Renderer) drawMeleeFxDragonEmberEgg(screen *ebiten.Image, s SlashEffect
 		// source-over ball on a dark scene is invisible, so the RIM LIGHT is
 		// laid down first and the shell is dark AGAINST it.
 		ex, ey := drop(lead)
-		pulse := 0.82 + 0.18*math.Sin(float64(r.game.frameCount)*0.45)
+		pulse := 0.82 + 0.18*math.Sin(r.game.worldSeconds()*54)
 		// Oval silhouette: three stacked discs, taller than wide, so it reads
 		// as an EGG and not as another glow dot at the end of the arc.
 		egg := func(radius, alpha float64, col [3]int, blend ebiten.Blend) {
@@ -200,7 +200,7 @@ func (r *Renderer) drawMeleeFxDragonEmberEgg(screen *ebiten.Image, s SlashEffect
 			r.drawWeaponShard(screen, sx, sy, math.Max(2, h*0.008*f), mixColor(dragonEmber, dragonHot, auraHash(seed, k, 554, 0)), fade*(1-gu)*f*f, gu, seed+k*37, false)
 		}
 	}
-	pulse := 0.7 + 0.3*math.Sin(float64(r.game.frameCount)*0.5)
+	pulse := 0.7 + 0.3*math.Sin(r.game.worldSeconds()*60)
 	r.drawGlowSprite(screen, cx, hitY, h*0.06*w*(1-0.4*u), dragonEmber, fade*(1-0.5*u)*pulse, additiveGlowBlend)
 	r.dragonEmberRise(screen, seed, 556, u, cx, hitY, reach*0.9, h, fade, 12)
 }
@@ -532,10 +532,10 @@ func (r *Renderer) drawWeaponProjectileFxDragonEyeHeadOn(screen *ebiten.Image, c
 // move, so the arrow itself should look airborne rather than launched.
 func (r *Renderer) drawWeaponProjectileFxDragonWing(screen *ebiten.Image, cx, cy, size, dirX, dirY, alpha float64, id int) {
 	seed := id + 601
-	fc := float64(r.game.frameCount)
+	sec := r.game.worldSeconds()
 	wing, vein := [3]int{188, 226, 176}, [3]int{232, 250, 224}
 	// Wing beat: the vanes sweep between swept-back and spread.
-	beat := 0.55 + 0.45*math.Sin(fc*0.34)
+	beat := 0.55 + 0.45*math.Sin(sec*40.8)
 	nx, ny := projectilePerpendicular(dirX, dirY)
 	for _, side := range []float64{-1, 1} {
 		// Two membrane vanes per side, drawn as SOLID BARS (a chain of dots
@@ -576,7 +576,7 @@ func (r *Renderer) drawWeaponProjectileFxDragonWing(screen *ebiten.Image, cx, cy
 // ricochets.
 func (r *Renderer) drawWeaponProjectileFxDragonNest(screen *ebiten.Image, cx, cy, size, dirX, dirY, alpha float64, id int) {
 	seed := id + 611
-	fc := float64(r.game.frameCount)
+	sec := r.game.worldSeconds()
 	hunt, bone := [3]int{178, 208, 122}, dragonBone
 	nx, ny := projectilePerpendicular(dirX, dirY)
 	// ONE connected silhouette: a harpoon head. Barbs are ATTACHED at the point
@@ -585,7 +585,7 @@ func (r *Renderer) drawWeaponProjectileFxDragonNest(screen *ebiten.Image, cx, cy
 	// around the arrow - detached parts at projectile speed just read as
 	// random blobs, however solid each one is.
 	tipX, tipY := cx+dirX*size*1.9, cy+dirY*size*1.9
-	flex := 0.8 + 0.2*math.Sin(fc*0.35) // the barbs work slightly, alive
+	flex := 0.8 + 0.2*math.Sin(sec*42) // the barbs work slightly, alive
 	for _, side := range []float64{-1, 1} {
 		// Outer barb: point -> swept back and out.
 		obX := cx - dirX*size*0.5 + nx*side*size*1.05*flex

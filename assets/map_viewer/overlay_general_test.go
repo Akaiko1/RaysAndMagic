@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"gopkg.in/yaml.v3"
 	"os"
 	"path/filepath"
 	"slices"
@@ -12,6 +11,8 @@ import (
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/world"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestOverlayGeneralSceneRoundTrip(t *testing.T) {
@@ -42,7 +43,7 @@ func TestOverlayGeneralSceneRoundTrip(t *testing.T) {
 	id := d.state.Adventure.Controls[index].ID
 	d.state.Adventure.Controls[index].StopHealing = true
 	d.state.Adventure.Boss.HealPercent = 5
-	d.state.Adventure.Boss.HealCapPercent = 25
+	d.state.Adventure.Boss.HealCeilingPercent = 50
 	d.state.Mechanics = []config.BossMechanic{{ID: "crit", Stat: "critical_chance", Base: 70, Floor: 10, Reductions: map[string]int{id: 30}}, {ID: "dodge", Stat: "perfect_dodge", Base: 45, Reductions: map[string]int{id: 45}}}
 	v.overlay.pendingNPC = ""
 	if err := v.overlayPlaceObject(d, overlayEmptyCell(t, v, d)); err != nil {

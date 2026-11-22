@@ -118,7 +118,7 @@ func (ui *UISystem) drawBuffServiceDialog(screen *ebiten.Image, dialogX, dialogY
 	}
 	for i, choice := range services {
 		x, y, w, h := buffServiceRowRect(dialogX, dialogY, dialogWidth, i)
-		affordable := ui.game.party.Gold >= choice.Cost
+		affordable := ui.game.canAfford(choice.Cost)
 		alreadyActive := ui.game.serviceBuffAlreadyCovered(spells.SpellID(choice.Buff))
 		buyable := affordable && !alreadyActive
 		hovered := isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h)
@@ -160,12 +160,10 @@ func (ui *UISystem) drawBuffServiceDialog(screen *ebiten.Image, dialogX, dialogY
 		}
 		// Double-click to buy (dialog list convention): the first click only
 		// selects, so a stray click can no longer spend the party's gold.
-		ui.onDisplayedInput(uiCommandClick, layoutRect{x, y, (x + w) - (x), (y + h) - (y)}, func() {
-			if ui.game.consumeLeftClickIn(x, y, x+w, y+h) {
-				if ui.game.dialogDoubleClick("buff_service", i) {
-					ui.game.pendingBuffService = choice
-					ui.game.resetDialogClickTracker()
-				}
+		ui.onClick(layoutRect{x, y, w, h}, true, func() {
+			if ui.game.dialogDoubleClick("buff_service", i) {
+				ui.game.pendingBuffService = choice
+				ui.game.resetDialogClickTracker()
 			}
 		})
 	}

@@ -7,12 +7,13 @@ import (
 	"strings"
 	"testing"
 
-	"gopkg.in/yaml.v3"
 	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/spells"
+
+	"gopkg.in/yaml.v3"
 )
 
 // Editing wording must not change which rows are shown. This drives the same

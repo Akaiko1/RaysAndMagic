@@ -4,9 +4,10 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/hajimehoshi/ebiten/v2"
 	"ugataima/internal/game/keytracker"
 	"ugataima/internal/sound"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 func audioGestureHarness(t *testing.T, entry bool, row int) (*displayedModalHarness, pagerRect) {

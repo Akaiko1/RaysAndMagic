@@ -49,10 +49,15 @@ func ItemRarityColor(it items.Item) color.Color { return rarityColor(itemRarity(
 // so a viewer displaying saved items shows current balance.
 func RefreshItemFromConfig(item *items.Item) { normalizeItemFromConfig(item) }
 
-// SchoolColor is the damage-school tint, usable wherever a school needs a
-// color (editor resist sheets; free for game HUD use).
+// SchoolColor is the damage-school tint for marks, frames and effects.
 func SchoolColor(school string) color.Color {
 	return config.SchoolRGBA(school)
+}
+
+// SchoolTextColor is the damage-school tint for text (cards, the combat log,
+// editor resist sheets): SchoolColor, lifted where too dark to read.
+func SchoolTextColor(school string) color.Color {
+	return config.SchoolTextRGBA(school)
 }
 
 // MapLightingText describes the same outdoor/interior policy as the renderer.

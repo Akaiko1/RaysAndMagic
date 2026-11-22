@@ -18,7 +18,7 @@ func TestElementalEditorCatalogUsesConfiguredProfile(t *testing.T) {
 	for key, def := range monster.MonsterConfig.Monsters {
 		t.Run(key, func(t *testing.T) {
 			ctx := game.MonsterCatalogEffectContext(cfg)
-			rows := buildMobInfoRuntime(key, def, nil, 0, ctx)
+			rows := buildMobInfoRuntime(key, def, nil, nil, 0, ctx)
 			var texts []string
 			for _, row := range rows {
 				texts = append(texts, row.text)

@@ -4,8 +4,9 @@ import (
 	"math"
 	"strings"
 
-	"github.com/hajimehoshi/ebiten/v2"
 	"ugataima/internal/graphics"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 const mapThumbnailSize = 128

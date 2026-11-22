@@ -75,11 +75,11 @@ func (gl *GameLoop) logPerfSnapshot(fps float64) {
 		npcs = len(world.NPCs)
 	}
 
-	projectiles := len(gl.game.magicProjectiles) + len(gl.game.arrows)
+	projectiles := gl.game.projectileCount()
 	effects := len(gl.game.slashEffects) + len(gl.game.spellHitEffects)
 
 	activeUtility := 0
-	for _, status := range gl.game.utilitySpellStatuses {
+	for _, status := range gl.game.buffStatuses {
 		if status != nil && status.Duration > 0 {
 			activeUtility++
 		}

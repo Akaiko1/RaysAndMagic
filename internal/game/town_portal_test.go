@@ -1,6 +1,7 @@
 package game
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -32,8 +33,8 @@ func TestTownPortalRegistersConfiguredDestination(t *testing.T) {
 	if len(got) != 1 || got[0].id != "japanese_castle" {
 		t.Fatalf("destinations = %v, want japanese_castle", got)
 	}
-	if label := got[0].label; label != "Eastern Isle Castle" {
-		t.Fatalf("destination label = %q, want map name without Tavern", label)
+	if got[0].place != "Eastern Isle Castle" || got[0].anchor != "" {
+		t.Fatalf("destination = %q / %q, want the map name and no anchor", got[0].place, got[0].anchor)
 	}
 
 	x, y := w.GetStartingPosition()
@@ -112,12 +113,12 @@ func TestTownPortalAnchorNPCMakesItsMapADestination(t *testing.T) {
 
 	// The picker names the ANCHOR, not a guessed "Tavern": the flag is generic,
 	// so the next anchor may be a shrine or a gate house.
-	label := game.townPortalMapLabel("forest")
-	if !strings.Contains(label, inn.Name) {
-		t.Fatalf("label = %q, want it to name the anchor %q", label, inn.Name)
+	place, anchor := game.townPortalPlace("forest")
+	if anchor != inn.Name {
+		t.Fatalf("anchor = %q, want it to name the anchor %q", anchor, inn.Name)
 	}
-	if strings.Contains(label, "Tavern") && !strings.Contains(inn.Name, "Tavern") {
-		t.Fatalf("label = %q invents a tavern", label)
+	if strings.Contains(place, "Tavern") {
+		t.Fatalf("place = %q invents a tavern", place)
 	}
 }
 
@@ -147,12 +148,12 @@ func TestTownPortalLabelsAnchorsFromAnotherMap(t *testing.T) {
 		MapConfigs:    map[string]*config.MapConfig{"forest": {Name: "Elvish Forest"}},
 	}
 
-	if label := g.townPortalMapLabel("forest"); !strings.Contains(label, inn.Name) {
-		t.Fatalf("label = %q, want it to name the anchor %q from the dungeon", label, inn.Name)
+	if place, anchor := g.townPortalPlace("forest"); place != "Elvish Forest" || anchor != inn.Name {
+		t.Fatalf("forest = %q / %q, want the map name and the anchor %q from the dungeon", place, anchor, inn.Name)
 	}
 	// And the destination the party is standing on keeps its plain name.
-	if label := g.townPortalMapLabel("pyramid_1"); strings.Contains(label, inn.Name) {
-		t.Fatalf("the dungeon row = %q, it has no anchor", label)
+	if _, anchor := g.townPortalPlace("pyramid_1"); anchor != "" {
+		t.Fatalf("the dungeon row names anchor %q, it has none", anchor)
 	}
 }
 
@@ -288,4 +289,36 @@ func restoreNPCCatalog(t *testing.T) {
 	t.Helper()
 	previous := character.NPCConfigInstance
 	t.Cleanup(func() { character.NPCConfigInstance = previous })
+}
+
+// A long destination list scrolls, and a click queued against the frame
+// before a scroll is dropped rather than landing on whichever row the scroll
+// moved under it; without the scroll the same click picks its row.
+func TestTownPortalScrollKeepsClicksOnTheirRow(t *testing.T) {
+	for _, scrolled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("scrolled=%v", scrolled), func(t *testing.T) {
+			h := newDisplayedModalHarness(t, 800, 600)
+			g := h.g
+			g.dialogActive = false
+			g.visitedTavernMaps = map[string]bool{}
+			for i := 0; i < 14; i++ {
+				g.visitedTavernMaps[fmt.Sprintf("town_%02d", i)] = true
+			}
+			g.openCastPicker(g.party.Members[0], "town_portal")
+			l := makeTownPortalLayout(len(g.townPortalRows()), 800, 600)
+			if !l.scrolls() {
+				t.Fatal("14 destinations do not scroll at 800x600 (fixture)")
+			}
+			r := l.row(0, 0)
+			h.ui.Draw(h.screen)
+			if scrolled {
+				g.townPortalScroll = l.scroll(townPortalPitch * 3) // a wheel step between frames
+			}
+			g.mouseLeftClicks = []queuedClick{{x: r.x + r.w/2, y: r.y + r.h/2, at: 1000}}
+			h.ui.dispatchDisplayedInput()
+			if g.townPortalPickerOpen == !scrolled {
+				t.Fatalf("picker open = %v after a click aimed before the scroll=%v", g.townPortalPickerOpen, scrolled)
+			}
+		})
+	}
 }

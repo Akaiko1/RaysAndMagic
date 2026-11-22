@@ -7,6 +7,7 @@ package game
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"testing"
 
 	"ugataima/internal/character"
@@ -16,8 +17,8 @@ import (
 
 func TestOutgoingDamageBonusFiltersByDamageType(t *testing.T) {
 	game, _, _ := tbBehaviorGame(t, 5, 5)
-	game.addCombatBuff(TimedCombatBuff{SpellID: "heroism", Frames: 600, OutBonus: 3, OutDamageType: "physical"})
-	game.addCombatBuff(TimedCombatBuff{SpellID: "hour_of_power", Frames: 600, OutBonus: 5})
+	game.addCombatBuff(TimedCombatBuff{ID: "heroism", Clock: framesClock(600), OutBonus: 3, OutDamageType: "physical"})
+	game.addCombatBuff(TimedCombatBuff{ID: "hour_of_power", Clock: framesClock(600), OutBonus: 5})
 
 	if got := game.combatBuffOutBonusForDamageType("physical"); got != 8 {
 		t.Errorf("physical outgoing bonus = %d, want 8", got)
@@ -38,7 +39,7 @@ func buffMasteryValue(base, grandmaster int, tier character.SkillMastery) int {
 }
 
 // Every party combat buff scales its magnitudes along its authored mastery
-// ladder, and its duration by SpellMasteryDurationBonusPct per tier.
+// ladder; duration is selected directly from its YAML mastery values.
 func TestPartyBuffMagnitudeScalesWithMastery(t *testing.T) {
 	game, _, _ := tbBehaviorGame(t, 5, 5)
 	cs := game.combat
@@ -52,6 +53,12 @@ func TestPartyBuffMagnitudeScalesWithMastery(t *testing.T) {
 		{"day_of_the_gods", character.ClassCleric, character.MagicSchoolLight},
 		{"hour_of_power", character.ClassCleric, character.MagicSchoolLight},
 	} {
+		// A non-linear authored ladder catches a surviving hidden duration
+		// multiplier through the actual cast, not only the duration accessor.
+		authored := config.GlobalSpells.Spells[string(tc.spellID)]
+		previousDuration := authored.DurationByMastery
+		authored.DurationByMastery = []int{11, 19, 31, 47}
+		t.Cleanup(func() { authored.DurationByMastery = previousDuration })
 		def, err := spells.GetSpellDefinitionByID(tc.spellID)
 		if err != nil {
 			t.Fatalf("%s def: %v", tc.spellID, err)
@@ -84,9 +91,12 @@ func TestPartyBuffMagnitudeScalesWithMastery(t *testing.T) {
 				if buff.OutDamageType != def.OutgoingDamageType {
 					t.Errorf("OutDamageType = %q, want %q", buff.OutDamageType, def.OutgoingDamageType)
 				}
-				durationPct := 100 + int(tier)*character.SpellMasteryDurationBonusPct
-				if want := def.Duration * durationPct / 100 * game.config.GetTPS(); buff.Frames != want {
-					t.Errorf("duration = %d frames, want %d", buff.Frames, want)
+				if want := def.DurationByMastery[int(tier)] * game.config.GetTPS(); buff.Clock.Frames != want {
+					t.Errorf("duration = %d frames, want %d", buff.Clock.Frames, want)
+				}
+				card := GetSpellTooltipRows(tc.spellID, caster, cs, true).String()
+				if !strings.Contains(card, fmt.Sprintf("Current Duration: %ds", []int{11, 19, 31, 47}[int(tier)])) || strings.Contains(card, "Base Duration:") {
+					t.Errorf("tooltip must show the authored duration without a base/multiplier calculation:\n%s", card)
 				}
 			})
 		}

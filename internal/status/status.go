@@ -16,7 +16,11 @@ package status
 
 // Refresh extends a single status clock to at least `add`, never shortening a
 // running status. Reports whether the status is active afterwards.
-import "ugataima/internal/config"
+import (
+	"math"
+
+	"ugataima/internal/config"
+)
 
 func Refresh(remaining *int, add int) bool {
 	if add > *remaining {
@@ -113,6 +117,141 @@ func TickTurnRated(turns, frames, rate *int) (expired bool) {
 	return false
 }
 
+// DualClock is one rated dual-clock status held as a value: the RT frames, the
+// TB turns and their frames-per-turn rate, with the rules above.
+type DualClock struct {
+	Frames int `json:"frames,omitempty"`
+	Turns  int `json:"turns,omitempty"`
+	Rate   int `json:"rate,omitempty"`
+}
+
+// Refresh extends the clock without ever shortening it (RefreshDualRated).
+func (c *DualClock) Refresh(frames, turns int) bool {
+	return RefreshDualRated(&c.Frames, &c.Turns, &c.Rate, frames, turns)
+}
+
+// ArmPair refreshes the clock to an RT span beside its own TB rounds (the
+// timer exceptions' pairs, a slow-dragged cooldown), never shortening it. The
+// span takes THE seconds-to-frames rule (config.SecondsToFrames).
+func (c *DualClock) ArmPair(seconds float64, rounds, tps int) bool {
+	pair := PairClock(seconds, rounds, tps, 1)
+	return c.Refresh(pair.Frames, pair.Turns)
+}
+
+// Arm starts a cooldown of whole rounds on both mode clocks: seconds of RT,
+// the same rounds of TB.
+// No time arms nothing.
+func (c *DualClock) Arm(seconds, tps int) {
+	if seconds <= 0 {
+		return
+	}
+	c.armRounds(seconds*normalTPS(tps), config.CombatRounds(seconds), tps)
+}
+
+// ArmSeconds arms a timer authored in seconds that need not be whole rounds
+// (a fresh one is a "Timer exception:"; FromSeconds also restores what an old
+// save kept in seconds): THE seconds-to-frames rule (config.SecondsToFrames),
+// TB rounding up to whole turns as ArmFrames does.
+func (c *DualClock) ArmSeconds(seconds float64, tps int) {
+	c.ArmFrames(config.SecondsToFrames(seconds, normalTPS(tps)), tps)
+}
+
+// ArmFrames arms a span authored in RT frames (fractional seconds): TB rounds
+// it up to whole turns, as Arm does.
+func (c *DualClock) ArmFrames(frames, tps int) {
+	if frames <= 0 {
+		return
+	}
+	round := config.RoundFrames(1, normalTPS(tps))
+	c.armRounds(frames, (frames+round-1)/round, tps)
+}
+
+// armRounds refreshes the clock at the one RT/TB conversion: a turn spends a
+// round's frames whatever span was armed, so a span that is not whole rounds
+// keeps the same exchange rate as every other clock, also after a save.
+func (c *DualClock) armRounds(frames, turns, tps int) {
+	if c.Refresh(frames, turns) {
+		c.Rate = config.RoundFrames(1, normalTPS(tps))
+	}
+}
+
+// normalTPS is the caller's rate, or the engine default: a constant, so a
+// clock armed without a rate never depends on whichever config is loaded.
+func normalTPS(tps int) int {
+	if tps <= 0 {
+		return config.DefaultTPS
+	}
+	return tps
+}
+
+// FromFrames is the clock with frames of RT left, at a round's frames per TB
+// turn: how a save that kept only the frames restores it.
+func FromFrames(frames, tps int) DualClock {
+	var c DualClock
+	c.ArmFrames(frames, tps)
+	return c
+}
+
+// FromSeconds is the clock of a span authored in seconds (ArmSeconds).
+func FromSeconds(seconds float64, tps int) DualClock {
+	var c DualClock
+	c.ArmSeconds(seconds, tps)
+	return c
+}
+
+// TickFrame spends one RT frame (TickFrameRated).
+func (c *DualClock) TickFrame() (expired bool) { return TickFrameRated(&c.Frames, &c.Turns, &c.Rate) }
+
+// TickTurn spends one TB turn (TickTurnRated).
+func (c *DualClock) TickTurn() (expired bool) { return TickTurnRated(&c.Turns, &c.Frames, &c.Rate) }
+
+// Tick spends one tick of the running mode's clock: a turn when turn is set,
+// else a frame.
+func (c *DualClock) Tick(turn bool) (expired bool) {
+	if turn {
+		return c.TickTurn()
+	}
+	return c.TickFrame()
+}
+
+// Every runs a repeating period of whole rounds: an idle clock arms on this
+// tick, and each lapse is reported once. A turn-based tick spends a whole
+// period, so a one-round period lapses every turn.
+func (c *DualClock) Every(seconds, tps int, turn bool) (lapsed bool) {
+	return c.EveryClock(func() (period DualClock) {
+		period.Arm(seconds, tps)
+		return period
+	}, turn)
+}
+
+// EveryClock runs a repeating period: an idle clock takes period()'s span on
+// this tick, and each lapse is reported once.
+func (c *DualClock) EveryClock(period func() DualClock, turn bool) (lapsed bool) {
+	if !c.Active() {
+		*c = period()
+	}
+	return c.Tick(turn)
+}
+
+// Active reports a running status.
+func (c DualClock) Active() bool { return c.Frames > 0 || c.Turns > 0 }
+
+// Saved is the clock a save writes: nil when the status is not running.
+func (c DualClock) Saved() *DualClock {
+	if !c.Active() {
+		return nil
+	}
+	return &c
+}
+
+// Restore reads a saved clock back; nil is a status that was not running.
+func (c *DualClock) Restore(saved *DualClock) {
+	*c = DualClock{}
+	if saved != nil {
+		*c = *saved
+	}
+}
+
 // TickDoT advances a DoT by elapsedFrames of game time and reports how many
 // once-per-second damage ticks that time contains. It is the ONE implementation
 // for both modes: RT passes 1 (one frame), a TB round passes the seconds that
@@ -169,3 +308,45 @@ func Clear(remaining, tickTimer *int) {
 	*remaining = 0
 	*tickTimer = 0
 }
+
+// PairClock is an authored timer pair, RT seconds beside TB rounds, with part
+// of it left (1 = all): a turn spends the pair's frames per round. It builds
+// the RT/TB pairs among the approved timer exceptions (each marked "Timer
+// exception:") and restores the part of a span an old save kept; a fresh span
+// of whole rounds takes the one 1 round = 3 s conversion (DualClock.Arm),
+// except the cooldowns a slow drags (pounce, phase shift: armSlowedCooldown),
+// slowed or not, whose RT part a slow stretches past its rounds.
+func PairClock(seconds float64, rounds, tps int, part float64) DualClock {
+	full := config.SecondsToFrames(seconds, normalTPS(tps))
+	c := DualClock{Frames: int(math.Ceil(part*float64(full) - 1e-9)), Turns: int(math.Ceil(part*float64(rounds) - 1e-9))}
+	if !c.Active() {
+		return DualClock{}
+	}
+	c.Rate = DualRate(full, rounds)
+	return c
+}
+
+// MigrateFrames moves an older save's frame count onto clock, unless the save
+// already held the clock, and clears the count.
+func MigrateFrames(clock *DualClock, legacyFrames *int, tps int) {
+	if *legacyFrames > 0 && !clock.Active() {
+		*clock = FromFrames(*legacyFrames, tps)
+	}
+	*legacyFrames = 0
+}
+
+// TickMap spends one tick of the running mode on the clock of every entry of
+// m and drops the entries whose clock ran out.
+func TickMap[K comparable, V any](m map[K]V, turn bool, clock func(*V) *DualClock) {
+	for k, v := range m {
+		c := clock(&v)
+		if c.Tick(turn); !c.Active() {
+			delete(m, k)
+			continue
+		}
+		m[k] = v
+	}
+}
+
+// Self is the clock of a map that holds bare clocks (TickMap).
+func Self(c *DualClock) *DualClock { return c }

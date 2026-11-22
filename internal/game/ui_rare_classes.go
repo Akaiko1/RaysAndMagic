@@ -22,6 +22,7 @@ func hasRareBook(c *character.MMCharacter) bool {
 // Keep one source scale; the title and the entire quick-slot unit stay inside it.
 type rareBookLayout struct {
 	frame, inner, header, list, detail, quick, hint layoutRect
+	quick2                                          layoutRect // the second quick row, beside quick; zero without it
 	rows, rowHeight, rowGap                         int
 	rowsTop                                         int  // y of the first row
 	listTitle                                       bool // the list heading fits above the rows
@@ -39,7 +40,10 @@ const (
 	rareBookListTitle = 24
 )
 
-func computeRareBookLayout(content layoutRect, alchemist bool) rareBookLayout {
+// computeRareBookLayout lays the book out for quickRows quick-slot bars (the
+// selected hero's QuickRows). The page is the same for either; a second row
+// sits beside the first.
+func computeRareBookLayout(content layoutRect, alchemist bool, quickRows int) rareBookLayout {
 	frameH := min(720, content.h, content.w*2/3)
 	frameH -= frameH % 2
 	frameW := frameH * 3 / 2
@@ -52,8 +56,13 @@ func computeRareBookLayout(content layoutRect, alchemist bool) rareBookLayout {
 	hint := layoutRect{inner.x, inner.bottom() - 16, inner.w, 16}
 	quick := layoutRect{frame.x + (frame.w-300)/2, hint.y - 8 - 64, 300, 64}
 	body := layoutRect{inner.x, header.bottom() + 8, inner.w, quick.y - quickSlotTabLabelSpace - 12 - header.bottom() - 8}
+	var quick2 layoutRect
+	if quickRows > 1 {
+		quick.h = int(float64(quick.w) / quickSlotBarAspect) // as drawn: a touch taller than the box
+		quick, quick2 = quickSlotPair(quick, inner)
+	}
 	left := body.w * 36 / 100
-	l := rareBookLayout{frame: frame, inner: inner, header: header, hint: hint, quick: quick,
+	l := rareBookLayout{frame: frame, inner: inner, header: header, hint: hint, quick: quick, quick2: quick2,
 		list: layoutRect{body.x, body.y, left, body.h}, detail: layoutRect{body.x + left + 12, body.y, body.w - left - 12, body.h}}
 	l.listTitle, l.rowsTop, l.rowGap = true, l.list.y+rareBookListTitle, 6
 	l.rowHeight = 54
@@ -217,11 +226,7 @@ func (ui *UISystem) rareBookButton(screen *ebiten.Image, r layoutRect, label str
 }
 func (ui *UISystem) rareBookClick(r layoutRect, enabled bool, action func()) {
 	if enabled && !ui.modalLayerOwnsInput() {
-		ui.onDisplayedInput(uiCommandClick, r, func() {
-			if ui.game.consumeLeftClickIn(r.x, r.y, r.right(), r.bottom()) {
-				action()
-			}
-		})
+		ui.onClick(r, true, action)
 	}
 }
 func rareBookPanel(screen *ebiten.Image, r layoutRect) {
@@ -269,7 +274,7 @@ func (ui *UISystem) drawRareClassBook(screen *ebiten.Image, content layoutRect) 
 	if !alchemist {
 		title, art = "Pilgrim Techniques", "pilgrim_technique_panel"
 	}
-	l := computeRareBookLayout(content, alchemist)
+	l := computeRareBookLayout(content, alchemist, c.QuickRows())
 	if g.sprites.HasSprite(art) {
 		drawImageScaled(screen, g.sprites.GetSprite(art), l.frame.x, l.frame.y, l.frame.w, l.frame.h)
 	}
@@ -281,7 +286,7 @@ func (ui *UISystem) drawRareClassBook(screen *ebiten.Image, content layoutRect) 
 	} else {
 		ui.drawPilgrimTechniques(screen, c, l)
 	}
-	ui.drawTabQuickSlotBar(screen, l.quick.x, l.quick.y, l.quick.w)
+	ui.drawTabQuickSlots(screen, true, l.quick, l.quick2)
 	hint := "Click materials to select | Scroll list | Enter: brew"
 	if !alchemist {
 		hint = "Drag icons to quick slots | Enter: use | V: Fold | Shift+V: Return"
@@ -345,6 +350,7 @@ func (ui *UISystem) drawAlchemyWorkbench(screen *ebiten.Image, c *character.MMCh
 }
 func (ui *UISystem) drawPilgrimTechniques(screen *ebiten.Image, c *character.MMCharacter, l rareBookLayout) {
 	g := ui.game
+	charIdx := g.selectedChar // the hero this book shows; the click runs in Update
 	if config.GlobalTechniques == nil || len(config.GlobalTechniques.Techniques) == 0 {
 		return
 	}
@@ -387,6 +393,10 @@ func (ui *UISystem) drawPilgrimTechniques(screen *ebiten.Image, c *character.MMC
 			if c.Level < d.Level {
 				mark = fittingUIForm(second.w-6, fmt.Sprintf("Autocast at level %d", d.Level), fmt.Sprintf("At level %d", d.Level))
 			}
+			mx, my := uiCursorPosition()
+			if !ui.modalLayerOwnsInput() && isMouseHoveringBox(mx, my, second.x, second.y, second.right(), second.bottom()) {
+				ui.queueTooltip([]string{d.Name, d.Trigger, g.automaticCastCostText()}, mx+12, my+8)
+			}
 			key := d.Key
 			ui.rareBookButton(screen, second, mark, c.Level >= d.Level, func() {
 				if c.RareClass.Automatic == nil {
@@ -413,7 +423,7 @@ func (ui *UISystem) drawPilgrimTechniques(screen *ebiten.Image, c *character.MMC
 	ui.rareBookItem(screen, it, p.icon, c)
 	ui.rareBookText(screen, d.Name, p.name)
 	action := "1 action"
-	if d.FreeStep {
+	if d.IsStep() {
 		action = "No action cost"
 	}
 	ui.rareBookText(screen, fmt.Sprintf("%d SP | %s", g.techniqueSPCost(c, d), action), p.cost)
@@ -426,7 +436,7 @@ func (ui *UISystem) drawPilgrimTechniques(screen *ebiten.Image, c *character.MMC
 		ui.rareBookText(screen, d.Trigger, p.trigger)
 	}
 	half := (p.actions.w - 8) / 2
-	ui.rareBookButton(screen, layoutRect{p.actions.x, p.actions.y, half, p.actions.h}, fittingUIForm(half-6, "Equip quick action", "Equip"), c.Level >= d.Level, func() { c.Equipment[items.SlotSpell] = it })
+	ui.rareBookButton(screen, layoutRect{p.actions.x, p.actions.y, half, p.actions.h}, fittingUIForm(half-6, "Equip quick action", "Equip"), c.Level >= d.Level, func() { g.bindQuickAction(charIdx, it) })
 	ui.rareBookButton(screen, layoutRect{p.actions.x + half + 8, p.actions.y, p.actions.w - half - 8, p.actions.h}, fittingUIForm(p.actions.w-half-14, "Use technique", "Use"), c.Level >= d.Level, func() { g.useTechniqueFromBook(d.Key) })
 	if p.message.h > 0 {
 		ui.rareBookText(screen, message, p.message)
@@ -443,20 +453,20 @@ func techniqueMagnitude(c *character.MMCharacter, d *config.TechniqueDefinition,
 		}
 		return tierValueText(c != nil, tier, values)
 	}
-	switch d.Key {
-	case "fold_step":
+	switch d.Kind {
+	case config.TechniqueFoldStep:
 		return fmt.Sprintf("Range %d-%s tiles | Anchor %ss", d.MinRange, v(d.Range), v(d.Duration))
-	case "phase_veil":
+	case config.TechniqueDodge:
 		return fmt.Sprintf("%s | %ss", uitext.Text("buff.dodge", v(d.Power)), v(d.Duration))
-	case "quickening":
+	case config.TechniqueHaste:
 		return fmt.Sprintf("%s | %s | %ss", uitext.Text("buff.rt_recovery", v(d.Power)), uitext.Text("buff.tb_pool", v(d.TBPower)), v(d.Duration))
-	case "purify":
-		return "All curable afflictions | No healing or revival"
-	case "return_step":
+	case config.TechniquePurify:
+		return "Every affliction, root and slow | No healing or revival"
+	case config.TechniqueReturnStep:
 		if c == nil {
 			return "Any distance, same map"
 		}
-		return fmt.Sprintf("Any distance, same map | Anchor %ds", c.RareClass.Anchor.Frames/max(1, tps))
+		return fmt.Sprintf("Any distance, same map | Anchor %ds", c.RareClass.Anchor.Clock.Frames/max(1, tps))
 	}
 	return ""
 }
@@ -467,14 +477,6 @@ func tierLadder(values [4]int) string {
 		return strconv.Itoa(values[0])
 	}
 	return fmt.Sprintf("%d/%d/%d/%d", values[0], values[1], values[2], values[3])
-}
-
-// tierCountText is a counted ladder: "1 round" when flat, else "1/1/2/2 rounds".
-func tierCountText(values [4]int, singular, plural string) string {
-	if tierFlat(values) {
-		return pluralizeCount(values[0], singular, plural)
-	}
-	return tierLadder(values) + " " + plural
 }
 
 func tierFlat(values [4]int) bool {

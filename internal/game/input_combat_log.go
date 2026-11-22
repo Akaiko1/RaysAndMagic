@@ -14,13 +14,9 @@ func (ih *InputHandler) handleCombatLogOpenInput() bool {
 	}
 
 	ih.game.consumeLeftClick()
-	now := time.Now().UnixMilli()
-	if withinDoubleClickWindow(now, ih.game.lastCombatLogClick) {
+	if ih.game.combatLogClicks.click(struct{}{}, time.Now().UnixMilli()) {
 		ih.game.combatLogOpen = true
 		ih.game.combatLogScroll = 0
-		ih.game.lastCombatLogClick = 0
-	} else {
-		ih.game.lastCombatLogClick = now
 	}
 	return true
 }

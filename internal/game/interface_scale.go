@@ -3,6 +3,7 @@ package game
 import (
 	"image"
 	"math"
+	"time"
 
 	"ugataima/internal/config"
 
@@ -11,12 +12,31 @@ import (
 
 // displayDeviceScale is the monitor's device pixels per window pixel (2 on
 // Retina and HiDPI-scaled monitors). A seam so tests can pose any display.
-var displayDeviceScale = func() float64 {
+var displayDeviceScale = monitorDeviceScale
+
+// monitorScaleRefresh is how long a monitor answer serves Layout. The window
+// answers on the OS main thread and Layout runs every frame; the scale changes
+// only when the window moves to another monitor.
+const monitorScaleRefresh = 250 * time.Millisecond
+
+var monitorScale struct {
+	value float64
+	at    time.Time
+}
+
+func monitorDeviceScale() float64 {
+	now := time.Now()
+	if monitorScale.value != 0 && now.Sub(monitorScale.at) < monitorScaleRefresh {
+		return monitorScale.value
+	}
 	if m := ebiten.Monitor(); m != nil {
 		if s := m.DeviceScaleFactor(); s > 0 {
+			monitorScale.value, monitorScale.at = s, now
 			return s
 		}
 	}
+	// No answer: 1 for this call only, and the next Layout asks again.
+	monitorScale.value = 0
 	return 1
 }
 

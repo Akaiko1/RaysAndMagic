@@ -9,6 +9,7 @@ import (
 	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
+	"ugataima/internal/quests"
 )
 
 // Spawn cases cross RT/TB, current/remote map, below/exact/retained level,
@@ -128,7 +129,7 @@ func TestDervishFixedQuotaAcrossPacks(t *testing.T) {
 					t.Fatalf("kill %d: %+v", n, q)
 				}
 				if n == (quota+1)/2 {
-					g.refreshRepeatableQuests("night")
+					g.refreshRepeatableQuests(quests.RepeatNightly)
 					if g.questManager.GetQuest(q.ID) != q {
 						t.Fatal("night lost unfinished progress")
 					}
@@ -159,7 +160,7 @@ func TestMirageSaltCombinedBuff(t *testing.T) {
 					t.Fatal("use failed")
 				}
 				b, ok := g.combatBuffByID("mirage_salt")
-				if !ok || b.Frames != def.BuffDurationSeconds*g.config.GetTPS() || g.combatBuffSchoolResistPct(school) != ward {
+				if !ok || b.Clock.Frames != def.BuffDurationSeconds*g.config.GetTPS() || g.combatBuffSchoolResistPct(school) != ward {
 					t.Fatalf("buff=%+v", b)
 				}
 				for i, c := range g.party.Members {
@@ -170,10 +171,10 @@ func TestMirageSaltCombinedBuff(t *testing.T) {
 				if len(g.combatBuffs) != 1 {
 					t.Fatal("recast stacked")
 				}
-				g.combatBuffs[0].Frames = 10
+				g.combatBuffs[0].Clock = framesClock(10)
 			}
 			g.combatBuffs = restoreCombatBuffs(buildCombatBuffSaves(g.combatBuffs))
-			if g.combatBuffDodgePct() != dodge || g.combatBuffSchoolResistPct(school) != ward || g.combatBuffs[0].Frames != 10 {
+			if g.combatBuffDodgePct() != dodge || g.combatBuffSchoolResistPct(school) != ward || g.combatBuffs[0].Clock.Frames != 10 {
 				t.Fatal("load lost combined buff")
 			}
 			if tb {

@@ -5,13 +5,14 @@ import (
 	"image/color"
 	"math"
 	"strings"
-	"time"
 
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/items"
 	"ugataima/internal/spells"
+	"ugataima/internal/stats"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )
@@ -21,7 +22,7 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, content layoutRec
 	currentChar := ui.game.party.Members[ui.game.selectedChar]
 	mouseX, mouseY := pointerPosition()
 
-	layout := computeInventoryContentLayout(content)
+	layout := computeInventoryContentLayout(content, currentChar.QuickRows())
 	paperX, paperY, paperW, paperH := layout.paper.x, layout.paper.y, layout.paper.w, layout.paper.h
 
 	drawLabel := func(label string, r layoutRect, tint color.RGBA) {
@@ -29,8 +30,33 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, content layoutRec
 		drawScaledMetalCenteredText(screen, text, r.x+r.w/2, r.y+r.h/2, float64(layout.textScale), tint)
 		ui.offerClippedTextTooltip([]string{label}, text != label, r.x, r.y, r.w, r.h)
 	}
-	for i, title := range []string{currentChar.Name, "Personal bag", "Shared bag"} {
-		drawLabel(title, layout.headings[i], rarityGold)
+	// The hero heading carries the build AUTO follows on the name's baseline,
+	// in heading text when the whole line fits, else in native text; with no
+	// room at all the heading is the name alone. The room keeps drawLabel's
+	// margin for the outline.
+	build := ui.game.autoBuildFor(currentChar.Class)
+	h, scale := layout.headings[0], layout.textScale
+	const buildGap = 12
+	nameW := uiTextWidth(currentChar.Name) * scale
+	room := h.w - 8 - 4*scale - nameW
+	labelScale := scale
+	buildLabel := autoBuildLabel(build, room-buildGap*scale, scale)
+	if len(buildLabel) < 2 && scale > 1 {
+		labelScale, buildLabel = 1, autoBuildLabel(build, room-buildGap, 1)
+	}
+	var buildBox layoutRect
+	if buildLabel != nil {
+		gap, labelW := buildGap*labelScale, coloredTextWidth(buildLabel)*labelScale
+		x, top := h.x+(h.w-nameW-gap-labelW)/2, h.y+(h.h-uiTextCharHeight*scale)/2
+		drawScaledTextSegments(screen, []coloredTextSegment{{currentChar.Name, rarityGold}}, x, top, scale)
+		baseline := activeUIFont().baseline
+		buildBox = layoutRect{x + nameW + gap, top + baseline*(scale-labelScale), labelW, uiTextCharHeight * labelScale}
+		drawScaledTextSegments(screen, buildLabel, buildBox.x, buildBox.y, labelScale)
+	} else {
+		drawLabel(currentChar.Name, h, rarityGold)
+	}
+	for i, title := range []string{"Personal bag", "Shared bag"} {
+		drawLabel(title, layout.headings[i+1], rarityGold)
 	}
 	for i, label := range []string{fmt.Sprintf("Gold %d", ui.game.party.Gold), fmt.Sprintf("Food %d", ui.game.party.Food)} {
 		drawLabel(label, layout.resources[i], color.RGBA{255, 255, 255, 255})
@@ -51,7 +77,7 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, content layoutRec
 		// While dragging an equippable item, glow every slot it can go into - from
 		// the bag, or from another paperdoll slot (a ring to its other finger). The
 		// source slot itself never glows.
-		if ui.game.dragActive && equipItemMatchesSlot(currentChar, ui.game.dragItem, slotInfo.slot) &&
+		if ui.game.drag.active && equipItemMatchesSlot(currentChar, ui.game.dragItem, slotInfo.slot) &&
 			(ui.game.dragSrc == dragFromInventory ||
 				(ui.game.dragSrc == dragFromEquip && ui.game.dragEquipChar == ui.game.selectedChar && ui.game.dragEquipSlot != slotInfo.slot)) {
 			drawRectBorder(screen, x-3, y-3, w+6, h+6, 3, color.RGBA{90, 220, 100, 240})
@@ -62,7 +88,7 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, content layoutRec
 		ui.equipSlotDropZone(slotInfo.slot, x, y, w, h) // drop inventory item here to equip
 		if equipped {
 			// Hide the icon while its own slot (on this same character) is dragged off.
-			dragging := ui.game.dragActive && ui.game.dragSrc == dragFromEquip &&
+			dragging := ui.game.drag.active && ui.game.dragSrc == dragFromEquip &&
 				ui.game.dragEquipChar == ui.game.selectedChar && ui.game.dragEquipSlot == slotInfo.slot
 			if !dragging {
 				// The complete authored icon square belongs on top of the paperdoll.
@@ -88,12 +114,13 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, content layoutRec
 	ui.drawInventoryTabs(screen, layout.personalCategories.x, layout.personalCategories.y, layout.personalCategories.w, currentChar)
 	ui.drawInventoryBagGrid(screen, currentChar, layout.personalGrid, layout.personalPager, &ui.personalInventoryPage)
 	ui.drawInventoryBagGrid(screen, nil, layout.grid, layout.pager, &ui.inventoryPage)
-	drawCenteredUIText(screen, "Quick slots", layout.quickSlots.x, layout.quickSlots.y-quickSlotTabLabelSpace, layout.quickSlots.w, quickSlotTabLabelH)
-	ui.drawQuickSlotBar(screen, ui.game.selectedChar, layout.quickSlots.x, layout.quickSlots.y, layout.quickSlots.w, !ui.modalLayerOwnsInput())
+	ui.drawTabQuickSlots(screen, false, layout.quickSlots, layout.quickSlots2)
 
 	if len(tooltip) > 0 && tooltipHasItem {
 		lines := ui.appendCardArtHintRows(tooltip, itemCardKey(tooltipItem))
 		ui.queueItemTooltip(lines, tooltipItem, currentChar, tooltipX, tooltipY)
+	} else if isMouseHoveringBox(mouseX, mouseY, buildBox.x, buildBox.y, buildBox.right(), buildBox.bottom()) {
+		ui.queueCardTooltip(autoBuildTooltipRows(build), nil, nil, nil, "", mouseX+16, mouseY+8)
 	}
 
 	ui.drawInventoryContextMenu(screen)
@@ -111,17 +138,16 @@ func (ui *UISystem) drawPager(screen *ebiten.Image, x, y, w int, page *int, tota
 	mouseX, mouseY := uiCursorPosition()
 
 	drawBtn := func(r layoutRect, label string, enabled bool, step int) {
-		ui.drawButtonFrame(screen, r.x, r.y, r.w, r.h, enabled && isMouseHoveringBox(mouseX, mouseY, r.x, r.y, r.right(), r.bottom()))
+		// Hover lights only on the live layer, as the click does.
+		ui.drawButtonFrame(screen, r.x, r.y, r.w, r.h, enabled && clickable && isMouseHoveringBox(mouseX, mouseY, r.x, r.y, r.right(), r.bottom()))
 		if !enabled {
 			drawFilledRect(screen, r.x+2, r.y+2, r.w-4, r.h-4, color.RGBA{0, 0, 0, 100})
 		}
 		drawCenteredUIText(screen, label, r.x, r.y+2, r.w, r.h-2)
-		ui.onDisplayedInput(uiCommandNavigation, r, func() {
-			if enabled && clickable && ui.game.consumeLeftClickIn(r.x, r.y, r.right(), r.bottom()) {
-				*page = max(0, min(totalPages-1, *page+step))
-				for _, change := range onChange {
-					change()
-				}
+		ui.onClick(r, enabled && clickable, func() {
+			*page = max(0, min(totalPages-1, *page+step))
+			for _, change := range onChange {
+				change()
 			}
 		})
 	}
@@ -144,10 +170,11 @@ const (
 	inventoryPaperdollSourceH = 1024
 	inventoryPaperdollLayoutW = 300
 	inventoryPaperdollLayoutH = 450
-	// The high-resolution grid PNG is authored against this normalized logical
-	// canvas. Keeping its children in layout pixels avoids replacing working
-	// click geometry when the raster source is re-exported at a higher density.
+	// The bag grid panel is laid out on this logical canvas.
 	inventoryGridLayoutSize = 300
+	// inventoryGridSlots is measured on a canvas of this size, the pixels of
+	// the current raster; a re-export at another density keeps the table.
+	inventoryGridSlotCanvas = 1024
 )
 
 type inventorySourceRect struct {
@@ -167,7 +194,7 @@ type inventoryPaperdollSlot struct {
 // art deliberately uses one identical 118x118 master slot in every position.
 var inventoryPaperdollSlots = []inventoryPaperdollSlot{
 	{items.SlotAmulet, inventorySourceRect{112, 138, 118, 118}},
-	{items.SlotSpell, inventorySourceRect{452, 138, 118, 118}},
+	{items.SlotQuickAction, inventorySourceRect{452, 138, 118, 118}},
 	{items.SlotHelmet, inventorySourceRect{282, 136, 118, 118}},
 	{items.SlotMainHand, inventorySourceRect{92, 402, 118, 118}},
 	{items.SlotArmor, inventorySourceRect{282, 360, 118, 118}},
@@ -180,22 +207,20 @@ var inventoryPaperdollSlots = []inventoryPaperdollSlot{
 	{items.SlotBoots, inventorySourceRect{282, 830, 118, 118}},
 }
 
-// Grid slots use the normalized 300x300 layout canvas above. The one-pixel
-// offsets are measured from the current 1024px raster's dark recess centres;
-// bag icons retain their separate 4px inset at draw time.
+// Bag cells are identical squares centred on the panel's dark recesses, on the
+// inventoryGridSlotCanvas. The icon keeps its inset at draw time.
 var inventoryGridSlots = []inventorySourceRect{
-	{42, 42, 45, 45}, {99, 42, 45, 45}, {155, 42, 45, 45}, {212, 42, 45, 45},
-	{42, 99, 45, 45}, {99, 99, 45, 45}, {155, 99, 45, 45}, {212, 99, 45, 45},
-	{42, 156, 45, 45}, {99, 156, 45, 45}, {155, 156, 45, 45}, {212, 156, 45, 45},
-	{42, 213, 45, 45}, {99, 213, 45, 45}, {155, 213, 45, 45}, {212, 213, 45, 45},
+	{145, 144, 152, 152}, {338, 144, 152, 152}, {531, 144, 152, 152}, {725, 144, 152, 152},
+	{145, 339, 152, 152}, {338, 339, 152, 152}, {531, 339, 152, 152}, {725, 339, 152, 152},
+	{145, 533, 152, 152}, {338, 533, 152, 152}, {531, 533, 152, 152}, {725, 533, 152, 152},
+	{145, 727, 152, 152}, {338, 727, 152, 152}, {531, 727, 152, 152}, {725, 727, 152, 152},
 }
 
-func scaleInventorySourceRect(dstX, dstY, dstW, dstH, srcW, srcH int, r inventorySourceRect) (int, int, int, int) {
-	x := dstX + int(float64(r.x)*float64(dstW)/float64(srcW))
-	y := dstY + int(float64(r.y)*float64(dstH)/float64(srcH))
-	w := int(float64(r.w) * float64(dstW) / float64(srcW))
-	h := int(float64(r.h) * float64(dstH) / float64(srcH))
-	return x, y, w, h
+// inventoryGridCell is bag cell slot of a grid panel drawn at grid: the square
+// its icon, hover frame, clicks and drops share.
+func inventoryGridCell(grid layoutRect, slot int) layoutRect {
+	x, y, size := scaleInventorySourceSquare(grid.x, grid.y, grid.w, grid.h, inventoryGridSlotCanvas, inventoryGridSlotCanvas, inventoryGridSlots[slot])
+	return layoutRect{x, y, size, size}
 }
 
 // scaleInventorySourceSquare keeps an authored square centered after scaling.
@@ -269,6 +294,9 @@ func (ui *UISystem) drawItemIcon(screen *ebiten.Image, item items.Item, x, y, w,
 		drawRectBorder(screen, iconX, iconY, iconSize, iconSize, 1, color.RGBA{150, 110, 52, 220})
 		drawCenteredUIText(screen, spellInitials(item.Name), iconX, iconY, iconSize, iconSize)
 	}
+	if item.Type == items.ItemBattleSpell || item.Type == items.ItemUtilitySpell {
+		ui.drawSpellReuse(screen, actor, spells.SpellID(item.SpellEffect), iconX, iconY, iconSize)
+	}
 	if item.Type == items.ItemDevice {
 		drawDeviceCooldown(screen, item, iconX, iconY, iconSize)
 	}
@@ -280,7 +308,7 @@ func (ui *UISystem) drawItemIcon(screen *ebiten.Image, item items.Item, x, y, w,
 	// everywhere.
 	n := item.Count()
 	if item.Type == items.ItemThrowable {
-		n = ui.game.flaskStock(actor, string(item.SpellEffect))
+		n = ui.game.flaskStock(actor, item.Flask)
 	}
 	if n > 1 || item.Type == items.ItemThrowable || showSingleCount && item.Stackable() {
 		// Use the existing metal text at native size, independent of the icon
@@ -327,14 +355,14 @@ func (ui *UISystem) drawInventoryContextMenu(screen *ebiten.Image) {
 	if ui.inventoryInputBlocked() {
 		return
 	}
-	ui.onDisplayedInput(uiCommandNavigation, layoutRect{}, func() {
+	ui.onDisplayedInput(uiCommandClick, layoutRect{}, func() {
 		switch {
 		case ui.game.consumeLeftClickIn(x, y, x+menuW, y+24):
 			if !itemDiscardable(item) {
-				ui.game.AddCombatMessage(fmt.Sprintf("Cannot discard %s.", item.Name))
+				ui.game.AddCombatMessage(uitext.Text("combat.cannot_discard", item.Name))
 			} else {
 				bag.Consume(idx, 1)
-				ui.game.AddCombatMessage(fmt.Sprintf("Discarded %s.", item.Name))
+				ui.game.AddCombatMessage(uitext.Text("combat.discarded", item.Name))
 			}
 			ui.inventoryContextOpen = false
 		case ui.game.consumeLeftClickIn(x, y+(len(labels)-1)*24, x+menuW, y+len(labels)*24):
@@ -383,7 +411,8 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, content layoutRe
 		drawUITextColored(screen, title, r.x+sectionTextInset, r.y+sectionTitleY, headingColor)
 	}
 	drawSection(layout.profile, "PROFILE")
-	drawSection(layout.attributes, "ATTRIBUTES")
+	const attributesTitle = "ATTRIBUTES"
+	drawSection(layout.attributes, attributesTitle)
 	drawSection(layout.magic, "MAGIC SCHOOLS")
 	drawSection(layout.skills, "SKILLS")
 	drawSection(layout.combat, "COMBAT AND RESISTANCES")
@@ -400,7 +429,8 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, content layoutRe
 		fmt.Sprintf("Level: %d", member.Level),
 		fmt.Sprintf("Health: %d/%d", member.HitPoints, member.MaxHitPoints),
 		fmt.Sprintf("Spell Points: %d/%d", member.SpellPoints, member.MaxSpellPoints),
-		fmt.Sprintf("Experience: %d", member.Experience),
+		// Experience is the remainder toward the next level; show its target.
+		fmt.Sprintf("XP: %d / %d", member.Experience, xpStepCost(member.Level)),
 	}
 	for i, line := range profileLines {
 		lineColor := textColor
@@ -410,37 +440,21 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, content layoutRe
 		drawUITextColored(screen, clipUIText(line, profileW), profileX, profileY+i*16, lineColor)
 	}
 	statusText := "Status: Normal"
-	if len(member.Conditions) > 0 {
-		names := make([]string, 0, len(member.Conditions))
-		for _, cond := range member.Conditions {
-			names = append(names, cond.String())
-		}
-		statusText = "Status: " + strings.Join(names, ", ")
+	if full, _ := ui.game.partyConditionLabels(member); full != "OK" {
+		statusText = "Status: " + full // the same list the party card shows
 	}
 	for i, line := range wrapUIText(statusText, profileW) {
 		drawUITextColored(screen, line, profileX, profileY+(len(profileLines)+i)*16, textColor)
 	}
 
-	effMight, effInt, effPers, effEnd, effAcc, effSpeed, effLuck := member.GetEffectiveStats()
-	stats := []struct {
-		name      string
-		base, eff int
-	}{
-		{"Might", member.Might, effMight},
-		{"Intellect", member.Intellect, effInt},
-		{"Personality", member.Personality, effPers},
-		{"Endurance", member.Endurance, effEnd},
-		{"Accuracy", member.Accuracy, effAcc},
-		{"Speed", member.Speed, effSpeed},
-		{"Luck", member.Luck, effLuck},
-	}
-	attributeRowH := min(sectionRowH, (layout.attributes.h-sectionBodyY-8)/len(stats))
-	for i, stat := range stats {
+	base, eff := member.BaseStats(), member.EffectiveStatBlock()
+	attributeRowH := min(sectionRowH, (layout.attributes.h-sectionBodyY-8)/len(stats.Names))
+	for i, name := range stats.Names {
 		x := layout.attributes.x + sectionTextInset
 		y := layout.attributes.y + sectionBodyY + i*attributeRowH
-		line := fmt.Sprintf("%s: %d", stat.name, stat.eff)
+		line := fmt.Sprintf("%s: %d", stats.Title(name), *eff.At(i))
 		drawUITextColored(screen, clipUIText(line, layout.attributes.w-2*sectionTextInset), x, y, textColor)
-		if delta := stat.eff - stat.base; delta != 0 {
+		if delta := *eff.At(i) - *base.At(i); delta != 0 {
 			clr := color.RGBA{130, 210, 130, 255}
 			if delta < 0 {
 				clr = color.RGBA{215, 120, 110, 255}
@@ -448,9 +462,20 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, content layoutRe
 			drawUITextColored(screen, fmt.Sprintf(" (%+d)", delta), x+uiTextWidth(line), y, clr)
 		}
 		if len(tooltip) == 0 && isMouseHoveringBox(mouseX, mouseY, x, y, layout.attributes.right()-sectionTextInset, y+sectionRowH) {
-			tooltip = statTooltipRows(stat.name)
+			tooltip = statTooltipRows(name)
 			tooltipX, tooltipY = mouseX+16, mouseY+8
 		}
+	}
+	// The build AUTO follows, right of the section title in the room it leaves.
+	build := ui.game.autoBuildFor(member.Class)
+	titleRight := layout.attributes.x + sectionTextInset + uiTextWidth(attributesTitle) + sectionTextInset
+	buildLabel := autoBuildLabel(build, layout.attributes.right()-sectionTextInset-titleRight, 1)
+	buildW := coloredTextWidth(buildLabel)
+	buildX, buildY := layout.attributes.right()-sectionTextInset-buildW, layout.attributes.y+sectionTitleY
+	drawColoredTextSegments(screen, buildX, buildY, buildLabel)
+	if len(tooltip) == 0 && buildW > 0 && isMouseHoveringBox(mouseX, mouseY, buildX, buildY, buildX+buildW, buildY+sectionRowH) {
+		tooltip = autoBuildTooltipRows(build)
+		tooltipX, tooltipY = mouseX+16, mouseY+8
 	}
 
 	type schoolLine struct {
@@ -521,41 +546,68 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, content layoutRe
 
 	weaponLine := func(label string, slot items.EquipSlot, cooldownFrames int) string {
 		weapon, ok := member.Equipment[slot]
-		if !ok || lookupWeaponConfigByName(weapon.Name) == nil {
+		if !ok {
 			return label + ": None"
+		}
+		if weapon.Type != items.ItemWeapon {
+			return label + ": " + weapon.Name // a shield or another non-weapon
 		}
 		preview := ui.game.combat.calculateWeaponDamagePreview(weapon, member)
 		crit := ui.game.combat.CalculateWeaponCritChance(weapon, member)
-		tps := max(1, ui.game.config.GetTPS())
+		tps := ui.game.config.GetTPS()
 		return fmt.Sprintf("%s: %d dmg, %d%% crit, %.1fs CD", label, preview.Total, crit, float64(cooldownFrames)/float64(tps))
 	}
 
 	leftLines := []struct {
 		text    string
 		heading bool
+		details []string
+		lines   []string
 	}{
-		{"OFFENSE", true},
-		{fmt.Sprintf("Physical attack bonus: +%d", ui.game.combatBuffOutBonusForDamageType(damagecalc.Physical.String())), false},
-		{fmt.Sprintf("Universal crit: %d%%", ui.game.combat.totalCriticalChance(0, member)), false},
-		{weaponLine("Main hand", items.SlotMainHand, ui.game.combat.WeaponCooldownFrames(member)), false},
-		{weaponLine("Off hand", items.SlotOffHand, ui.game.combat.OffHandWeaponCooldownFrames(member)), false},
-		{"DEFENSE", true},
-		{fmt.Sprintf("Armor Class: %d", m.ArmorClass), false},
-		{fmt.Sprintf("Armor: -%d%% physical / -%d%% other", m.ArmorPct, ui.game.combat.armorMitigationPct(member, false)), false},
-		{fmt.Sprintf("Perfect Dodge: %d%%", ui.game.combat.PerfectDodgeChance(member)), false},
-		{fmt.Sprintf("Physical resistance: -%d%%", m.ResistPct), false},
-		{fmt.Sprintf("Flat reduction: %d skill / %d buff", m.SkillFlat, m.FlatBuff), false},
-		{fmt.Sprintf("Projectile reflection: %d%%", member.ProjectileReflectPct()), false},
-		{fmt.Sprintf("Melee thorns: %d%% phys / %d%% fire", ui.game.cardThornsPct()+weaponThornsPct(member), member.SetFieryRipostePct()), false},
-		{fmt.Sprintf("Status duration: %d%% / stun %d%%", clampHostileStatusDurationPct(member.ItemStatusDurationPct()), clampHostileStatusDurationPct(member.ItemStatusDurationPct()+member.SetStunDurationPct())), false},
+		{text: "OFFENSE", heading: true},
+		{text: fmt.Sprintf("Physical attack bonus: +%d", ui.game.combatBuffOutBonusForDamageType(damagecalc.Physical.String()))},
+		{text: fmt.Sprintf("Universal crit: %d%%", ui.game.combat.totalCriticalChance(0, member))},
+		{text: weaponLine("Main hand", items.SlotMainHand, ui.game.combat.WeaponCooldownFrames(member))},
+		{text: weaponLine("Off hand", items.SlotOffHand, ui.game.combat.OffHandWeaponCooldownFrames(member))},
+		{text: "DEFENSE", heading: true},
+		{text: fmt.Sprintf("Armor Class: %d", m.ArmorClass)},
+		{text: fmt.Sprintf("Armor: -%d%% physical / -%d%% other", m.ArmorPct, ui.game.combat.armorMitigationPct(member, false))},
+		{text: fmt.Sprintf("Perfect Dodge: %d%%", ui.game.combat.PerfectDodgeChance(member))},
+		{text: fmt.Sprintf("Physical resistance: -%d%%", m.ResistPct)},
+		{text: uitext.Text("damage.flat_reduction_summary", m.SkillFlat+m.FlatBuff), details: []string{
+			uitext.Text("damage.flat_reduction_sources", m.SkillFlat, m.FlatBuff),
+			uitext.Text("damage.flat_reduction_rules"),
+		}},
+		// The strongest reflector guards every hero, so the sheet shows the party value.
+		{text: fmt.Sprintf("Projectile reflection (party): %d%%", ui.game.partyProjectileReflectPct())},
+		{text: fmt.Sprintf("Melee thorns: %d%% phys / %d%% fire", ui.game.cardThornsPct()+weaponThornsPct(member), member.SetFieryRipostePct())},
+		{text: fmt.Sprintf("Status duration: %d%% / stun %d%%", clampHostileStatusDurationPct(member.ItemStatusDurationPct()), clampHostileStatusDurationPct(member.ItemStatusDurationPct()+member.SetStunDurationPct()))},
 	}
-	for i, line := range leftLines {
+	combatRows := 0
+	for i := range leftLines {
+		line := &leftLines[i]
+		line.lines = []string{clipUIText(line.text, leftW)}
+		if len(line.details) > 0 {
+			line.lines = wrapUIText(line.text, leftW)
+		}
+		combatRows += len(line.lines)
+	}
+	combatRowH := min(sectionRowH, (layout.combat.h-sectionBodyY-8)/combatRows)
+	combatY := layout.combat.y + sectionBodyY
+	for _, line := range leftLines {
 		lineColor := textColor
 		if line.heading {
 			lineColor = headingColor
 		}
-		y := layout.combat.y + sectionBodyY + i*sectionRowH
-		drawUITextColored(screen, clipUIText(line.text, leftW), combatX, y, lineColor)
+		for i, text := range line.lines {
+			drawUITextColored(screen, text, combatX, combatY+i*combatRowH, lineColor)
+		}
+		rowH := len(line.lines) * combatRowH
+		if len(tooltip) == 0 && len(line.details) > 0 && isMouseHoveringBox(mouseX, mouseY, combatX, combatY, combatX+leftW, combatY+rowH) {
+			tooltip = character.PlainCardRows(append([]string{line.text}, line.details...))
+			tooltipX, tooltipY = mouseX+16, mouseY+8
+		}
+		combatY += rowH
 	}
 
 	resistY := layout.combat.y + sectionBodyY
@@ -578,22 +630,6 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, content layoutRe
 
 const pagerBtnW, pagerBtnH = 30, 18
 
-// drawPagerButton renders one prev/next button and registers its Update action.
-// Shared by the quest and character list pagers.
-func (ui *UISystem) drawPagerButton(screen *ebiten.Image, bx, y int, label string, enabled bool, onClick func()) {
-	mouseX, mouseY := uiCursorPosition()
-	ui.drawButtonFrame(screen, bx, y, pagerBtnW, pagerBtnH, enabled && isMouseHoveringBox(mouseX, mouseY, bx, y, bx+pagerBtnW, y+pagerBtnH))
-	if !enabled {
-		drawFilledRect(screen, bx+2, y+2, pagerBtnW-4, pagerBtnH-4, color.RGBA{0, 0, 0, 100})
-	}
-	drawCenteredUIText(screen, label, bx, y+2, pagerBtnW, pagerBtnH-2)
-	ui.onDisplayedInput(uiCommandNavigation, layoutRect{bx, y, pagerBtnW, pagerBtnH}, func() {
-		if enabled && ui.game.consumeLeftClickIn(bx, y, bx+pagerBtnW, y+pagerBtnH) {
-			onClick()
-		}
-	})
-}
-
 // drawSpellbookContent draws the spellbook tab content. The parchment spread
 // contains spell cards only; identity, navigation, controls and quick slots
 // live in the surrounding fullscreen hub.
@@ -615,7 +651,7 @@ func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, content layoutRec
 		ui.game.selectedSpell = -1
 	}
 
-	bl := computeBookLayout(content)
+	bl := computeBookLayout(content, currentChar.QuickRows())
 	header := fmt.Sprintf("%s - Spellbook", currentChar.Name)
 	if ui.game.selectedSchool >= 0 && ui.game.selectedSchool < len(schools) {
 		header += " - " + schools[ui.game.selectedSchool].DisplayName() + " Magic"
@@ -673,10 +709,25 @@ func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, content layoutRec
 				continue
 			}
 
+			ui.spellAutocastControl(screen, currentChar, def, cardX, cardY, bl.cardW, bl.iconSize)
 			ui.handleSpellbookSpellClick(cardX, cardY, bl.cardW, bl.cardH, ui.game.selectedSchool, spellIndex)
-			ui.quickSpellCardDragSource(spellID, cardX, cardY, bl.cardW, bl.cardH)
+			ui.onDisplayedInput(uiCommandDrag, layoutRect{cardX, cardY, bl.cardW, bl.cardH}, func() {
+				// Checkbox ownership also excludes the press from the drag phase,
+				// which runs before queued click handlers consume the same gesture.
+				if def.HasAutocast() {
+					box := spellAutocastRect(cardX, cardY, bl.cardW, bl.iconSize)
+					if isMouseHoveringBox(ui.game.drag.startX, ui.game.drag.startY, box.x, box.y, box.right(), box.bottom()) {
+						return
+					}
+				}
+				ui.quickSpellCardDragSource(spellID, cardX, cardY, bl.cardW, bl.cardH)
+			})
 			isSelected := spellIndex == ui.game.selectedSpell
 			isHovering := mouseX >= cardX && mouseX < cardX+bl.cardW && mouseY >= cardY && mouseY < cardY+bl.cardH
+			if def.HasAutocast() {
+				b := spellAutocastRect(cardX, cardY, bl.cardW, bl.iconSize)
+				isHovering = isHovering && !isMouseHoveringBox(mouseX, mouseY, b.x, b.y, b.right(), b.bottom())
+			}
 			ui.drawSpellbookSpellCard(screen, cardX, cardY, bl.cardW, bl.cardH, bl.iconSize, spellID, def, currentChar, selectedSchool, isSelected)
 
 			if isHovering {
@@ -706,7 +757,7 @@ func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, content layoutRec
 	ui.drawPager(screen, bl.pager.x, bl.pager.y, bl.pager.w, &ui.spellPage, totalPages, !ui.modalLayerOwnsInput(), func() {
 		ui.game.selectedSpell = -1
 	})
-	ui.drawTabQuickSlotBar(screen, bl.quick.x, bl.quick.y, bl.quick.w)
+	ui.drawTabQuickSlots(screen, true, bl.quick, bl.quick2)
 	drawCenteredUIText(screen, bookControlsHint, bl.controls.x, bl.controls.y, bl.controls.w, bl.controls.h)
 }
 
@@ -744,21 +795,25 @@ func (ui *UISystem) drawSpellbookSpellCard(screen *ebiten.Image, x, y, w, h, ico
 		drawCenteredUIText(screen, spellInitials(def.Name), iconX, iconY, iconSize, iconSize)
 	}
 
+	ui.drawSpellReuse(screen, currentChar, spellID, iconX, iconY, iconSize)
 	name := def.Name
 	nameY := y + iconSize + 8
 	statsY := nameY + uiTextCharHeight + 2
 	// Show the cost actually paid (Meditation GM discount applied) so the card
 	// and its red "can't afford" outline match what casting will charge.
-	cost := def.SpellPointsCost
-	if ui.game.combat != nil {
-		cost = ui.game.combat.effectiveSpellCost(currentChar, def.SpellPointsCost)
-	}
+	cost := currentChar.MeditatedSPCost(def.SpellPointsCost)
 	// The selection glow extends below the icon; labels draw over it.
-	quick, equipped := currentChar.Equipment[items.SlotSpell]
+	quick, equipped := currentChar.Equipment[items.SlotQuickAction]
 	drawBookEntryState(screen, layoutRect{iconX, iconY, iconSize, iconSize},
 		selected, equipped && string(quick.SpellEffect) == string(spellID), false, currentChar.SpellPoints >= cost, SchoolColor(school.String()))
 	drawCenteredUIText(screen, name, x+4, nameY, w-8, uiTextCharHeight)
-	drawCenteredUIText(screen, fmt.Sprintf("SP %d", cost), x+4, statsY, w-8, uiTextCharHeight)
+	costX, costW := x+4, w-8
+	if def.HasAutocast() {
+		box := spellAutocastRect(x, y, w, iconSize)
+		costX = x + (x + w - box.right())
+		costW = box.x - costX - 4
+	}
+	drawCenteredUIText(screen, fmt.Sprintf("SP %d", cost), costX, statsY, costW, uiTextCharHeight)
 }
 
 func spellInitials(name string) string {
@@ -781,112 +836,32 @@ func spellInitials(name string) string {
 
 // handleInventoryItemClick handles double-click to equip items from inventory
 func (ui *UISystem) handleInventoryItemClick(itemIndex int, x1, y1, x2, y2 int, owner ...*character.MMCharacter) {
-	if ui.displayedInput.building {
-		ui.onDisplayedInput(uiCommandClick, layoutRect{x1, y1, (x2) - (x1), (y2) - (y1)}, func() { ui.handleInventoryItemClick(itemIndex, x1, y1, x2, y2, owner...) })
-		return
-	}
-
-	if ui.inventoryInputBlocked() {
-		return
-	}
-	// Check for mouse click
-	if ui.game.consumeLeftClickIn(x1, y1, x2, y2) {
-		currentTime := time.UnixMilli(ui.game.mouseLeftClickAt)
-
-		// Only a fast second click acts; a pause leaves this as selection.
-		doubleClick := itemIndex == ui.lastClickedItem && ui.lastClickedBagOwner == ui.game.party.Bag(owner...).Owner &&
-			withinDoubleClickWindow(currentTime.UnixMilli(), ui.lastClickTime.UnixMilli())
-		if doubleClick {
-			// Double-click detected - try to equip or use the item
-			item := ui.game.party.Bag(owner...).Items()[itemIndex]
-			currentChar := ui.game.party.Members[ui.game.selectedChar]
-
-			if item.Type == items.ItemQuest {
-				if item.Attributes["opens_map"] > 0 {
-					ui.game.mapOverlayOpen = true
-					return
-				}
-				if item.Attributes["promotes_lich"] > 0 {
-					ui.game.useLichPhylactery(itemIndex, ui.game.party.Bag(owner...).Owner)
-					return
-				}
-			}
-
-			if item.Type == items.ItemDevice {
-				ui.game.useDeviceFromInventory(itemIndex, ui.game.selectedChar, ui.game.party.Bag(owner...).Owner)
-			} else if item.Type == items.ItemConsumable {
-				// Use consumable item
-				ui.game.UseConsumableFromInventory(itemIndex, ui.game.selectedChar, ui.game.party.Bag(owner...).Owner)
-			} else if item.Type == items.ItemWeapon || item.Type == items.ItemArmor || item.Type == items.ItemAccessory {
-				if ui.game.equipPartyItemFromInventory(itemIndex, ui.game.selectedChar, ui.game.party.Bag(owner...).Owner) {
-					ui.game.AddCombatMessage(fmt.Sprintf("%s equipped %s!", currentChar.Name, item.Name))
-				} else {
-					verb := "use"
-					if item.Type == items.ItemArmor || item.Type == items.ItemAccessory {
-						verb = "wear"
-					}
-					ui.game.AddCombatMessage(fmt.Sprintf("%s cannot %s %s!", currentChar.Name, verb, item.Name))
-				}
-			}
-			// Spells (ItemBattleSpell/ItemUtilitySpell) are spellbook-owned;
-			// they shouldn't appear in inventory, so we don't equip from here.
-
-			// Consume the double-click: reset to a sentinel so a third rapid
-			// click starts a fresh pair instead of re-triggering. Equipping
-			// shifts the next item into this index, so without this a burst of
-			// clicks equips a whole cascade of items.
-			ui.lastClickedItem = -1
-			ui.lastClickTime = time.Time{}
-			return
+	ui.onGatedClick(layoutRect{x1, y1, x2 - x1, y2 - y1}, func() bool { return !ui.inventoryInputBlocked() }, func() {
+		// Only a fast second click acts; a pause leaves this as selection. The
+		// pair resets, or a burst of clicks would equip the whole cascade of
+		// items that shifts into this index.
+		bagOwner := ui.game.party.Bag(owner...).Owner
+		if ui.bagClicks.click(bagClickKey{itemIndex, bagOwner}, ui.game.mouseLeftClickAt) {
+			ui.game.useBagItem(itemIndex, bagOwner)
 		}
-
-		ui.lastClickedItem = itemIndex
-		ui.lastClickedBagOwner = ui.game.party.Bag(owner...).Owner
-		ui.lastClickTime = currentTime
-	}
-
-	// Mouse state is updated once per frame in updateMouseState().
+	})
 }
 
 // handleEquippedItemClick handles double-click to unequip items from equipment slots
 func (ui *UISystem) handleEquippedItemClick(slot items.EquipSlot, x1, y1, x2, y2 int) {
-	if ui.displayedInput.building {
-		ui.onDisplayedInput(uiCommandClick, layoutRect{x1, y1, (x2) - (x1), (y2) - (y1)}, func() { ui.handleEquippedItemClick(slot, x1, y1, x2, y2) })
-		return
-	}
-
-	if ui.inventoryInputBlocked() {
-		return
-	}
-	// Check for mouse click
-	if ui.game.consumeLeftClickIn(x1, y1, x2, y2) {
-		currentTime := time.UnixMilli(ui.game.mouseLeftClickAt)
-
+	ui.onGatedClick(layoutRect{x1, y1, x2 - x1, y2 - y1}, func() bool { return !ui.inventoryInputBlocked() }, func() {
 		// Only a fast second click acts; a pause leaves this as selection.
-		doubleClick := slot == ui.lastClickedSlot &&
-			withinDoubleClickWindow(currentTime.UnixMilli(), ui.lastEquipClickTime.UnixMilli())
-		if doubleClick {
-			// Double-click detected - try to unequip the item
-			currentChar := ui.game.party.Members[ui.game.selectedChar]
-			if item, exists := currentChar.Equipment[slot]; exists {
-				itemName := item.Name
-				if ui.game.unequipPartyItemToInventory(slot, ui.game.selectedChar, currentChar) {
-					ui.game.AddCombatMessage(fmt.Sprintf("%s unequipped %s!",
-						currentChar.Name, itemName))
-				} else {
-					ui.game.AddCombatMessage("Cannot unequip this item!")
-				}
-			}
-			// Consume the double-click so a third rapid click doesn't re-fire.
-			// -1 is not a real slot, so the next click can't pair with it.
-			ui.lastClickedSlot = items.EquipSlot(-1)
-			ui.lastEquipClickTime = time.Time{}
+		if !ui.equipClicks.click(slot, ui.game.mouseLeftClickAt) {
 			return
 		}
-
-		ui.lastClickedSlot = slot
-		ui.lastEquipClickTime = currentTime
-	}
-
-	// Mouse state is updated once per frame in updateMouseState().
+		currentChar := ui.game.party.Members[ui.game.selectedChar]
+		if item, exists := currentChar.Equipment[slot]; exists {
+			itemName := item.Name
+			if ui.game.unequipPartyItemToInventory(slot, ui.game.selectedChar, currentChar) {
+				ui.game.AddCombatMessage(uitext.Text("combat.unequipped", currentChar.Name, itemName))
+			} else {
+				ui.game.AddCombatMessage(uitext.Text("combat.cannot_unequip_this_item"))
+			}
+		}
+	})
 }

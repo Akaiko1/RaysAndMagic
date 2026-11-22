@@ -117,10 +117,10 @@ func TestSetInventoryTab_DropsStaleViewState(t *testing.T) {
 	ui := &UISystem{
 		inventoryTab:          inventoryTabAll,
 		inventoryPage:         3,
-		lastClickedItem:       7,
 		inventoryContextOpen:  true,
 		inventoryContextIndex: 7,
 	}
+	ui.bagClicks.click(bagClickKey{index: 7}, 1000)
 	ui.setInventoryTab(2)
 	if ui.inventoryTab != 2 {
 		t.Fatalf("tab = %d, want 2", ui.inventoryTab)
@@ -128,8 +128,8 @@ func TestSetInventoryTab_DropsStaleViewState(t *testing.T) {
 	if ui.inventoryPage != 0 {
 		t.Fatalf("page = %d, want 0 - the old page indexed the old view", ui.inventoryPage)
 	}
-	if ui.lastClickedItem != -1 {
-		t.Fatalf("double-click chain survived the tab switch: %d", ui.lastClickedItem)
+	if ui.bagClicks.pending() {
+		t.Fatal("double-click chain survived the tab switch")
 	}
 	if ui.inventoryContextOpen || ui.inventoryContextIndex != -1 {
 		t.Fatalf("context menu survived the tab switch: open=%v idx=%d",

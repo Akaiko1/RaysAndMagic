@@ -5,6 +5,7 @@
 # `quest` retires the rumor when that quest completes.
 # `after` hides it until the prerequisite quest completes.
 # `until_monster` retires it when that unique target is dead.
+# {min_party_level} in the text is the rumor quest's min_party_level.
 # `spawn` distinguishes a not-yet-spawned story boss from a dead one.
 # `priority` makes an unlocked follow-up outrank general leads.
 rumors:
@@ -40,9 +41,13 @@ rumors:
     text: "The Mage Tower is taking candidates for Archmage. Accept the trial, kill the Lich King in the Lich Nexus, then return. They will raise one of your company. Rather a steep entrance examination."
 
   # Main story gates. These outrank optional leads.
+  - quest: "main_tower_letter"
+    priority: 50
+    text: "The Mage Tower's envoy, Corwin, is looking for ash-walkers at the forest tavern. He has a sealed letter for the Tower in the Misty Highlands."
+
   - quest: "dragon_slayer"
     priority: 50
-    text: "Sylwen the Pilgrim keeps watch at the desert dragon seals. Swear her hunt before you try them. You'll also need the colored dragon statuettes from the Pyramid Sanctum's reliquaries, each matched to its seal."
+    text: "Sylwen the Pilgrim keeps watch at the desert dragon seals. Swear her hunt before you try them; she swears in no party below level {min_party_level}. You'll also need the colored dragon statuettes from the Pyramid Sanctum's reliquaries, each matched to its seal."
 
   - quest: "broodmother_nests"
     priority: 50

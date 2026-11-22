@@ -2,8 +2,8 @@ package config
 
 import (
 	"fmt"
-	"gopkg.in/yaml.v3"
 	"os"
+	"ugataima/internal/strictyaml"
 )
 
 // BossMechanics extends map encounters without changing monster archetypes.
@@ -32,7 +32,7 @@ func ReadBossMechanics(path string) (*BossMechanicsConfig, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err = yaml.Unmarshal(raw, out); err != nil {
+	if err = strictyaml.Decode(raw, out); err != nil {
 		return nil, err
 	}
 	return out, out.Validate(nil)

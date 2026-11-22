@@ -5,10 +5,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hajimehoshi/ebiten/v2"
 	"ugataima/internal/items"
 	"ugataima/internal/quests"
 	"ugataima/internal/storage"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 // Case table: active/ready/claimed x no/fixed/pool/mixed rewards x normal/narrow
@@ -33,7 +34,7 @@ func TestJournalRewardIconsAndTooltips(t *testing.T) {
 					if kind == "pool" || kind == "mixed" {
 						d.Rewards.ItemPool = []string{"unbroken_sandals", "unbroken_sash", "unbroken_mantle", "unbroken_robe"}
 					}
-					q := &quests.Quest{ID: "unbroken_mountain", Definition: &d, Status: quests.QuestStatusActive, Completed: state != "active", RewardsClaimed: state == "claimed"}
+					q := &quests.Quest{ID: "unbroken_mountain", Definition: &d, Completed: state != "active", RewardsClaimed: state == "claimed"}
 					c := questCardCopyForQuest(q, width, 3)
 					r := layoutRect{10, 10, width, c.height}
 					dst := ebiten.NewImage(width+20, c.height+20)

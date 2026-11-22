@@ -6,6 +6,7 @@ package game
 type bookLayout struct {
 	content                        layoutRect
 	header, quick, pager, controls layoutRect
+	quick2                         layoutRect // the second quick row; zero without it
 	bookX, bookY, bookW, bookH     int
 	scaleX, scaleY                 float64
 	// stackedH and sideH are the book heights the footer strip under the book
@@ -37,7 +38,10 @@ const (
 	bookSchoolTabLift   = 10
 )
 
-func computeBookLayout(content layoutRect) bookLayout {
+// computeBookLayout lays the book out for quickRows quick-slot bars (the
+// selected hero's QuickRows). The book is the same for either: a second row
+// stacks in the side column, or sits beside the first in the footer strip.
+func computeBookLayout(content layoutRect, quickRows int) bookLayout {
 	var l bookLayout
 	l.content = content
 	l.header = layoutRect{content.x + 20, content.y + 4, content.w - 40, 20}
@@ -103,7 +107,12 @@ func computeBookLayout(content layoutRect) bookLayout {
 		quickX := l.bookX + l.bookW + sideGap
 		quickH := int(float64(quickW) / quickSlotBarAspect)
 		l.quick = layoutRect{quickX, l.bookY + l.bookH - quickH, quickW, quickH}
-		l.pager = layoutRect{quickX + (quickW-pagerW)/2, l.quick.y - quickSlotTabLabelSpace - footerGap - pagerBtnH, pagerW, pagerBtnH}
+		top := l.quick
+		if quickRows > 1 {
+			l.quick2 = layoutRect{quickX, l.quick.y - quickSlotRowGap - quickH, quickW, quickH}
+			top = l.quick2
+		}
+		l.pager = layoutRect{quickX + (quickW-pagerW)/2, top.y - quickSlotTabLabelSpace - footerGap - pagerBtnH, pagerW, pagerBtnH}
 		return l
 	}
 	// Footer row: the quick-slot bar (centred) and the pager (right-aligned)
@@ -117,6 +126,9 @@ func computeBookLayout(content layoutRect) bookLayout {
 	quickX := max(l.bookX, min(l.bookX+(l.bookW-quickW)/2, pagerX-footerGap-quickW))
 	l.quick = layoutRect{quickX, footerY, quickW, int(float64(quickW) / quickSlotBarAspect)}
 	l.pager = layoutRect{pagerX, l.quick.y + (l.quick.h-pagerBtnH)/2, pagerW, pagerBtnH}
+	if quickRows > 1 {
+		l.quick, l.quick2 = quickSlotPair(l.quick, layoutRect{l.bookX, footerY, pagerX - footerGap - l.bookX, l.quick.h})
+	}
 	return l
 }
 

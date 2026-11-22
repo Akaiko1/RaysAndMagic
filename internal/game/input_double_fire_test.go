@@ -3,18 +3,20 @@ package game
 import "testing"
 
 // One Space tap picks up exactly one ground container: a fresh press fires, a
-// sustained hold only auto-repeats after rtHoldRepeatDelay.
+// sustained hold only auto-repeats after rtHoldRepeatSeconds.
 func TestSpacePickupGate_TapFiresOnce(t *testing.T) {
-	if spacePickupWanted(true, 1) != true {
+	var g *MMGame // the loaded config's rate
+	repeat := g.framesForSeconds(rtHoldRepeatSeconds)
+	if g.spacePickupWanted(true, 1) != true {
 		t.Fatal("fresh tap must allow a pickup")
 	}
 	// Held past the input cooldown but within a normal tap: must not re-fire.
-	for _, frames := range []int{5, 12, 30, rtHoldRepeatDelay - 1} {
-		if spacePickupWanted(false, frames) {
+	for _, frames := range []int{5, 12, 30, repeat - 1} {
+		if g.spacePickupWanted(false, frames) {
 			t.Fatalf("held %d frames (a tap) must not re-fire a pickup", frames)
 		}
 	}
-	if spacePickupWanted(false, rtHoldRepeatDelay) != true {
+	if g.spacePickupWanted(false, repeat) != true {
 		t.Fatal("a deliberate hold must start vacuuming a pile")
 	}
 }

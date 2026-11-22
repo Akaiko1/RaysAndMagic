@@ -3,7 +3,6 @@ package game
 import (
 	"bytes"
 	"fmt"
-	"github.com/hajimehoshi/ebiten/v2"
 	"image"
 	"image/color"
 	"image/png"
@@ -15,6 +14,8 @@ import (
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
 	"ugataima/internal/threading/entities"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 func TestSolsticeWeaponAbilitiesThroughDirectHits(t *testing.T) {
@@ -32,15 +33,15 @@ func TestSolsticeWeaponAbilitiesThroughDirectHits(t *testing.T) {
 				m, n := partyDamageTargets(g, 64)
 				hit := func(target *monster.Monster3D) int {
 					before := target.HitPoints
-					cs.ApplyDamageToMonster(target, 100, def.Name, false)
+					cs.ApplyDamageToMonster(target, 100, testWeapon(def.Name), false)
 					return before - target.HitPoints
 				}
 				base := hit(m)
-				if base <= 0 || m.ElementalMarks[a.Kind].Count != 1 {
+				if base <= 0 || m.ElementalMarks[string(a.Kind)].Count != 1 {
 					t.Fatalf("first hit=%d marks=%v", base, m.ElementalMarks)
 				}
 				// Another target owns a separate ledger; returning to m resumes it.
-				if got := hit(n); got != base || m.ElementalMarks[a.Kind].Count != 1 {
+				if got := hit(n); got != base || m.ElementalMarks[string(a.Kind)].Count != 1 {
 					t.Fatalf("target switch changed buildup: hit=%d marks=%v", got, m.ElementalMarks)
 				}
 				if a.Kind == "anchor" {
@@ -68,7 +69,7 @@ func TestSolsticeWeaponAbilitiesThroughDirectHits(t *testing.T) {
 				for len(m.ElementalMarks) > 0 {
 					m.TickElementalMarks(tb)
 				}
-				if got := hit(m); got != base || m.ElementalMarks[a.Kind].Count != 1 {
+				if got := hit(m); got != base || m.ElementalMarks[string(a.Kind)].Count != 1 {
 					t.Fatalf("expired buildup persisted: hit=%d marks=%v", got, m.ElementalMarks)
 				}
 				for _, gate := range []string{"dodge", "seal"} {
@@ -116,7 +117,7 @@ func fireFlowstaff(t *testing.T, cs *CombatSystem, target *monster.Monster3D) in
 	// A launch snapshot cannot read the new stat at impact.
 	old := hero.Intellect
 	hero.Intellect += 300
-	cs.applyProjectileDamage(&shot, "arrow", target, shot.ID)
+	cs.applyProjectileDamage(&shot, target, shot.ID)
 	hero.Intellect = old
 	cs.game.arrows[index] = shot
 	return want
@@ -182,8 +183,6 @@ func TestBackwashChainThroughProjectileCollisions(t *testing.T) {
 					n.HitPoints = 0
 					before[n.ID] = 0
 				}
-				updater := entities.NewEntityUpdaterWithWorkers(2)
-				t.Cleanup(updater.Stop)
 				// Run actual movement, homing and collision phases, including the
 				// append-safe snapshots used when a hit spawns the next charge.
 				for tick := 0; ; tick++ {
@@ -200,7 +199,7 @@ func TestBackwashChainThroughProjectileCollisions(t *testing.T) {
 						t.Fatal("chain did not terminate")
 					}
 					cs.CheckProjectileMonsterCollisions()
-					updater.UpdateProjectilesParallel(g.ConvertProjectilesToWrappers(), func(float64, float64) bool { return true })
+					entities.UpdateProjectiles(g.ConvertProjectilesToWrappers(), func(float64, float64) bool { return true })
 				}
 				legs := len(g.arrows) - 1
 				for _, target := range g.world.Monsters {

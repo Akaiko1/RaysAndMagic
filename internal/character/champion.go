@@ -72,21 +72,21 @@ func BuildChampion(def *config.ChampionDefinition, tier *config.ChampionTier, ti
 	char.Equipment = make(map[items.EquipSlot]items.Item)
 	mainHandSet := false
 	for _, key := range def.Equipment[tierName] {
-		if weapon, err := items.TryCreateWeaponFromYAML(key); err == nil {
-			if !char.CanEquipWeaponByName(weapon.Name) {
+		it, err := items.FromKey(key)
+		if err != nil {
+			return nil, fmt.Errorf("champion %q tier %q: equipment %q is neither a weapon nor an item", def.Name, tierName, key)
+		}
+		if it.Type == items.ItemWeapon {
+			if !char.CanEquipWeapon(it) {
 				return nil, fmt.Errorf("champion %q tier %q: lacks the skill to wield %q", def.Name, tierName, key)
 			}
 			slot := items.SlotMainHand
 			if mainHandSet {
 				slot = items.SlotOffHand
 			}
-			char.Equipment[slot] = weapon
+			char.Equipment[slot] = it
 			mainHandSet = true
 			continue
-		}
-		it, err := items.TryCreateItemFromYAML(key)
-		if err != nil {
-			return nil, fmt.Errorf("champion %q tier %q: equipment %q is neither a weapon nor an item", def.Name, tierName, key)
 		}
 		if it.Type == items.ItemArmor && !char.CanEquipArmor(it) {
 			return nil, fmt.Errorf("champion %q tier %q: lacks the skill to wear %q", def.Name, tierName, key)

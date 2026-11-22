@@ -54,11 +54,21 @@ func TestPointBlastsStopAtWalls(t *testing.T) {
 						return def
 					}
 					shoot := func(x, vx float64, life int) {
-						shot := MagicProjectile{ID: g.GenerateProjectileID("fireball"), X: x, Y: cy, VelX: vx,
-							Damage: 30, LifeTime: life, Active: true, SpellType: "fireball", Owner: ProjectileOwnerPlayer, Attacker: hero, AoeTiles: 2}
-						g.magicProjectiles = []MagicProjectile{shot}
-						g.magicProjectiles[0].Launch = projectileLaunch{valid: true, x: x, y: cy, dx: 1, cone: projectileAssistMaxAngleRad}
-						g.collisionSystem.RegisterEntity(collision.NewEntity(shot.ID, x, cy, 8, 8, collision.CollisionTypeProjectile, false))
+						id := g.GenerateProjectileID("fireball")
+						launch := projectileLaunch{valid: true, x: x, y: cy, dx: 1, cone: projectileAssistMaxAngleRad}
+						if source == "flask" {
+							// A bottle bursts where its flight ends: on the wall, or at its range.
+							remaining := 2 * ts
+							if !walled {
+								remaining = 1
+							}
+							g.flasks = []FlaskProjectile{{ID: id, Key: "harm_flask", X: x, Y: cy, VelX: vx, Damage: 30, LifeTime: life,
+								Active: true, Attacker: hero, Radius: 2 * ts, Remaining: remaining, Launch: launch}}
+						} else {
+							g.magicProjectiles = []MagicProjectile{{ID: id, X: x, Y: cy, VelX: vx, Damage: 30, LifeTime: life, Active: true,
+								SpellType: "fireball", Owner: ProjectileOwnerPlayer, Attacker: hero, AoeTiles: 2, Launch: launch}}
+						}
+						g.collisionSystem.RegisterEntity(collision.NewEntity(id, x, cy, 8, 8, collision.CollisionTypeProjectile, false))
 						g.threading = &threading.ThreadingComponents{EntityUpdater: entities.NewEntityUpdaterWithWorkers(1)}
 						defer g.threading.Shutdown()
 						(&GameLoop{game: g}).updateProjectilesAndImpacts()
@@ -85,16 +95,16 @@ func TestPointBlastsStopAtWalls(t *testing.T) {
 					case "arrow_hit":
 						equip("bow_of_hellfire")
 						ar := &Arrow{ID: "arrow", Active: true, LifeTime: 60, Damage: 30, BowKey: "bow_of_hellfire", DamageType: "fire", Owner: ProjectileOwnerPlayer, Attacker: hero}
-						g.combat.applyProjectileDamage(ar, "arrow", struck, ar.ID)
+						g.combat.applyProjectileDamage(ar, struck, ar.ID)
 					case "melee_splash":
 						def := equip("idol_breakers_maul")
-						g.combat.ApplyDamageToMonster(struck, 30, def.Name, false)
+						g.combat.ApplyDamageToMonster(struck, 30, testWeapon(def.Name), false)
 					case "death_burst":
 						def := equip("ember_egg_mace")
 						struck.HitPoints = 10
-						g.combat.ApplyDamageToMonster(struck, 30, def.Name, false)
+						g.combat.ApplyDamageToMonster(struck, 30, testWeapon(def.Name), false)
 					case "flask":
-						g.combat.detonateFlask(&MagicProjectile{ID: "flask", FlaskKey: "harm_flask", FlaskRadius: 2 * ts, Damage: 30, LifeTime: 10, Active: true, Attacker: hero}, cx, cy)
+						shoot(cx+0.05*ts, ts/4, 50)
 					case "trap":
 						g.combat.fireTrap(&PlacedTrap{Key: "cleave_trap", X: cx, Y: cy, Owner: hero}, struck)
 					}
@@ -142,23 +152,24 @@ func TestMonsterBlastsStopAtWalls(t *testing.T) {
 				shielded := mob("shielded", 16.2*ts, cy, alliesHit)
 				g.world.Monsters = []*monsterPkg.Monster3D{shooter, target, open, shielded}
 				g.world.RegisterMonstersWithCollisionSystem(g.collisionSystem)
-				owner := ProjectileOwnerMonsterAtBound
+				owner := ProjectileOwnerMonsterAtActor
 				if source == "ally_bolt" {
-					owner = ProjectileOwnerBoundUndead
+					owner = ProjectileOwnerPartyAlly
 				}
 				partyHP := 0
 				if source == "champion_party" {
 					// The party stands behind the wall, the splash victim the champion aims at.
 					placePlayerAtTile(g, 16, 10, ts)
 					g.camera.X, g.camera.Y = 16.2*ts, cy
+					noPartyDodge(t, g.combat)
 					for _, m := range g.party.Members {
 						m.HitPoints, m.MaxHitPoints = 5000, 5000
 						partyHP += m.HitPoints
 					}
 				}
 				bolt := &MagicProjectile{ID: "bolt", Active: true, LifeTime: 30, Damage: 30, SpellType: "fireball",
-					Owner: owner, SourceMonster: shooter, SourceName: "Shooter", IgnoresDodge: true}
-				g.combat.resolveMonsterProjectileVsMonster(bolt, "magic_projectile", target, bolt.ID)
+					Owner: owner, SourceMonster: shooter, SourceName: "Shooter"}
+				g.combat.resolveMonsterProjectileVsMonster(bolt, target, bolt.ID)
 				if target.HitPoints >= 5000 || open.HitPoints >= 5000 {
 					t.Fatalf("the bolt or the open-side splash never landed (target %d, open %d)", target.HitPoints, open.HitPoints)
 				}
@@ -268,7 +279,7 @@ func TestQuakesAndArtilleryReachBehindWalls(t *testing.T) {
 		}, true},
 		"point blast (control)": {func(g *MMGame, ts float64) {
 			attack := g.combat.newPartyMonsterAttack(30, 0, "fire", 0, nil, "Blast", false, true, false)
-			g.combat.applyAoeSplashAt(14.85*ts, 10.5*ts, attack, 3, nil, func(*monsterPkg.Monster3D, int) {})
+			g.combat.applyAoeSplashAt(14.85*ts, 10.5*ts, attack, 3, nil, func(*monsterPkg.Monster3D, partyMonsterHit) {})
 		}, false},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -314,13 +325,13 @@ func TestProjectileContactStopsAtCover(t *testing.T) {
 				splash.PerfectDodge = 0
 				g.world.Monsters = []*monsterPkg.Monster3D{m, splash}
 				splashHP := splash.HitPoints
-				p := MagicProjectile{ID: "wide-fireball", X: x, Y: y, Damage: 10, LifeTime: 30, Active: true, SpellType: "fireball", Owner: ProjectileOwnerPlayer, AoeTiles: 2, AoE: true}
+				p := MagicProjectile{ID: "wide-fireball", X: x, Y: y, Damage: 10, LifeTime: 30, Active: true, SpellType: "fireball", Owner: ProjectileOwnerPlayer, AoeTiles: 2}
 				if partyTarget {
 					g.camera.X, g.camera.Y = m.X, m.Y
 					g.collisionSystem.UpdateEntity("player", m.X, m.Y)
 					p.Owner = ProjectileOwnerMonster
 					p.SourceMonster = m
-					p.IgnoresDodge = true
+					noPartyDodge(t, g.combat)
 				}
 				g.magicProjectiles = []MagicProjectile{p}
 				g.collisionSystem.RegisterEntity(collision.NewEntity(p.ID, x, y, 2*ts, 2*ts, collision.CollisionTypeProjectile, false))

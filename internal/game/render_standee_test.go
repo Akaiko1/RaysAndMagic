@@ -180,7 +180,7 @@ func TestStandeeRenderSourceSizeBoundsDerivedTexturePayload(t *testing.T) {
 	}
 }
 
-func TestMapRenderUploadFrameBoundaries(t *testing.T) {
+func TestMapRenderUploadLimitBoundaries(t *testing.T) {
 	tests := []struct {
 		name      string
 		images    int
@@ -188,14 +188,14 @@ func TestMapRenderUploadFrameBoundaries(t *testing.T) {
 		nextBytes int64
 		wantFlush bool
 	}{
-		{name: "empty frame accepts oversized first image", nextBytes: mapRenderUploadFrameBytes + 1, wantFlush: false},
+		{name: "empty frame accepts oversized first image", nextBytes: mapRenderPlayUploads.bytes + 1, wantFlush: false},
 		{name: "under both limits", images: 1, bytes: 1024, nextBytes: 1024, wantFlush: false},
-		{name: "byte limit", images: 1, bytes: mapRenderUploadFrameBytes, nextBytes: 1, wantFlush: true},
-		{name: "image count limit", images: mapRenderUploadFrameImages, wantFlush: true},
+		{name: "byte limit", images: 1, bytes: mapRenderPlayUploads.bytes, nextBytes: 1, wantFlush: true},
+		{name: "image count limit", images: mapRenderPlayUploads.images, wantFlush: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := mapRenderUploadFrameFull(tt.images, tt.bytes, tt.nextBytes); got != tt.wantFlush {
+			if got := mapRenderPlayUploads.full(tt.images, tt.bytes, tt.nextBytes); got != tt.wantFlush {
 				t.Fatalf("flush = %v, want %v", got, tt.wantFlush)
 			}
 		})

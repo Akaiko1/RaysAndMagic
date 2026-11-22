@@ -3,9 +3,11 @@ package game
 import (
 	"fmt"
 	"image"
+	"strings"
 	uitext "ugataima/assets/text"
 
 	"ugataima/internal/character"
+	"ugataima/internal/config"
 	"ugataima/internal/items"
 )
 
@@ -19,16 +21,128 @@ func merchantBuysForGold(npc *character.NPC) bool {
 	return npc != nil && npc.SellAvailable && npc.Currency == ""
 }
 
-// merchantEntryPrice is the party-facing unit price of a stock entry in its own
-// currency, with the Merchant-skill discount applied to gold shops only.
-func (g *MMGame) merchantEntryPrice(entry *character.MerchantStockItem) int {
-	if entry == nil || (entry.RewardKey != "" && g.dialogNPC != nil && g.dialogNPC.FreeGoods) {
-		return 0
+// merchantSellsHere reports whether the open shop view buys the party's goods
+// for coin: a coin shop that buys from the party, except on a stock tab priced
+// wholly in goods, which trades like an exchange merchant and buys nothing.
+// The one predicate behind the bag's sale prices, drags and glow, the sale
+// click and the sale itself.
+func (g *MMGame) merchantSellsHere() bool {
+	return merchantBuysForGold(g.dialogNPC) && !g.merchantBarterShelfOpen()
+}
+
+// merchantBarterShelfOpen reports a shown stock tab (or untabbed shop) priced
+// in goods. A tab is wholly barter or wholly priced (validated at load), so
+// the authored tab decides, whichever of its entries a quest gate shows now.
+func (g *MMGame) merchantBarterShelfOpen() bool {
+	c := g.merchantStockCache()
+	if c.npc == nil {
+		return false
 	}
-	if entry.EffectiveCurrency(g.dialogNPC.Currency) == "" {
-		return g.merchantBuyPrice(entry.Cost)
+	tab := ""
+	if len(c.tabs) > 0 {
+		tab = c.tabs[g.merchantStockTab()]
 	}
-	return entry.Cost // flat: arena points and item currencies ignore the skill
+	return c.barterTabs[tab]
+}
+
+// merchantPriceKind is how a stock entry is paid for.
+type merchantPriceKind uint8
+
+const (
+	priceGold   merchantPriceKind = iota // coin, Merchant-skill discount
+	priceArena                           // arena points, flat
+	priceItem                            // an item currency, flat, maybe a gold surcharge
+	priceBarter                          // goods for goods
+	priceReward                          // a caravan reward, free once the caravan is unlocked
+)
+
+// merchantQuote is what a stock entry costs at the open shop: the ONE
+// dispatch on how it is paid for, behind the purse limit, the purchase and
+// every price label.
+type merchantQuote struct {
+	entry *character.MerchantStockItem
+	kind  merchantPriceKind
+	unit  int    // per-unit price in the entry's own currency (gold after the discount)
+	item  string // currency item name (priceItem)
+}
+
+func (g *MMGame) quoteMerchantEntry(entry *character.MerchantStockItem) merchantQuote {
+	q := merchantQuote{entry: entry, unit: entry.Cost}
+	currency := entry.EffectiveCurrency(g.dialogNPC.Currency)
+	name, isItem := currencyItemName(currency)
+	switch {
+	case entry.RewardKey != "":
+		q.kind, q.unit = priceReward, 0
+	case len(entry.Barter) > 0:
+		q.kind = priceBarter
+	case isItem:
+		q.kind, q.item = priceItem, name
+	case currency == character.CurrencyArenaPoints:
+		q.kind = priceArena
+	default:
+		q.kind, q.unit = priceGold, g.merchantBuyPrice(entry.Cost)
+	}
+	return q
+}
+
+// affordable is how many units the purse covers, stock aside.
+func (q merchantQuote) affordable(g *MMGame) int {
+	switch q.kind {
+	case priceReward:
+		return g.ecology.Stock[q.entry.RewardKey]
+	case priceBarter:
+		n := maxUnlimitedShelfUnits
+		for _, c := range q.entry.Barter {
+			n = min(n, divideBudget(g.party.CountItemsByName(c.Item.Name), c.Count))
+		}
+		return n
+	case priceItem:
+		n := divideBudget(g.party.CountItemsByName(q.item), q.unit)
+		if q.entry.GoldCost > 0 {
+			n = min(n, divideBudget(g.party.Gold, q.entry.GoldCost))
+		}
+		return n
+	case priceArena:
+		return divideBudget(g.party.ArenaPoints, q.unit)
+	}
+	return divideBudget(g.party.Gold, q.unit)
+}
+
+// label is what n units cost, in the entry's own currency.
+func (q merchantQuote) label(n int) string {
+	switch q.kind {
+	case priceReward:
+		return uitext.Text("caravan.free")
+	case priceBarter:
+		return barterPriceLabel(q.entry, n)
+	case priceItem:
+		if q.entry.GoldCost > 0 {
+			return fmt.Sprintf("%d %s + %d g", q.unit*n, q.item, q.entry.GoldCost*n)
+		}
+		return fmt.Sprintf("%d %s", q.unit*n, q.item)
+	case priceArena:
+		return fmt.Sprintf("%d ap", q.unit*n)
+	}
+	return fmt.Sprintf("%d g", q.unit*n)
+}
+
+// shelfLabel is the price line under a stock cell: haggled gold, an item
+// count (plus compacted coins), flat arena points, or the caravan's take.
+// A barter cell draws its goods instead (drawBarterPriceLine).
+func (q merchantQuote) shelfLabel() string {
+	switch q.kind {
+	case priceReward:
+		return uitext.Text("caravan.take")
+	case priceItem:
+		if q.entry.GoldCost > 0 {
+			// Two currencies on one narrow line: compact the coins.
+			return uitext.Text("dialog.stack_additional_cost", q.unit, compactCoinAmount(q.entry.GoldCost))
+		}
+		return fmt.Sprintf("x%d", q.unit)
+	case priceArena:
+		return uitext.Text("dialog.arena_price_short", q.unit)
+	}
+	return uitext.Text("dialog.gold_price_short", q.unit)
 }
 
 // merchantMaxUnits is how many units of an entry the party could buy right now:
@@ -37,23 +151,7 @@ func (g *MMGame) merchantMaxUnits(entry *character.MerchantStockItem) int {
 	if entry == nil || !entry.InStock() {
 		return 0
 	}
-	if entry.RewardKey != "" && g.dialogNPC != nil && g.dialogNPC.FreeGoods {
-		return max(0, min(entry.Quantity, g.ecology.Stock[entry.RewardKey]))
-	}
-	affordable := 0
-	switch currency := entry.EffectiveCurrency(g.dialogNPC.Currency); {
-	case currency == character.CurrencyArenaPoints:
-		affordable = divideBudget(g.party.ArenaPoints, entry.Cost)
-	default:
-		if name, ok := currencyItemName(currency); ok {
-			affordable = divideBudget(g.party.CountItemsByName(name), entry.Cost)
-			if entry.GoldCost > 0 {
-				affordable = min(affordable, divideBudget(g.party.Gold, entry.GoldCost))
-			}
-			break
-		}
-		affordable = divideBudget(g.party.Gold, g.merchantEntryPrice(entry))
-	}
+	affordable := g.quoteMerchantEntry(entry).affordable(g)
 	if entry.Quantity > 0 {
 		affordable = min(affordable, entry.Quantity)
 	} else {
@@ -61,7 +159,7 @@ func (g *MMGame) merchantMaxUnits(entry *character.MerchantStockItem) int {
 		// the picker exists to PREVENT oversized accidents.
 		affordable = min(affordable, maxUnlimitedShelfUnits)
 	}
-	return affordable
+	return max(0, affordable)
 }
 
 // maxUnlimitedShelfUnits bounds one purchase from an unlimited (or free)
@@ -88,18 +186,20 @@ func (g *MMGame) buyMerchantUnits(entry *character.MerchantStockItem, n int) boo
 		return false
 	}
 	if !entry.InStock() {
-		g.AddCombatMessage("That item is sold out.")
+		g.AddCombatMessage(uitext.Text("combat.that_item_is_sold_out"))
 		return false
 	}
 	if entry.Quantity > 0 && n > entry.Quantity {
-		g.AddCombatMessage(fmt.Sprintf("Only %d %s left.", entry.Quantity, entry.Item.Name))
+		g.AddCombatMessage(uitext.Text("combat.only_left", entry.Quantity, entry.Item.Name))
 		return false
 	}
 	// Arena-points merchants trade at flat prices in the victory currency; gold
 	// merchants keep the Merchant-skill discount. A per-entry currency_item
 	// (Scalewright) overrides the shop currency and may add a gold surcharge.
-	if entry.RewardKey != "" {
-		if !g.dialogNPC.FreeGoods || n > g.ecology.Stock[entry.RewardKey] {
+	q := g.quoteMerchantEntry(entry)
+	switch q.kind {
+	case priceReward:
+		if n > g.ecology.Stock[entry.RewardKey] {
 			return false
 		}
 		g.takeMerchantUnits(entry, n)
@@ -110,48 +210,74 @@ func (g *MMGame) buyMerchantUnits(entry *character.MerchantStockItem, n int) boo
 		g.syncCaravanStock()
 		g.AddCombatMessage(uitext.Text("caravan.collected", merchantUnitsLabel(entry, n)))
 		return true
-	}
-	currency := entry.EffectiveCurrency(g.dialogNPC.Currency)
-	if name, ok := currencyItemName(currency); ok {
+	case priceBarter:
+		return g.barterMerchantUnits(entry, n)
+	case priceItem:
 		goldCost := entry.GoldCost * n
-		if goldCost > g.party.Gold {
-			g.AddCombatMessage(fmt.Sprintf("Need %d gold on top of the %ss for %s.", goldCost, name, entry.Item.Name))
+		if !g.canAfford(goldCost) {
+			g.AddCombatMessage(uitext.Text("combat.need_gold_on_top_of_the", goldCost, q.item, entry.Item.Name))
 			return false
 		}
-		if !g.party.RemoveItemsByName(name, entry.Cost*n) {
-			g.AddCombatMessage(fmt.Sprintf("Need %d %ss to trade for %s.", entry.Cost*n, name, entry.Item.Name))
+		if !g.party.RemoveItemsByName(q.item, q.unit*n) {
+			g.AddCombatMessage(uitext.Text("combat.need_s_to_trade_for", q.unit*n, q.item, entry.Item.Name))
 			return false
 		}
-		g.party.Gold -= goldCost
+		g.spendGold(goldCost)
 		g.takeMerchantUnits(entry, n)
-		g.recordProfileItemTrade(currency, name, entry.Cost*n)
+		key, _ := character.CurrencyItemKey(entry.EffectiveCurrency(g.dialogNPC.Currency))
+		g.recordProfileItemTrade(key, q.item, q.unit*n)
 		if goldCost > 0 {
-			g.AddCombatMessage(fmt.Sprintf("Traded %d %ss and %d gold for %s.", entry.Cost*n, name, goldCost, merchantUnitsLabel(entry, n)))
+			g.AddCombatMessage(uitext.Text("combat.traded_s_and_gold_for", q.unit*n, q.item, goldCost, merchantUnitsLabel(entry, n)))
 		} else {
-			g.AddCombatMessage(fmt.Sprintf("Traded %d %ss for %s.", entry.Cost*n, name, merchantUnitsLabel(entry, n)))
+			g.AddCombatMessage(uitext.Text("combat.traded_s_for", q.unit*n, q.item, merchantUnitsLabel(entry, n)))
 		}
 		return true
-	}
-	if currency == character.CurrencyArenaPoints {
-		cost := entry.Cost * n
+	case priceArena:
+		cost := q.unit * n
 		if cost > g.party.ArenaPoints {
-			g.AddCombatMessage(fmt.Sprintf("Need %d arena points to buy %s.", cost, entry.Item.Name))
+			g.AddCombatMessage(uitext.Text("combat.need_arena_points_to_buy", cost, entry.Item.Name))
 			return false
 		}
 		g.party.ArenaPoints -= cost
 		g.takeMerchantUnits(entry, n)
-		g.AddCombatMessage(fmt.Sprintf("Bought %s for %d arena points.", merchantUnitsLabel(entry, n), cost))
+		g.AddCombatMessage(uitext.Text("combat.bought_for_arena_points", merchantUnitsLabel(entry, n), cost))
 		return true
 	}
-	cost := g.merchantEntryPrice(entry) * n
-	if cost > g.party.Gold {
-		g.AddCombatMessage(fmt.Sprintf("Need %d gold to buy %s.", cost, merchantUnitsLabel(entry, n)))
+	cost := q.unit * n
+	if !g.spendGold(cost) {
+		g.AddCombatMessage(uitext.Text("combat.need_gold_to_buy", cost, merchantUnitsLabel(entry, n)))
 		return false
 	}
-	g.party.Gold -= cost
 	g.takeMerchantUnits(entry, n)
-	g.AddCombatMessage(fmt.Sprintf("Bought %s for %d gold.", merchantUnitsLabel(entry, n), cost))
+	g.AddCombatMessage(uitext.Text("combat.bought_for_gold", merchantUnitsLabel(entry, n), cost))
 	return true
+}
+
+// barterMerchantUnits pays n units of a barter price in goods - every good is
+// counted before any is taken, so a short payment changes nothing.
+func (g *MMGame) barterMerchantUnits(entry *character.MerchantStockItem, n int) bool {
+	for _, c := range entry.Barter {
+		if need := c.Count * n; g.party.CountItemsByName(c.Item.Name) < need {
+			g.AddCombatMessage(uitext.Text("combat.need_to_trade_for", need, c.Item.Name, merchantUnitsLabel(entry, n)))
+			return false
+		}
+	}
+	for _, c := range entry.Barter {
+		g.party.RemoveItemsByName(c.Item.Name, c.Count*n)
+		g.recordProfileItemTrade(c.Key, c.Item.Name, c.Count*n)
+	}
+	g.takeMerchantUnits(entry, n)
+	g.AddCombatMessage(uitext.Text("combat.traded_for", barterPriceLabel(entry, n), merchantUnitsLabel(entry, n)))
+	return true
+}
+
+// barterPriceLabel names the goods n units of a barter entry cost.
+func barterPriceLabel(entry *character.MerchantStockItem, n int) string {
+	parts := make([]string, 0, len(entry.Barter))
+	for _, c := range entry.Barter {
+		parts = append(parts, fmt.Sprintf("%d %s", c.Count*n, c.Item.Name))
+	}
+	return strings.Join(parts, " + ")
 }
 
 // takeMerchantUnits hands n copies to the party and decrements the shelf.
@@ -178,26 +304,54 @@ func merchantUnitsLabel(entry *character.MerchantStockItem, n int) string {
 // merchant-skill price. The ONE sale body behind the double-click single-unit
 // sale and the drag-to-sell quantity picker.
 func (g *MMGame) sellInventoryUnits(idx, n int) bool {
-	if !merchantBuysForGold(g.dialogNPC) || idx < 0 || idx >= len(g.party.Inventory) || n < 1 {
+	if !g.merchantSellsHere() || idx < 0 || idx >= len(g.party.Inventory) || n < 1 {
 		return false
 	}
 	item := g.party.Inventory[idx]
-	base := item.Attributes["value"]
-	if base <= 0 {
-		g.AddCombatMessage("This item has no value.")
+	unit, _ := g.merchantUnitSellPrice(item)
+	if unit <= 0 {
+		g.AddCombatMessage(uitext.Text("combat.this_item_has_no_value"))
 		return false
 	}
-	price := g.merchantSellPrice(base) * n
+	price := unit * n
 	if !g.party.ConsumeUnitsAt(idx, n) {
 		return false
 	}
 	g.awardGold(price)
 	if n == 1 {
-		g.AddCombatMessage(fmt.Sprintf("Sold %s for %d gold.", item.Name, price))
+		g.AddCombatMessage(uitext.Text("combat.sold_for_gold", item.Name, price))
 	} else {
-		g.AddCombatMessage(fmt.Sprintf("Sold %s x%d for %d gold.", item.Name, n, price))
+		g.AddCombatMessage(uitext.Text("combat.sold_x_for_gold", item.Name, n, price))
 	}
 	return true
+}
+
+// merchantBuys is the merchant's authored special offers (item key -> gold
+// per unit), read from the catalog by NPC key so restored NPCs see current
+// content; nil without offers.
+func merchantBuys(npc *character.NPC) map[string]int {
+	if npc == nil || character.NPCConfigInstance == nil {
+		return nil
+	}
+	if def, ok := character.NPCConfigInstance.GetNPCData(npc.Key); ok && def != nil {
+		return def.Buys
+	}
+	return nil
+}
+
+// merchantUnitSellPrice is what the open merchant pays for one unit: its own
+// offer for that item (merchantBuys), else the Merchant-skill price on the
+// item's value.
+func (g *MMGame) merchantUnitSellPrice(item items.Item) (price int, special bool) {
+	if buys := merchantBuys(g.dialogNPC); len(buys) > 0 {
+		if _, key, found := config.ItemDefOf(item); found && buys[key] > 0 {
+			return buys[key], true
+		}
+	}
+	if base := item.Attributes["value"]; base > 0 {
+		return g.merchantSellPrice(base), false
+	}
+	return 0, false
 }
 
 // merchantDragOpen reports a merchant dialog whose grids accept a drag - the
@@ -230,8 +384,12 @@ func merchantUsesItemCurrency(npc *character.NPC) bool {
 	}
 	return false
 }
+
+// A view priced in goods - an item-currency shop or a barter shelf - shows
+// every carried stack it can be paid from; such a view never buys from the
+// party, so its cells are never sale indices.
 func (g *MMGame) merchantBagItems() []items.Item {
-	if merchantUsesItemCurrency(g.dialogNPC) {
+	if merchantUsesItemCurrency(g.dialogNPC) || g.merchantBarterShelfOpen() {
 		return g.party.CarriedItems()
 	}
 	return g.party.Inventory
@@ -262,14 +420,14 @@ func (g *MMGame) setMerchantCategory(buy bool, category int) {
 // nothing is bought from the party - and it must fit merchantGridW whole: a
 // second line would paint over the first row of icons, and a clipped one loses
 // exactly the part that explains the action.
-func merchantBagHeaderLabel(npc *character.NPC) string {
+func merchantBagHeaderLabel(npc *character.NPC, sells bool) string {
 	if npc != nil && npc.FreeGoods {
 		return uitext.Text("caravan.bag_header")
 	}
-	if merchantBuysForGold(npc) {
+	if sells {
 		return "Your Items"
 	}
-	return "Bag: drop buys here (no selling)"
+	return "Bag: drop to buy (no selling)"
 }
 
 // merchantTotalPriceLabel renders what n units of an entry cost, in whichever
@@ -278,38 +436,25 @@ func merchantTotalPriceLabel(g *MMGame, entry *character.MerchantStockItem, n in
 	if entry == nil || n < 1 {
 		return "-"
 	}
-	if entry.RewardKey != "" && g.dialogNPC.FreeGoods {
-		return uitext.Text("caravan.free")
-	}
-	currency := entry.EffectiveCurrency(g.dialogNPC.Currency)
-	if name, ok := currencyItemName(currency); ok {
-		if entry.GoldCost > 0 {
-			return fmt.Sprintf("%d %s + %d g", entry.Cost*n, name, entry.GoldCost*n)
-		}
-		return fmt.Sprintf("%d %s", entry.Cost*n, name)
-	}
-	if currency == character.CurrencyArenaPoints {
-		return fmt.Sprintf("%d ap", entry.Cost*n)
-	}
-	return fmt.Sprintf("%d g", g.merchantEntryPrice(entry)*n)
+	return g.quoteMerchantEntry(entry).label(n)
 }
 
 // merchantStockDragSource captures a shelf cell as a buy-drag source, reusing
 // the stash drag machine's shared state (shop bank of stashDragFrom).
 func (ui *UISystem) merchantStockDragSource(idx int, r image.Rectangle) {
 	if ui.displayedInput.building {
-		ui.onDisplayedInput(uiCommandDrag, layoutRect{r.Min.X, r.Min.Y, r.Dx(), r.Dy()}, func() { ui.merchantStockDragSource(idx, r) })
+		ui.onDisplayedInput(uiCommandDrag, layoutRectOf(r), func() { ui.merchantStockDragSource(idx, r) })
 		return
 	}
 	g := ui.game
-	if !g.stashDragArmed || g.stashDragFrom >= 0 {
+	if !g.stashDrag.armed || g.stashDragFrom >= 0 {
 		return
 	}
 	stock := g.merchantVisibleStock()
 	if idx < 0 || idx >= len(stock) || stock[idx] == nil || !stock[idx].InStock() {
 		return
 	}
-	if !ptInRect(g.stashDragStartX, g.stashDragStartY, r) {
+	if !ptInRect(g.stashDrag.startX, g.stashDrag.startY, r) {
 		return
 	}
 	ui.beginStashDrag(stashShopDragBase+idx, stock[idx].Item)

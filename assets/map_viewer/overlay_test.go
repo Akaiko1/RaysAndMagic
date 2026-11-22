@@ -91,6 +91,14 @@ func TestOverlayYAMLPatchesPreserveNeighbors(t *testing.T) {
 			if string(added) != want {
 				t.Fatalf("insertion changed neighbors:\n%s", added)
 			}
+			// A new map follows the blank line that separates its siblings.
+			third, err := overlayPatch(added, []string{"maps", "third"}, map[string]string{"name": "New"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if want := strings.Replace(want, "# footer", eol+"  third:"+eol+"    name: New"+eol+"# footer", 1); string(third) != want {
+				t.Fatalf("new entry spacing:\n%s", third)
+			}
 			if !overlayEntryUnchanged([]byte(raw), added, []string{"maps", "second", "name"}) {
 				t.Fatal("unrelated entry reported changed")
 			}
@@ -98,6 +106,10 @@ func TestOverlayYAMLPatchesPreserveNeighbors(t *testing.T) {
 				t.Fatal("same-entry change missed")
 			}
 		})
+	}
+	// Siblings written without blank lines stay that way.
+	if got, err := overlayPatch([]byte("npcs:\n  a: 1\n  b: 2\n"), []string{"npcs", "c"}, 3); err != nil || string(got) != "npcs:\n  a: 1\n  b: 2\n  c: 3\n" {
+		t.Fatalf("insert next to tight siblings: %q, %v", got, err)
 	}
 	// An empty `{}` parent grows into a block mapping instead of a broken splice.
 	for _, raw := range []string{"npcs: {}\n", "npcs:\n"} {
@@ -374,8 +386,8 @@ func TestOverlayInspectorNavigationAndPersistence(t *testing.T) {
 	if d.state.Adventure.Boss.HealPercent == 0 || v.overlay.modal != nil {
 		t.Fatal("inline toggle did not enable healing")
 	}
-	edit("HP restored each time (%)", "9")
-	edit("Total healing per visit (%)", "40")
+	edit("HP restored each round (%)", "9")
+	edit("Heals up to (% HP)", "40")
 	id := d.state.Adventure.Controls[0].ID
 	edit("Switches that stop healing", id)
 	if !d.state.Adventure.Controls[0].StopHealing {
@@ -529,7 +541,7 @@ func TestOverlayReferencesAndValidation(t *testing.T) {
 	if err := overlayFloat("x", &f, "").apply("NaN"); err == nil {
 		t.Fatal("NaN accepted")
 	}
-	for _, kind := range []string{"trap", "occupation", "lane"} {
+	for _, kind := range []config.EffectKind{config.EffectTrap, config.EffectOccupation, config.EffectLane} {
 		d := v.overlayDoc()
 		v.overlay.documents = nil
 		d.state.Adventure = config.AdventureConfig{OpeningOwned: true, Element: "earth"}
@@ -539,12 +551,33 @@ func TestOverlayReferencesAndValidation(t *testing.T) {
 			t.Fatalf("%s defaults invalid: %v", kind, err)
 		}
 	}
+	// Every conversion leaves a savable effect: no field of the old kind the
+	// new one rejects and cannot show.
+	kinds := []config.EffectKind{config.EffectTrap, config.EffectOccupation, config.EffectLane, config.EffectTransfer}
+	for _, from := range kinds {
+		for _, to := range kinds {
+			if from == to {
+				continue
+			}
+			d := v.overlayDoc()
+			v.overlay.documents = nil
+			d.state.Adventure = config.AdventureConfig{OpeningOwned: true, Element: "earth"}
+			d.state.Data.NPCSpawns = nil
+			i := d.addEffect(from, [4]int{3, 3, 3, 3}) // a floor tile beside a floor receiver
+			if err := d.changeKind(i, to); err != nil {
+				t.Fatalf("%s -> %s refused: %v", from, to, err)
+			}
+			if err := v.validateOverlay(d); err != nil {
+				t.Fatalf("%s -> %s does not save: %v", from, to, err)
+			}
+		}
+	}
 }
 func TestOverlayTabFitsAndTilePicking(t *testing.T) {
 	tabs := pageTabLayout()
 	last := tabs[len(tabs)-1]
-	if last.page != pageOverlay || last.x+last.w > windowWidth {
-		t.Fatalf("Overlay tab not reachable: %+v", last)
+	if last.page != pageActionables || last.x+last.w > windowWidth {
+		t.Fatalf("last tab not reachable at the authored width: %+v", last)
 	}
 	v := &viewer{}
 	d := &overlayDocument{state: overlayState{Data: &world.MapData{Width: 20, Height: 20}}}
@@ -914,12 +947,59 @@ func TestOverlayReloadStagesBeforeDiscard(t *testing.T) {
 	if v.overlay.modal == nil || !v.overlay.modal.confirm || !overlaySame(d.state, before) {
 		t.Fatal("reload discarded without confirmation")
 	}
+	mechanics, err := os.ReadFile(config.BossMechanicsPath)
+	if os.IsNotExist(err) {
+		mechanics = []byte("maps: {}\n")
+	} else if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(config.BossMechanicsPath, []byte("maps: [broken"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	v.overlay.modal.apply("")
 	if v.overlay.documents[d.key] != d || !overlaySame(d.state, before) || len(d.undo) == 0 || d.err == "" {
 		t.Fatal("failed reload discarded the draft")
+	}
+	if err := os.WriteFile(config.BossMechanicsPath, mechanics, 0600); err != nil {
+		t.Fatal(err)
+	}
+	oldProps := slices.Clone(v.questPropsForMap("deep_jungle")[[2]int{3, 9}])
+	defs := overlayClone(v.overlayQuestDefs())
+	for i := range defs["unbroken_jungle"].ActivePropLayouts {
+		route := &defs["unbroken_jungle"].ActivePropLayouts[i]
+		if route.ID == "route_2" {
+			for j := range route.Props {
+				if route.Props[j].NPC == "pilgrim_sun2" {
+					route.Props[j].X = 4
+				}
+			}
+		}
+	}
+	// A malformed quest file must preserve both the draft and cached markers.
+	if err := os.WriteFile(overlayQuestsPath, []byte("quests: [broken"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	v.reloadOverlay(d.key)
+	if v.overlay.documents[d.key] != d || !overlaySame(d.state, before) || !slices.Equal(v.questPropsForMap("deep_jungle")[[2]int{3, 9}], oldProps) {
+		t.Fatal("failed quest reload changed draft or reservations")
+	}
+	raw, err := yaml.Marshal(map[string]any{"quests": defs})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(overlayQuestsPath, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	v.reloadOverlay(d.key)
+	if v.overlay.documents[d.key] == d {
+		t.Fatalf("successful reload retained old draft: %s", d.err)
+	}
+	if len(v.questPropsForMap("deep_jungle")[[2]int{3, 9}]) != 0 {
+		t.Fatal("successful reload retained old quest reservation")
+	}
+	props := v.questPropsForMap("deep_jungle")[[2]int{4, 9}]
+	if len(props) != 1 || props[0].NPC != "pilgrim_sun2" {
+		t.Fatalf("successful reload missed moved quest reservation: %v", props)
 	}
 }
 

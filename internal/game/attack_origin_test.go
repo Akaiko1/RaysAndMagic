@@ -10,19 +10,26 @@ import (
 	"ugataima/internal/world"
 )
 
+// attackOriginCases is one tile of each class the attack-origin rule
+// (World3D.CanProjectileMoveTo) tells apart: walkable floor, non-walkable
+// water and chasm floors, a wall, an opaque and a transparent solid standee.
 var attackOriginCases = []struct {
 	tile    string
 	allowed bool
 }{
-	{"empty", true}, {"water", true}, {"deep_water", true},
-	{"dragon_cliffs_chasm_floor", true}, {"dragon_cliffs_chasm_floor_b", true},
-	{"wall", false}, {"tree", false}, {"moss_rock", false}, {"desert_dune", false}, {"large_dune", false},
+	{"empty", true}, {"water", true}, {"dragon_cliffs_chasm_floor", true},
+	{"wall", false}, {"tree", false}, {"moss_rock", false},
 }
 
 func TestFlyingPartyAttackOrigins(t *testing.T) {
 	for _, tc := range attackOriginCases {
-		for _, tb := range []bool{false, true} {
-			for _, action := range []string{"melee", "bow", "spell", "heal", "mouse"} {
+		for _, action := range []string{"melee", "bow", "spell", "heal", "mouse"} {
+			// Only the pointer's dispatch reads the combat mode before the gate.
+			modes := []bool{false}
+			if action == "mouse" {
+				modes = []bool{false, true}
+			}
+			for _, tb := range modes {
 				t.Run(fmt.Sprintf("%s/TB=%v/%s", tc.tile, tb, action), func(t *testing.T) {
 					g, _, fp, _, tick := mouseCombatHarness(t, tb)
 					tile, ok := world.GlobalTileManager.GetTileTypeFromKey(tc.tile)
@@ -39,10 +46,10 @@ func TestFlyingPartyAttackOrigins(t *testing.T) {
 						caster.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("hunting_bow")
 					case "spell":
 						caster.LearnSpell("fireball")
-						caster.Equipment[items.SlotSpell] = items.Item{Type: items.ItemBattleSpell, SpellEffect: "fireball", SpellCost: 4}
+						caster.Equipment[items.SlotQuickAction] = items.Item{Type: items.ItemBattleSpell, SpellEffect: "fireball", SpellCost: 4}
 					case "heal":
 						caster.LearnSpell("heal_other")
-						caster.Equipment[items.SlotSpell] = items.Item{Type: items.ItemUtilitySpell, SpellEffect: items.SpellEffectHealOther, SpellCost: 4}
+						caster.Equipment[items.SlotQuickAction] = items.Item{Type: items.ItemUtilitySpell, SpellEffect: items.SpellEffectHealOther, SpellCost: 4}
 						g.party.Members[1].HitPoints = g.party.Members[1].MaxHitPoints / 4
 					}
 					acted := false
@@ -52,7 +59,7 @@ func TestFlyingPartyAttackOrigins(t *testing.T) {
 					case "spell":
 						acted = g.combat.CastEquippedSpell()
 					case "heal":
-						acted = g.combat.CastEquippedHealOnTarget(1)
+						acted = g.combat.CastEquippedHeal()
 					case "mouse":
 						fp.press()
 						tick()

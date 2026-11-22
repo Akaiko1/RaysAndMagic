@@ -161,9 +161,11 @@ func (g *MMGame) monsterLootLanding(m *monster.Monster3D) (float64, float64) {
 }
 
 // A death sheet controls the hop, not whether loot may land inside a blocker.
-// Keep existing valid destinations (including water and Fly-accessible pits).
-// Otherwise search cardinally out of fly-over scenery, without crossing walls
-// or closed solid entities. This also handles clusters wider than one tile.
+// Keep existing valid destinations (including water, Fly-accessible pits and
+// walkable ground on the map border, all within a hand's reach). Otherwise
+// search cardinally out of fly-over scenery, landing by that same reach rule
+// but never crossing walls, the map border or closed solid entities. This
+// also handles clusters wider than one tile.
 func (g *MMGame) reachableMonsterLootLanding(x, y float64) (float64, float64) {
 	w := g.GetCurrentWorld()
 	if w == nil {
@@ -193,7 +195,7 @@ func (g *MMGame) reachableMonsterLootLanding(x, y float64) (float64, float64) {
 	for head := 0; head < len(queue); head++ {
 		for _, offset := range [4][2]int{{1, 0}, {0, 1}, {-1, 0}, {0, -1}} {
 			cell := [2]int{queue[head][0] + offset[0], queue[head][1] + offset[1]}
-			if seen[cell] || w.IsTileBlockingForTerrainPassage(cell[0], cell[1]) {
+			if seen[cell] {
 				continue
 			}
 			seen[cell] = true
@@ -203,6 +205,9 @@ func (g *MMGame) reachableMonsterLootLanding(x, y float64) (float64, float64) {
 			}
 			if !terrain.IsTileBlocking(cell[0], cell[1]) {
 				return wx, wy
+			}
+			if w.IsTileBlockingForTerrainPassage(cell[0], cell[1]) {
+				continue
 			}
 			if tm := world.GlobalTileManager; tm != nil && tm.CanFlyOver(w.Tiles[cell[1]][cell[0]]) {
 				queue = append(queue, cell)
@@ -231,9 +236,9 @@ func (g *MMGame) addMonsterLootDrop(m *monster.Monster3D, drops []items.Item, go
 		}
 		settings := g.monsterDeathSettings()
 		hop = lootHop{fromX: sx, fromY: sy, started: g.frameCount,
-			duration: max(1, int64(settings.LootHopSeconds*float64(g.config.GetTPS()))), heightTiles: settings.LootHopHeightTiles}
+			duration: int64(g.framesForSeconds(settings.LootHopSeconds)), heightTiles: settings.LootHopHeightTiles}
 		if m.Flying || m.VisualHeightTiles() > 0 {
-			hop.started += int64(math.Ceil(settings.FallSeconds * float64(g.config.GetTPS())))
+			hop.started += int64(g.framesForSeconds(settings.FallSeconds))
 		}
 	}
 	x, y = g.reachableMonsterLootLanding(x, y)

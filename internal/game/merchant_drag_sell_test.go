@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"ugataima/internal/character"
+	"ugataima/internal/config"
 	"ugataima/internal/game/keytracker"
 	"ugataima/internal/graphics"
 	"ugataima/internal/items"
@@ -41,14 +42,14 @@ func merchantDragGame(t *testing.T) (*MMGame, *UISystem) {
 func dropBagStackOnStockGrid(g *MMGame, ui *UISystem, idx int, onStock bool) {
 	dlg := npcDialogLayout(g)
 	leftX, _, gridTop, _ := merchantGridLayout(dlg.x, dlg.y)
-	g.stashDragActive = true
+	g.stashDrag.active = true
 	g.stashDragDrop = true
 	g.stashDragFrom = stashDragInvBase + idx
 	g.stashDragItem = g.party.Inventory[idx]
 	if onStock {
-		g.stashDragCurX, g.stashDragCurY = leftX+4, gridTop+4
+		g.stashDrag.curX, g.stashDrag.curY = leftX+4, gridTop+4
 	} else {
-		g.stashDragCurX, g.stashDragCurY = dlg.x+2, dlg.y+2 // title bar: no drop zone
+		g.stashDrag.curX, g.stashDrag.curY = dlg.x+2, dlg.y+2 // title bar: no drop zone
 	}
 	screen := ebiten.NewImage(g.config.GetScreenWidth(), g.config.GetScreenHeight())
 	ui.drawMerchantDialog(screen, dlg.x, dlg.y, dlg.w, dlg.h)
@@ -64,7 +65,7 @@ func TestDragStackToMerchantOpensSellPickerWithFullStack(t *testing.T) {
 	if ui.stackSplitPicker.quantity != 5 {
 		t.Fatalf("default quantity = %d, want the FULL stack (5)", ui.stackSplitPicker.quantity)
 	}
-	if g.stashDragActive || g.stashDragDrop {
+	if g.stashDrag.active || g.stashDragDrop {
 		t.Fatal("the resolved drop left drag state behind")
 	}
 
@@ -88,7 +89,7 @@ func TestDragReleasedOffTheStockGridJustCancels(t *testing.T) {
 	if ui.stackSplitPicker.open {
 		t.Fatal("a drop outside the stock grid opened the sell picker")
 	}
-	if g.stashDragActive || g.stashDragDrop {
+	if g.stashDrag.active || g.stashDragDrop {
 		t.Fatal("a cancelled drop left drag state behind")
 	}
 	if len(g.party.Inventory) != 1 || g.party.Gold != 0 {
@@ -301,6 +302,25 @@ func TestGoldShopPurchaseResaleMargin(t *testing.T) {
 			t.Fatal(err)
 		}
 		for _, stock := range npc.MerchantStock {
+			if len(stock.Barter) > 0 {
+				// A barter shelf must not be a resale loop either: the output,
+				// sold at its value or the best special offer anywhere, fetches
+				// less than the goods paid for it would.
+				_, outKey, _ := config.GetItemDefinitionByName(stock.Item.Name)
+				resale := stock.Item.Attributes["value"]
+				for _, def := range character.NPCConfigInstance.NPCs {
+					resale = max(resale, def.Buys[outKey])
+				}
+				goods := 0
+				for _, c := range stock.Barter {
+					goods += c.Count * c.Item.Attributes["value"]
+				}
+				if resale >= goods {
+					t.Errorf("%s/%s: barter resells for %d, goods worth %d", key, stock.Item.Name, resale, goods)
+				}
+				checked++
+				continue
+			}
 			if stock.EffectiveCurrency(npc.Currency) != "" || npc.FreeGoods {
 				continue
 			}
@@ -367,14 +387,14 @@ func merchantBuyGame(t *testing.T, currency string, entry *character.MerchantSto
 func dragShelfItemToBag(g *MMGame, ui *UISystem, idx int, onBag bool) {
 	dlg := npcDialogLayout(g)
 	_, rightX, gridTop, _ := merchantGridLayout(dlg.x, dlg.y)
-	g.stashDragActive = true
+	g.stashDrag.active = true
 	g.stashDragDrop = true
 	g.stashDragFrom = stashShopDragBase + idx
 	g.stashDragItem = g.merchantVisibleStock()[idx].Item
 	if onBag {
-		g.stashDragCurX, g.stashDragCurY = rightX+4, gridTop+4
+		g.stashDrag.curX, g.stashDrag.curY = rightX+4, gridTop+4
 	} else {
-		g.stashDragCurX, g.stashDragCurY = dlg.x+2, dlg.y+2
+		g.stashDrag.curX, g.stashDrag.curY = dlg.x+2, dlg.y+2
 	}
 	ui.drawMerchantDialog(ebiten.NewImage(g.config.GetScreenWidth(), g.config.GetScreenHeight()), dlg.x, dlg.y, dlg.w, dlg.h)
 }
@@ -404,7 +424,7 @@ func TestQuantityButtonsThroughDisplayedPicker(t *testing.T) {
 				ui.beginMerchantBuyPicker(0)
 				maximum = 7
 			case "sell":
-				ui.beginMerchantSellPicker(0)
+				ui.beginMerchantSellPicker(0, 0)
 				maximum = 20
 			default:
 				ui.openStackSplitPicker(stackSplitPickerInventory, 0, g.party.Inventory[0])
@@ -647,7 +667,7 @@ func TestDragStartDoesNotTradeOnTheClickThatBeginsIt(t *testing.T) {
 	if g.party.Inventory[0].Count() != 5 {
 		t.Fatalf("the press that begins a drag sold a unit: %d left", g.party.Inventory[0].Count())
 	}
-	fp.moveTo(cellX-60, cellY) // well past quickDragThreshold
+	fp.moveTo(cellX-60, cellY) // well past dragDeadZone
 	fp.hold()
 	frame()
 	fp.release()
@@ -881,10 +901,10 @@ func TestBagHeaderCarriesTheBuyHintWithoutOverlappingIcons(t *testing.T) {
 	coin := &character.NPC{Name: "Trader", SellAvailable: true}
 	points := &character.NPC{Name: "Quartermaster", Currency: character.CurrencyArenaPoints}
 
-	if got := merchantBagHeaderLabel(coin); got != "Your Items" {
+	if got := merchantBagHeaderLabel(coin, merchantBuysForGold(coin)); got != "Your Items" {
 		t.Fatalf("coin shop header = %q, want the plain title", got)
 	}
-	hint := merchantBagHeaderLabel(points)
+	hint := merchantBagHeaderLabel(points, merchantBuysForGold(points))
 	// Both facts must survive: the grid buys, and the shop does not buy back.
 	for _, want := range []string{"drop", "buy", "no selling"} {
 		if !strings.Contains(hint, want) {

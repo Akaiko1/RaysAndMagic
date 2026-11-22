@@ -40,7 +40,7 @@ var controlTipGroups = []controlTipGroup{
 	{"Healing a chosen hero", []controlTip{
 		{"Point at card + F", "The slotted Heal lands on that hero (First Aid always heals the caster)"},
 		{"Point at card + C", "The hero's best heal lands on that hero"},
-		{"No card pointed at", "F and C heal the selected hero"},
+		{"No card pointed at", "F and C heal the most hurt ally"},
 		{"From the spellbook", "Heal Other lands on the most hurt ally"},
 		{"Space", "Heals the most hurt ally by itself"},
 	}},
@@ -53,11 +53,11 @@ var controlTipGroups = []controlTipGroup{
 		{"Walk", "Loot bags on and next to your tile are picked up"},
 		{"Space", "Pick up loot or talk to the NPC in front; hold to gather every bag nearby"},
 		{"Click", "Open loot, doors and chests, talk to NPCs, use objects within 2 tiles"},
-		{"V / Shift + V", "Wayfarer: Fold Step / Return Step"},
+		{"V / Shift + V", "Pilgrim: Fold Step / Return Step"},
 		{"Camp icon", "Rest for 1 food; not with enemies near"},
 	}},
 	{"Panels", []controlTip{
-		{"I / P / M / J / K", "Inventory, Characters, Spellbook, Quests, Cards; the same key closes"},
+		{"I / P / M / J / K / N", "Inventory, Characters, Spellbook, Quests, Cards, World Map (when carried); the same key closes"},
 		{"Esc", "Close the panel, or open this menu"},
 		{"Double-click item", "Equip or use it on the selected hero; on the paperdoll, unequip"},
 		{"Right-click item", "Discard, split a stack, move between bags"},
@@ -206,6 +206,6 @@ func (ui *UISystem) drawControlTips(screen *ebiten.Image, panel layoutRect) {
 		if wheel == 0 || !isMouseHoveringBox(mx, my, l.body.x, l.body.y, l.body.right(), l.body.bottom()) {
 			return
 		}
-		g.controlTipsScroll = min(l.maxScroll(), max(0, g.controlTipsScroll-int(wheel*3*controlTipsLineH)))
+		g.controlTipsScroll = min(l.maxScroll(), max(0, g.controlTipsScroll+wheelScrollPixels(wheel, 3*controlTipsLineH)))
 	})
 }

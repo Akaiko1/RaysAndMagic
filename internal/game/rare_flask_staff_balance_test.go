@@ -31,7 +31,7 @@ func TestRareBalanceFlaskMasteryDamageAndBurn(t *testing.T) {
 			for tier := 0; tier < 4; tier++ {
 				t.Run(fmt.Sprintf("TB=%v/%s/tier=%d", tb, key, tier), func(t *testing.T) {
 					g, c := rareClassGame(t, character.ClassAlchemist, tb)
-					c.Skills[character.SkillBombThrowing].Mastery = character.SkillMastery(tier)
+					c.Skills[character.FlaskMasterySkill(d.Flask)].Mastery = character.SkillMastery(tier)
 					c.Intellect, c.Accuracy = 19, 99
 					g.party.Inventory = nil
 					item := items.CreateItemFromYAML(key)
@@ -39,11 +39,11 @@ func TestRareBalanceFlaskMasteryDamageAndBurn(t *testing.T) {
 					if !g.throwFlask(0, key, false) {
 						t.Fatal("flask did not launch")
 					}
-					p := &g.magicProjectiles[0]
+					p := &g.flasks[0]
 					wantDamage := d.Flask.Damage[tier] + c.GetEffectiveIntellect()/character.BombThrowingIntellectDivisor
 					burnSeconds := d.Flask.BurnSeconds[tier]
-					if p.Damage != wantDamage || p.FlaskBurnFrames != burnSeconds*g.config.GetTPS() {
-						t.Fatalf("launch damage/burn=%d/%d, expected %d/%d", p.Damage, p.FlaskBurnFrames, wantDamage, burnSeconds*g.config.GetTPS())
+					if p.Damage != wantDamage || p.BurnFrames != burnSeconds*g.config.GetTPS() {
+						t.Fatalf("launch damage/burn=%d/%d, expected %d/%d", p.Damage, p.BurnFrames, wantDamage, burnSeconds*g.config.GetTPS())
 					}
 					m := zoneVictim(t, g)
 					m.ArmorClass = 0
@@ -75,13 +75,13 @@ func TestRareBalanceFlowingStaffGuaranteedCritical(t *testing.T) {
 						weapon = items.CreateWeaponFromYAML("iron_sword")
 					}
 					c.Equipment[items.SlotMainHand] = weapon
-					def := lookupWeaponConfigByName(weapon.Name)
+					def := lookupWeaponConfig(weapon)
 					original := *def
 					t.Cleanup(func() { *def = original })
 					def.CritChance = 0
 					if route == "melee" {
 						def.Range = 1
-						def.Melee = lookupWeaponConfigByName("Iron Sword").Melee
+						def.Melee = lookupWeaponConfig(testWeapon("Iron Sword")).Melee
 					}
 					if route == "empty" {
 						c.RareClass.FlowCharges = 0

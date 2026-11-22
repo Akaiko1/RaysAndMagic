@@ -52,7 +52,7 @@ func TestItemUsageDefaultsFromYAML(t *testing.T) {
 		key  string
 		want []string
 	}{
-		{"medusa_card", []string{"Card one", "Card two"}},
+		{"jellyfish_card", []string{"Card one", "Card two"}},
 		{"granite", []string{"Trade"}},
 		{"health_potion", []string{"Activate", "Consume"}},
 		{"leather_armor", nil}, {"belt_of_strength", nil},
@@ -99,7 +99,7 @@ func TestItemUsageDefaultsFromYAML(t *testing.T) {
 			}
 		}
 	}
-	card := cfg.Items["medusa_card"]
+	card := cfg.Items["jellyfish_card"]
 	got := card.TooltipUsageLines()
 	got[0] = "Changed"
 	if card.TooltipUsageLines()[0] != "Card one" {

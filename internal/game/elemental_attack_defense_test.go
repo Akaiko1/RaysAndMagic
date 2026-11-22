@@ -52,7 +52,7 @@ func TestElementalDefenseOrderAndVictimFX(t *testing.T) {
 						foe := mkTestMonster("Victim", 1000)
 						foe.Resistances[monster.DamageEarth], foe.Resistances[monster.DamagePhysical] = tc.resist, tc.resist
 						foe.ArmorClass, foe.PerfectDodge = tc.armor, tc.dodge
-						foe.SoakDamage, foe.SoakFrames = tc.soak, 100
+						foe.SoakDamage, foe.Soak.Frames = tc.soak, 100
 						cs.monsterStrikeMonster(m, foe)
 						got = 1000 - foe.HitPoints
 					}

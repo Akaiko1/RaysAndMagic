@@ -15,8 +15,8 @@ import (
 	"ugataima/internal/world"
 )
 
-// balanceArena runs bench-party fights through the real turn-based loop on
-// the arena's sand hall. The party plays like a reasonable player: the active
+// balanceArena runs bench-party fights through the real game loop on the
+// arena's sand hall, turn-based or in real time (rt). The party plays like a reasonable player: the active
 // hero clicks the nearest enemy (the smart attack heals, casts the readied
 // spell, arms a trap or swings), heroes with nothing in reach let the others
 // act, and a party with nothing to do steps toward the enemy.
@@ -26,6 +26,10 @@ type balanceArena struct {
 	bench *BenchCatalog
 	ts    float64
 	wm    *world.WorldManager
+	rt    bool // fights run in real time
+	// closing: the last real-time attack found nothing in reach, so the party
+	// walks in until an action lands.
+	closing bool
 	// noSummons drops the pre-fight summons, to measure what they add.
 	noSummons   bool
 	actions     map[string]map[string]int // the running fight's action tally
@@ -45,6 +49,14 @@ const (
 	balanceRoundCap = 60
 	balanceFrameCap = balanceRoundCap * 600
 )
+
+// balanceMeleeReachTiles is how close a melee party walks before it strikes.
+const balanceMeleeReachTiles = 1.5
+
+// balanceRoundFrames is one combat round of real time.
+func (a *balanceArena) balanceRoundFrames() int {
+	return config.CombatRoundSeconds * a.g.config.GetTPS()
+}
 
 func newBalanceArena(t *testing.T) *balanceArena {
 	t.Helper()
@@ -113,6 +125,7 @@ func (a *balanceArena) stage(partyKey string, level int, foes []string) {
 	a.t.Helper()
 	g := a.g
 	a.reset()
+	a.closing = false
 	p := a.bench.Parties[partyKey]
 	members, err := g.buildBenchMembers(p, level)
 	if err != nil {
@@ -135,7 +148,9 @@ func (a *balanceArena) stage(partyKey string, level int, foes []string) {
 		a.unseal(m)
 		g.registerSpawnedMonster(m)
 	}
-	g.ToggleTurnBasedMode()
+	if !a.rt {
+		g.ToggleTurnBasedMode()
+	}
 }
 
 // fight stages one encounter and runs it to a decision or the round cap.
@@ -161,7 +176,11 @@ func (a *balanceArena) fight(partyKey string, level int, foes []string) balanceF
 	a.actions = result.Actions
 	a.techSeen = map[string]int{}
 	monsterTurn := false
-	for frame := 0; frame < balanceFrameCap; frame++ {
+	frameCap := balanceFrameCap
+	if a.rt {
+		frameCap = balanceRoundCap*a.balanceRoundFrames() + 1 // one more pass to see the cap
+	}
+	for frame := 0; frame < frameCap; frame++ {
 		if !a.foesStanding() {
 			result.Won = true
 			break
@@ -177,10 +196,11 @@ func (a *balanceArena) fight(partyKey string, level int, foes []string) balanceF
 		// between frames: autocast techniques get their window first. A
 		// monster turn can open and resolve inside one frame, so the turn is
 		// observed after the decision and again after the frame.
+		purify := a.probePurify()
 		g.gameLoop.updateExploration()
 		g.levelUpChoiceQueue = g.levelUpChoiceQueue[:0]
 		logVersion = a.captureLog(&result, logVersion)
-		a.noteTechniques()
+		a.noteTechniques(purify)
 		if a.onFrame != nil {
 			a.onFrame()
 		}
@@ -192,13 +212,16 @@ func (a *balanceArena) fight(partyKey string, level int, foes []string) balanceF
 				}
 			}
 		}
-		if monsterTurn && g.currentTurn == 0 {
+		if !a.rt && monsterTurn && g.currentTurn == 0 {
 			result.Rounds++
 			monsterTurn = false
 		}
 		monsterTurn = monsterTurn || g.currentTurn == 1
 		a.partyAct()
 		monsterTurn = monsterTurn || g.currentTurn == 1
+		if a.rt {
+			result.Rounds = (frame + 1) / a.balanceRoundFrames() // completed rounds, as turn-based counts them
+		}
 	}
 	if !result.Won && !a.partyDown() && result.Rounds < balanceRoundCap {
 		result.Timeout = true
@@ -236,23 +259,8 @@ func (a *balanceArena) prepareParty() {
 				}
 			}
 		}
-		for _, school := range m.MagicSchools {
-			for _, id := range school.KnownSpells {
-				def, err := spells.GetSpellDefinitionByID(id)
-				fightBuff := def.IsBuff() && (def.StatBonus != 0 || len(def.StatBonuses) > 0 || def.ResistBuffPct != 0 ||
-					def.ResistBuffSchoolPct != 0 || def.OutgoingDamageBonus != 0 || def.IncomingDamageReduction != 0)
-				if err != nil || !(fightBuff || (def.SummonMonster != "" && !a.noSummons)) {
-					continue
-				}
-				g.combat.castPlayerSpell(id, def, m, false)
-			}
-		}
 	}
-	// Buffed out of combat, then rested: buffs that raise max HP or SP leave
-	// the party full, not short of its new maximum.
-	for _, m := range g.party.Members {
-		m.HitPoints, m.SpellPoints = m.MaxHitPoints, m.MaxSpellPoints
-	}
+	castFightBuffs(g, !a.noSummons)
 }
 
 // unseal puts a quest-gated boss in the state the player meets it: its gating
@@ -261,7 +269,7 @@ func (a *balanceArena) unseal(m *monster.Monster3D) {
 	if m.PassiveUntilQuest == "" || a.g.questManager == nil {
 		return
 	}
-	if q := a.g.questManager.GetQuest(m.PassiveUntilQuest); q == nil || q.Status != quests.QuestStatusCompleted {
+	if q := a.g.questManager.GetQuest(m.PassiveUntilQuest); q == nil || q.Status() != quests.QuestStatusCompleted {
 		_ = a.g.questManager.ActivateQuest(m.PassiveUntilQuest)
 		a.g.questManager.MarkCompleted(m.PassiveUntilQuest)
 	}
@@ -272,7 +280,11 @@ func (a *balanceArena) unseal(m *monster.Monster3D) {
 func (a *balanceArena) partyAct() {
 	g := a.g
 	ih := g.gameLoop.inputHandler
-	if !g.turnBasedMode || g.currentTurn != 0 || g.viewTurnFramesLeft > 0 || g.spellInputCooldown != 0 || g.partyAllExhausted() || g.gameplayPausedByOverlay() {
+	if a.rt {
+		a.partyActRT()
+		return
+	}
+	if !g.turnBasedMode || g.currentTurn != 0 || g.viewTurnFramesLeft > 0 || g.actionInputStagger != 0 || g.partyAllExhausted() || g.gameplayPausedByOverlay() {
 		a.readyFrames = 0
 		return
 	}
@@ -292,7 +304,7 @@ func (a *balanceArena) partyAct() {
 	// A mostly melee party closes in before acting: a step after an action
 	// hands the monsters an extra turn.
 	if g.partyActionsUsed == 0 && a.mostlyMelee() &&
-		math.Hypot(target.X-g.camera.X, target.Y-g.camera.Y) > 1.5*a.ts && a.stepToward(target) {
+		math.Hypot(target.X-g.camera.X, target.Y-g.camera.Y) > balanceMeleeReachTiles*a.ts && a.stepToward(target) {
 		a.tally("party", "step")
 		return
 	}
@@ -316,13 +328,98 @@ func (a *balanceArena) partyAct() {
 			return
 		}
 	}
-	// Nothing in reach: close the distance like the move keys do.
-	if a.stepToward(target) {
+	// Nothing done and the foe beyond every reach: close the distance like the
+	// move keys do. Within reach (a spell on reuse, say) the party waits.
+	if a.beyondReach(target) && a.stepToward(target) {
 		a.tally("party", "step")
 		return
 	}
 	a.tally("party", "pass")
 	g.forfeitPartyTurn()
+}
+
+// partyActRT plays real time like a player holding the attack on the nearest
+// enemy: the game hands the action to whichever hero is ready, a fallen hero
+// is raised from a quick slot, a mostly melee party walks in, and a party
+// with nothing in reach closes the distance.
+func (a *balanceArena) partyActRT() {
+	g := a.g
+	ih := g.gameLoop.inputHandler
+	target := a.nearestFoe()
+	if target == nil || g.gameplayPausedByOverlay() {
+		a.readyFrames = 0
+		return
+	}
+	// One step a frame at most, the move keys' pace.
+	if a.closing && a.beyondReach(target) || a.mostlyMelee() && math.Hypot(target.X-g.camera.X, target.Y-g.camera.Y) > balanceMeleeReachTiles*a.ts {
+		a.walkToward(target)
+	}
+	ready := false
+	for i := range g.party.Members {
+		ready = ready || g.canSpendCombatAction(i)
+	}
+	// The same one-frame reaction as turn-based play, for autocast techniques.
+	if !ready {
+		a.readyFrames = 0
+		return
+	}
+	if a.readyFrames++; a.readyFrames < 2 {
+		return
+	}
+	a.readyFrames = 0
+	if a.revive() {
+		return
+	}
+	probes := make([]actionProbe, len(g.party.Members))
+	cooldowns := make([]int, len(g.party.Members))
+	for i, m := range g.party.Members {
+		probes[i], cooldowns[i] = a.actionProbe(i), m.RTCooldown+m.OffHandRTCooldown
+	}
+	if ih.performMouseSmartAttack(target) {
+		// The actor is whoever started a cooldown or spent SP or a flask.
+		for i, m := range g.party.Members {
+			after := a.actionProbe(i)
+			if m.RTCooldown+m.OffHandRTCooldown > cooldowns[i] || after.sp < probes[i].sp || after.flasks < probes[i].flasks {
+				a.tally(m.Name, probes[i].kind(a, i))
+				a.closing = false
+				return
+			}
+		}
+	}
+	a.closing = g.actionInputStagger == 0 // nobody acted: walk in while the foe is beyond reach
+}
+
+// beyondReach: the foe stands farther than any standing hero's longest reach -
+// a ranged weapon, the readied offensive spell (on reuse or not) or flask,
+// else melee.
+func (a *balanceArena) beyondReach(target *monster.Monster3D) bool {
+	g := a.g
+	reach := balanceMeleeReachTiles
+	for _, m := range g.party.Members {
+		if balanceHeroDown(m) {
+			continue
+		}
+		if w := lookupWeaponConfig(m.Equipment[items.SlotMainHand]); w != nil && w.IsRanged() {
+			reach = max(reach, float64(w.Range))
+		}
+		action := m.Equipment[items.SlotQuickAction]
+		if def, err := spells.GetSpellDefinitionByID(spells.SpellID(action.SpellEffect)); err == nil && def.IsOffensive() && m.Class != character.ClassMonk {
+			if r, ok := g.combat.CalculateSpellRangeTiles(spells.SpellID(action.SpellEffect)); ok {
+				reach = max(reach, r)
+			}
+		}
+		if d, ok := config.GetItemDefinition(action.Flask); ok && action.Type == items.ItemThrowable && d.Flask != nil {
+			reach = max(reach, float64(d.Flask.RangeTiles))
+		}
+	}
+	return math.Hypot(target.X-g.camera.X, target.Y-g.camera.Y) > reach*a.ts
+}
+
+// walkToward faces the target and takes one real-time step, as the move keys do.
+func (a *balanceArena) walkToward(target *monster.Monster3D) {
+	g := a.g
+	g.snapFacing(math.Atan2(target.Y-g.camera.Y, target.X-g.camera.X))
+	g.gameLoop.inputHandler.moveForward()
 }
 
 // revive raises a downed hero the way a player does: a revive spell from a
@@ -337,7 +434,7 @@ func (a *balanceArena) revive() bool {
 		return false
 	}
 	for i, m := range g.party.Members {
-		if !g.canSelectChar(i) {
+		if !g.canSpendCombatAction(i) {
 			continue
 		}
 		for slot, q := range m.QuickSlots {
@@ -345,7 +442,7 @@ func (a *balanceArena) revive() bool {
 				continue
 			}
 			def, err := spells.GetSpellDefinitionByID(spells.SpellID(q.SpellEffect))
-			if err != nil || !(def.Revive || def.ReviveHpPct > 0) || m.SpellPoints < g.combat.effectiveSpellCost(m, def.SpellPointsCost) {
+			if err != nil || !(def.Revive || def.ReviveHpPct > 0) || m.SpellPoints < m.MeditatedSPCost(def.SpellPointsCost) {
 				continue
 			}
 			g.selectedChar = i
@@ -360,21 +457,38 @@ func (a *balanceArena) revive() bool {
 	return false
 }
 
-// noteTechniques records the autocast techniques in effect: they announce
-// nothing, so the party's buffs and Purify's lock are what shows them.
-func (a *balanceArena) noteTechniques() {
+// purifyProbe is the state a Purify autocast changes: the party had something
+// to cleanse, and each Wayfarer's automatic budget was ready or running.
+type purifyProbe struct {
+	useful     bool
+	autoFrames map[string]int
+}
+
+func (a *balanceArena) probePurify() purifyProbe {
+	p := purifyProbe{useful: a.g.partyNeedsPurify(), autoFrames: map[string]int{}}
+	for _, m := range a.g.party.Members {
+		p.autoFrames[m.Name] = m.AutocastCD.Frames
+	}
+	return p
+}
+
+// noteTechniques records active buffs and successful cleansing uses. A
+// Purify use is read from state: the hero's automatic budget restarted
+// during the frame and the party no longer has anything to cleanse.
+func (a *balanceArena) noteTechniques(before purifyProbe) {
 	g := a.g
 	for _, m := range g.party.Members {
 		if m.Class != character.ClassWayfarer {
 			continue
 		}
 		for _, b := range g.combatBuffs {
-			if config.Technique(b.SpellID) != nil && a.techSeen[m.Name+b.SpellID] == 0 {
-				a.techSeen[m.Name+b.SpellID] = 1
-				a.tally(m.Name, "technique:"+b.SpellID)
+			if d := config.TechniqueFromID(b.ID); d != nil && a.techSeen[m.Name+d.Key] == 0 {
+				a.techSeen[m.Name+d.Key] = 1
+				a.tally(m.Name, b.ID)
 			}
 		}
-		if m.RareClass.PurifyFrames > 0 && a.techSeen[m.Name+"purify"] == 0 {
+		restarted := before.autoFrames[m.Name] == 0 && m.AutocastCD.Frames > 0
+		if a.techSeen[m.Name+"purify"] == 0 && restarted && before.useful && !g.partyNeedsPurify() {
 			a.techSeen[m.Name+"purify"] = 1
 			a.tally(m.Name, "technique:purify")
 		}
@@ -401,8 +515,8 @@ type actionProbe struct {
 func (a *balanceArena) actionProbe(i int) actionProbe {
 	g := a.g
 	m := g.party.Members[i]
-	p := actionProbe{sp: m.SpellPoints, traps: len(g.traps), readied: string(m.Equipment[items.SlotSpell].SpellEffect)}
-	if m.Equipment[items.SlotSpell].Type == items.ItemThrowable {
+	p := actionProbe{sp: m.SpellPoints, traps: len(g.traps), readied: quickSlotKey(m.Equipment[items.SlotQuickAction])}
+	if m.Equipment[items.SlotQuickAction].Type == items.ItemThrowable {
 		p.flasks = g.flaskStock(m, p.readied)
 	}
 	for _, o := range g.party.Members {
@@ -422,7 +536,7 @@ func (p actionProbe) kind(a *balanceArena, i int) string {
 	switch {
 	case len(g.traps) > p.traps || (readiedTrap && m.SpellPoints < p.sp):
 		return "trap"
-	case m.Equipment[items.SlotSpell].Type == items.ItemThrowable && g.flaskStock(m, p.readied) < p.flasks:
+	case m.Equipment[items.SlotQuickAction].Type == items.ItemThrowable && g.flaskStock(m, p.readied) < p.flasks:
 		return "flask:" + p.readied
 	case m.SpellPoints < p.sp && hp > p.alliesHP:
 		return "heal"
@@ -462,9 +576,9 @@ func (a *balanceArena) mostlyMelee() bool {
 			continue
 		}
 		standing++
-		action := m.Equipment[items.SlotSpell]
+		action := m.Equipment[items.SlotQuickAction]
 		_, spell := g.combat.smartOffensiveSpell(m)
-		weapon := lookupWeaponConfigByName(m.Equipment[items.SlotMainHand].Name)
+		weapon := lookupWeaponConfig(m.Equipment[items.SlotMainHand])
 		if spell || action.Type == items.ItemThrowable || action.Type == items.ItemTrap || (weapon != nil && weapon.IsRanged()) {
 			ranged++
 		}
@@ -472,14 +586,17 @@ func (a *balanceArena) mostlyMelee() bool {
 	return 2*ranged < standing
 }
 
+// balanceTurnStamp changes when a hero acts: a spent action slot (turn-based)
+// or a started cooldown (real time).
 type balanceTurnStamp struct {
-	used, remaining, turn int
+	used, remaining, turn, cooldown int
 }
 
 func (a *balanceArena) turnStamp() balanceTurnStamp {
 	s := balanceTurnStamp{used: a.g.partyActionsUsed, turn: a.g.currentTurn}
 	for _, m := range a.g.party.Members {
 		s.remaining += m.ActionsRemaining
+		s.cooldown += m.RTCooldown + m.OffHandRTCooldown
 	}
 	return s
 }
@@ -560,7 +677,7 @@ func (a *balanceArena) reset() {
 	}
 	g.gameOver = false
 	g.levelUpChoiceQueue = g.levelUpChoiceQueue[:0]
-	g.spellInputCooldown, g.viewTurnFramesLeft = 0, 0
+	g.actionInputStagger, g.viewTurnFramesLeft = 0, 0
 	if g.turnBasedMode {
 		g.ToggleTurnBasedMode()
 	}

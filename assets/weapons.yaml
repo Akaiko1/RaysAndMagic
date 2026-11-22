@@ -7,6 +7,71 @@
 #   hitbox: standard | wide - closed set; sizes live in config.yaml world.projectile_hitboxes
 
 weapons:
+  solstice_sun_crucible:
+    name: "Sun Crucible"
+    description: "Three bronze ribs cradle a captive sun above a black segmented shaft."
+    category: staff
+    damage: 34
+    range: 7
+    bonus_stat: Intellect
+    damage_type: fire
+    crit_chance: 15
+    cooldown_multiplier: 0.9
+    rarity: legendary
+    value: 7500
+    no_loot: true
+    projectile_school: fire
+    signature:
+      kind: solar_flare
+      damage: 30
+      scaling_stat: Intellect
+      stat_divisor: 3
+      school: fire
+      charge_limit: 1
+      charge_move_tiles: 2
+      charge_on_offensive_cast: true
+      lane_behind_tiles: 2
+      lane_width_tiles: 1
+      burn_seconds: 6
+    physics: {speed_tiles: 10, range_tiles: 7, hitbox: standard}
+    # Three times the shipped tiny_prop campfire's 0.30 scale.
+    graphics: {held_model: solstice_sun_crucible, impact_flame_scale: 0.9, projectile_fx: solstice_sun_crucible, max_size: 32, min_size: 4, base_size: 16, color: [255, 143, 41]}
+
+  solstice_stone_script:
+    name: "Stone Script"
+    description: "A long faceted jade blade carries three bronze runes above a hooked crossguard."
+    category: sword
+    damage: 34
+    range: 1
+    bonus_stat: Intellect
+    damage_type: earth
+    crit_chance: 18
+    cooldown_multiplier: 1
+    rarity: legendary
+    value: 7500
+    no_loot: true
+    signature: {kind: rune_discharge, damage: 30, scaling_stat: Intellect, stat_divisor: 2, school: earth, sp_cost: 3}
+    melee: {arc_type: 3}
+    graphics: {slash_fx: solstice_stone_script, slash_color: [67, 203, 143], slash_width: 30, slash_length: 70}
+
+  solstice_returning_gale:
+    name: "Returning Gale"
+    description: "A slender recurved silver-blue dagger returns along the wind, bronze ring singing."
+    category: dagger
+    damage: 24
+    range: 8
+    bonus_stat: Accuracy
+    bonus_stat_secondary: Speed
+    damage_type: air
+    crit_chance: 22
+    cooldown_multiplier: 0.6
+    rarity: legendary
+    value: 7500
+    no_loot: true
+    signature: {kind: returning, return_damage_percent: 50}
+    physics: {speed_tiles: 12, range_tiles: 8, hitbox: standard}
+    graphics: {projectile_fx: solstice_returning_gale, max_size: 160, min_size: 16, base_size: 96, color: [145, 203, 247]}
+
   duskneedle:
     name: "Duskneedle"
     description: "A moth-wing bow whose limbs stiffen beneath the night sky"
@@ -19,7 +84,8 @@ weapons:
     value: 320
     night_base_damage_multiplier: 2
     physics: {speed_tiles: 10, range_tiles: 7, hitbox: standard}
-    graphics: {projectile_fx: duskneedle, max_size: 22, min_size: 3, base_size: 12, color: [165, 140, 195]}
+    graphics: {held_model: duskneedle, projectile_fx: duskneedle, max_size: 22, min_size: 3, base_size: 12, color: [165, 140, 195]}
+
   shellknocker:
     name: "Shellknocker"
     description: "A broad scarab-shell axe that hardens its wielder's guard on impact"
@@ -31,8 +97,9 @@ weapons:
     rarity: "uncommon"
     value: 320
     hit_shell_absorption: 15
-    melee: {arc_type: 3, animation_frames: 12}
+    melee: {arc_type: 3}
     graphics: {slash_fx: shellknocker, slash_color: [190, 155, 70], slash_width: 38, slash_length: 60}
+
   rainfang:
     name: "Rainfang"
     description: "A crystalline serpent fang that releases pockets of scalding rain"
@@ -44,8 +111,9 @@ weapons:
     rarity: "uncommon"
     value: 320
     attack_zone_proc: {spell: hot_steam, chance_pct: 3, intellect: 50}
-    melee: {arc_type: 1, animation_frames: 6}
+    melee: {arc_type: 1}
     graphics: {slash_fx: rainfang, slash_color: [125, 205, 215], slash_width: 24, slash_length: 38}
+
   solstice_thermal_lance:
     name: "Thermal Lance"
     description: "The obsidian point drives heat into its target; the bronze collar vents on the third strike."
@@ -58,15 +126,15 @@ weapons:
     rarity: "rare"
     value: 2500
     no_loot: true
-    elemental_ability: {kind: pressure, damage: 24, duration_seconds: 6, hits: 3, scaling_stat: Speed, stat_divisor: 3}
+    elemental_ability: {kind: pressure, damage: 24, duration_seconds: 9, hits: 3, scaling_stat: Speed, stat_divisor: 3}
     melee:
       arc_type: 2
-      animation_frames: 8
     graphics:
       slash_fx: "solstice_thermal"
       slash_color: [210, 105, 45]
       slash_width: 32
       slash_length: 48
+
   solstice_flowstaff:
     name: "Flowstaff"
     description: "A caged blue reservoir releases a restless current that leaps between nearby foes."
@@ -86,11 +154,13 @@ weapons:
       range_tiles: 7
       hitbox: standard
     graphics:
+      held_model: solstice_flowstaff
       projectile_fx: "solstice_flow"
       max_size: 30
       min_size: 4
       base_size: 15
       color: [65, 155, 170]
+
   solstice_anchor_hammer:
     name: "Anchor Hammer"
     description: "Each blow of the squared jade head weighs more heavily on the same foe."
@@ -103,16 +173,16 @@ weapons:
     rarity: "rare"
     value: 2500
     no_loot: true
-    elemental_ability: {kind: anchor, damage: 12, duration_seconds: 6, max_stacks: 10}
+    elemental_ability: {kind: anchor, damage: 12, duration_seconds: 9, max_stacks: 10}
     melee:
       arc_type: 2
-      animation_frames: 8
     graphics:
       slash_lift_ratio: 0.067
       slash_fx: "solstice_anchor"
       slash_color: [140, 155, 80]
       slash_width: 32
       slash_length: 48
+
   solstice_transfer_blade:
     name: "Transfer Blade"
     description: "The bronze collar stores three strikes, then hurls the foe away in a burst of force."
@@ -125,10 +195,9 @@ weapons:
     rarity: "rare"
     value: 2500
     no_loot: true
-    elemental_ability: {kind: crosswind, damage: 90, duration_seconds: 6, hits: 3, range_tiles: 3}
+    elemental_ability: {kind: crosswind, damage: 90, duration_seconds: 9, hits: 3, range_tiles: 3}
     melee:
       arc_type: 2
-      animation_frames: 8
     graphics:
       slash_fx: "solstice_transfer"
       slash_color: [155, 195, 215]
@@ -150,7 +219,6 @@ weapons:
     # Melee-specific configuration
     melee:
       arc_type: 2
-      animation_frames: 8  # Brief slash animation
 
     # Visual effects for slash animation
     graphics:
@@ -173,7 +241,6 @@ weapons:
     # Melee-specific configuration
     melee:
       arc_type: 1
-      animation_frames: 6  # Quick stab animation
 
     # Visual effects for slash animation
     graphics:
@@ -220,7 +287,6 @@ weapons:
     # Melee-specific configuration
     melee:
       arc_type: 2
-      animation_frames: 10  # Slower, heavier swing
 
     # Visual effects for slash animation
     graphics:
@@ -238,14 +304,13 @@ weapons:
     bonus_stat: "Might"
     crit_chance: 25
     stun_chance: 0.05
-    stun_turns: 3
+    stun_seconds: 9
     rarity: "uncommon"
     value: 220
 
     # Melee-specific configuration
     melee:
       arc_type: 2
-      animation_frames: 10  # Slower, heavier swing
 
     # Visual effects for slash animation
     graphics:
@@ -272,6 +337,7 @@ weapons:
       hitbox: standard
 
     graphics:
+      held_model: hunting_bow
       max_size: 36
       min_size: 2
       base_size: 12
@@ -294,6 +360,7 @@ weapons:
       range_tiles: 9.0
       hitbox: standard
     graphics:
+      held_model: surveyors_rifle
       max_size: 26
       min_size: 2
       base_size: 10
@@ -319,6 +386,7 @@ weapons:
       hitbox: standard
 
     graphics:
+      held_model: alien_blaster
       max_size: 40
       min_size: 2
       base_size: 12
@@ -331,7 +399,7 @@ weapons:
     damage: 9
     range: 6  # ranged: hurls a magic bolt
     bonus_stat: "Intellect"
-    damage_type: "air"  # real magic type: ignores armor, meets Air resistance (no arrow armor-pierce)
+    damage_type: "air"  # real magic type: elemental armor curve, meets Air resistance (no arrow armor-pierce)
     crit_chance: 10
     rarity: "common"
     value: 90
@@ -343,6 +411,7 @@ weapons:
       hitbox: standard
 
     graphics:
+      held_model: oak_staff
       max_size: 28
       min_size: 4
       base_size: 14
@@ -363,7 +432,6 @@ weapons:
     # Melee-specific configuration
     melee:
       arc_type: 2
-      animation_frames: 8  # Standard sword swing
 
     # Visual effects for slash animation
     graphics:
@@ -386,7 +454,6 @@ weapons:
     # Melee-specific configuration
     melee:
       arc_type: 1
-      animation_frames: 12  # Longer thrust animation
 
     # Visual effects for thrust animation
     graphics:
@@ -408,7 +475,6 @@ weapons:
     flavor: "A drain-cleaner's pole resharpened into a pike - rust and all."
     melee:
       arc_type: 1
-      animation_frames: 12
     graphics:
       slash_color: [120, 110, 70]
       slash_width: 18
@@ -428,7 +494,6 @@ weapons:
     flavor: "A thief-bug's barbed foreleg, lashed to a haft and still twitching."
     melee:
       arc_type: 1
-      animation_frames: 11
     graphics:
       slash_color: [150, 130, 60]
       slash_width: 18
@@ -449,7 +514,6 @@ weapons:
     # Melee-specific configuration
     melee:
       arc_type: 2
-      animation_frames: 10  # Slightly slower, powerful swing
 
     # Visual effects for slash animation
     graphics:
@@ -473,7 +537,6 @@ weapons:
     # Melee-specific configuration
     melee:
       arc_type: 3
-      animation_frames: 14  # Slow, heavy swing
 
     # Visual effects for slash animation
     graphics:
@@ -501,6 +564,7 @@ weapons:
       hitbox: standard
 
     graphics:
+      held_model: elven_bow
       max_size: 36
       min_size: 2
       base_size: 12
@@ -513,7 +577,7 @@ weapons:
     damage: 15
     range: 6  # ranged: hurls a magic bolt
     bonus_stat: "Intellect"
-    damage_type: "air"  # real magic type: ignores armor, meets Air resistance (no arrow armor-pierce)
+    damage_type: "air"  # real magic type: elemental armor curve, meets Air resistance (no arrow armor-pierce)
     crit_chance: 12
     rarity: "uncommon"
     value: 160
@@ -525,6 +589,7 @@ weapons:
       hitbox: standard
 
     graphics:
+      held_model: battle_staff
       max_size: 30
       min_size: 4
       base_size: 15
@@ -553,6 +618,7 @@ weapons:
       hitbox: wide  # large slow projectile
 
     graphics:
+      held_model: bow_of_hellfire
       max_size: 24
       min_size: 4
       base_size: 16
@@ -572,7 +638,6 @@ weapons:
 
     melee:
       arc_type: 1
-      animation_frames: 8
     graphics:
       slash_color: [120, 200, 140]  # green agile flash
       slash_width: 16
@@ -596,6 +661,7 @@ weapons:
       hitbox: standard
 
     graphics:
+      held_model: long_bow
       max_size: 40
       min_size: 2
       base_size: 14
@@ -622,6 +688,7 @@ weapons:
       hitbox: wide
 
     graphics:
+      held_model: archmage_staff
       max_size: 34
       min_size: 4
       base_size: 18
@@ -647,6 +714,7 @@ weapons:
       hitbox: standard
 
     graphics:
+      held_model: book_of_darkness
       max_size: 30
       min_size: 4
       base_size: 16
@@ -667,7 +735,6 @@ weapons:
     # Melee-specific configuration
     melee:
       arc_type: 3
-      animation_frames: 13
 
     # Visual effects for slash animation
     graphics:
@@ -690,7 +757,6 @@ weapons:
     # Melee-specific configuration
     melee:
       arc_type: 4
-      animation_frames: 16  # Slow, ponderous swing
 
     # Visual effects for slash animation
     graphics:
@@ -715,7 +781,6 @@ weapons:
     flavor: "Forged to cut; the blade thirsts even sheathed."
     melee:
       arc_type: 3
-      animation_frames: 7
     graphics:
       slash_color: [200, 40, 40]
       slash_width: 36
@@ -737,7 +802,6 @@ weapons:
     flavor: "A dragonfly that lit upon the point fell to the ground in two."
     melee:
       arc_type: 2
-      animation_frames: 11
     graphics:
       slash_color: [120, 200, 140]
       slash_width: 22
@@ -761,7 +825,6 @@ weapons:
     flavor: "A shadow with two edges."
     melee:
       arc_type: 2
-      animation_frames: 5
     graphics:
       slash_color: [120, 60, 180]
       slash_width: 22
@@ -786,6 +849,7 @@ weapons:
       range_tiles: 7.0
       hitbox: wide
     graphics:
+      held_model: inazuma_matchlock
       max_size: 26
       min_size: 4
       base_size: 14
@@ -806,7 +870,6 @@ weapons:
     flavor: "One curve, one purpose."
     melee:
       arc_type: 2
-      animation_frames: 8
     graphics:
       slash_fx: katana
       slash_color: [220, 230, 235]
@@ -826,7 +889,6 @@ weapons:
     flavor: "The honour-blade; never far from its bearer's side."
     melee:
       arc_type: 1
-      animation_frames: 6
     graphics:
       slash_color: [220, 225, 230]
       slash_width: 24
@@ -845,7 +907,6 @@ weapons:
     flavor: "The footman's reach; plain, straight, and certain."
     melee:
       arc_type: 1
-      animation_frames: 12
     graphics:
       slash_color: [180, 180, 190]
       slash_width: 18
@@ -864,7 +925,6 @@ weapons:
     flavor: "A moon's edge on a pole; it reaps a wide circle."
     melee:
       arc_type: 3
-      animation_frames: 13
     graphics:
       slash_color: [200, 210, 200]
       slash_width: 30
@@ -888,6 +948,7 @@ weapons:
       range_tiles: 8.0  # bullet must reach the Ronin Marksman's 7-tile firing range
       hitbox: standard
     graphics:
+      held_model: tanegashima
       max_size: 22
       min_size: 3
       base_size: 12
@@ -902,13 +963,12 @@ weapons:
     bonus_stat: "Might"
     crit_chance: 9
     stun_chance: 0.05
-    stun_turns: 3
+    stun_seconds: 9
     rarity: "uncommon"
     value: 280
     flavor: "An oni's argument, studded with iron."
     melee:
       arc_type: 2
-      animation_frames: 11
     graphics:
       slash_lift_ratio: 0.086
       slash_color: [170, 150, 120]
@@ -932,7 +992,6 @@ weapons:
     flavor: "Folded iron feathers; one flick and the grass lies flat."
     melee:
       arc_type: 2
-      animation_frames: 6
     graphics:
       slash_fx: war_fan
       slash_color: [190, 220, 230]
@@ -955,7 +1014,6 @@ weapons:
     flavor: "It held her hair up. It holds men still."
     melee:
       arc_type: 1
-      animation_frames: 5
     graphics:
       slash_color: [160, 60, 80]
       slash_width: 20
@@ -976,7 +1034,6 @@ weapons:
     flavor: "It clears a path through anything - vines, or men."
     melee:
       arc_type: 2
-      animation_frames: 7
     graphics:
       slash_color: [200, 210, 180]
       slash_width: 32
@@ -996,7 +1053,6 @@ weapons:
     flavor: "Glass older than the jungle, and just as patient."
     melee:
       arc_type: 1
-      animation_frames: 9
     graphics:
       slash_color: [80, 70, 90]
       slash_width: 20
@@ -1015,7 +1071,6 @@ weapons:
     flavor: "Every tooth in it belonged to something that lost."
     melee:
       arc_type: 2
-      animation_frames: 10
     graphics:
       slash_lift_ratio: 0.114
       slash_color: [210, 200, 170]
@@ -1039,6 +1094,7 @@ weapons:
       range_tiles: 7.0
       hitbox: standard
     graphics:
+      held_model: blowgun
       max_size: 24
       min_size: 2
       base_size: 8
@@ -1060,7 +1116,6 @@ weapons:
     flavor: "It bites where armor forgets to."
     melee:
       arc_type: 1
-      animation_frames: 5
     graphics:
       slash_color: [140, 200, 120]
       slash_width: 22
@@ -1082,7 +1137,6 @@ weapons:
     flavor: "Stone gods and standing men fall to the same swing."
     melee:
       arc_type: 3
-      animation_frames: 12
     graphics:
       slash_lift_ratio: 0.156
       slash_color: [220, 180, 90]
@@ -1106,7 +1160,6 @@ weapons:
     flavor: "Short, ugly, and always the last word of the bout."
     melee:
       arc_type: 2
-      animation_frames: 7
     graphics:
       slash_color: [230, 225, 215]
       slash_width: 34
@@ -1122,13 +1175,12 @@ weapons:
     bonus_stat: "Might"
     crit_chance: 20
     armor_shred_pct: 20      # hits strip 20% of the target's armor...
-    armor_shred_seconds: 10  # ...for 10 seconds (refreshes, never stacks)
+    armor_shred_seconds: 15  # ...for 15 seconds (refreshes, never stacks)
     rarity: "unique"
     value: 1600
     flavor: "Every swing peels the fight a little more naked."
     melee:
       arc_type: 3
-      animation_frames: 13
     graphics:
       slash_color: [210, 190, 130]
       slash_width: 48
@@ -1144,13 +1196,12 @@ weapons:
     bonus_stat: "Might"
     crit_chance: 14
     stun_chance: 0.12
-    stun_turns: 3
+    stun_seconds: 9
     rarity: "unique"
     value: 1500
     flavor: "The crowd counts the chimes."
     melee:
       arc_type: 2
-      animation_frames: 10
     graphics:
       slash_color: [200, 200, 210]
       slash_width: 42
@@ -1171,7 +1222,6 @@ weapons:
     flavor: "The line holds because the point holds."
     melee:
       arc_type: 1
-      animation_frames: 11
     graphics:
       slash_color: [190, 180, 170]
       slash_width: 20
@@ -1188,13 +1238,12 @@ weapons:
     bonus_stat_secondary: "Accuracy"
     crit_chance: 18
     root_chance: 0.15    # the net: 15% chance to pin the target in place...
-    root_seconds: 4      # ...for 4 seconds (root, not stun - no stun DR)
+    root_seconds: 6      # ...for 6 seconds (root, not stun - no stun DR)
     rarity: "unique"
     value: 1600
     flavor: "First the net, then the fork, then the verdict."
     melee:
       arc_type: 1
-      animation_frames: 10
     graphics:
       slash_color: [180, 200, 210]
       slash_width: 22
@@ -1216,7 +1265,6 @@ weapons:
     flavor: "It listens to the other blade, then talks back."
     melee:
       arc_type: 1
-      animation_frames: 6
     graphics:
       slash_color: [220, 220, 235]
       slash_width: 22
@@ -1238,7 +1286,6 @@ weapons:
     flavor: "The lion on the crest is the last thing a breastplate sees."
     melee:
       arc_type: 2
-      animation_frames: 12
     graphics:
       slash_color: [220, 205, 160]
       slash_width: 46
@@ -1257,11 +1304,13 @@ weapons:
     rarity: "unique"
     value: 1500
     flavor: "Loose, step, loose - the sand never sees you plant your feet."
+    signature: {kind: skirmish, charge_limit: 1, charge_move_tiles: 1}
     physics:
       speed_tiles: 13.0
       range_tiles: 7.0
       hitbox: standard
     graphics:
+      held_model: arena_shortbow
       max_size: 34
       min_size: 2
       base_size: 12
@@ -1286,6 +1335,7 @@ weapons:
       range_tiles: 9.0
       hitbox: standard
     graphics:
+      held_model: arbalest
       max_size: 26
       min_size: 2
       base_size: 10
@@ -1312,6 +1362,7 @@ weapons:
       range_tiles: 6.0
       hitbox: standard
     graphics:
+      held_model: lanista_scepter
       max_size: 32
       min_size: 4
       base_size: 15
@@ -1334,7 +1385,6 @@ weapons:
     flavor: "Two fists, four knuckle-plates, one rhythm."
     melee:
       arc_type: 1
-      animation_frames: 5
     graphics:
       slash_color: [210, 160, 110]
       slash_width: 24
@@ -1360,7 +1410,6 @@ weapons:
 
     melee:
       arc_type: 2
-      animation_frames: 8
 
     graphics:
       slash_color: [255, 220, 180]
@@ -1377,14 +1426,13 @@ weapons:
     range: 1
     bonus_stat: "Might"
     crit_chance: 18
-    armor_pierce_pct: 20
+    jam_seconds: 1              # teeth in the works: the target's next attack comes late
     rarity: "unique"
     no_loot: true  # Clockmaker stock and the clock_tower_gear table only: no random loot or rarity racks
     value: 1500
     flavor: "Every parry loses the other blade a tooth."
     melee:
       arc_type: 2
-      animation_frames: 8
     graphics:
       slash_color: [200, 220, 245]
       slash_fx: "clock_cogfang"
@@ -1399,8 +1447,7 @@ weapons:
     range: 1
     bonus_stat: "Might"
     crit_chance: 16
-    stun_chance: 0.15
-    stun_turns: 3
+    toll_echo_pct: 50           # the toll rings again on the target a round later
     cooldown_multiplier: 1.40
     rarity: "unique"
     no_loot: true  # Clockmaker stock and the clock_tower_gear table only: no random loot or rarity racks
@@ -1408,7 +1455,6 @@ weapons:
     flavor: "For whom does it toll? Whoever stands closest."
     melee:
       arc_type: 2
-      animation_frames: 11
     graphics:
       slash_lift_ratio: 0.074
       slash_color: [235, 215, 160]
@@ -1426,13 +1472,14 @@ weapons:
     bonus_stat_secondary: "Accuracy"
     crit_chance: 28
     cooldown_multiplier: 0.65
+    hour_strike_marks: 12       # every twelfth hit on one target strikes the hour
+    hour_strike_multiplier: 3
     rarity: "unique"
     no_loot: true  # Clockmaker stock and the clock_tower_gear table only: no random loot or rarity racks
     value: 1500
     flavor: "Sixty stabs an hour, on the hour, every hour."
     melee:
       arc_type: 1
-      animation_frames: 6
     graphics:
       slash_color: [220, 228, 240]
       slash_fx: "clock_minute"
@@ -1447,42 +1494,47 @@ weapons:
     range: 2
     bonus_stat: "Might"
     crit_chance: 16
-    bonus_vs_stunned: 1.5
+    fresh_target_min_hp_pct: 90  # the wound spring lets go into a fresh target
+    fresh_target_multiplier: 5
     rarity: "unique"
     no_loot: true  # Clockmaker stock and the clock_tower_gear table only: no random loot or rarity racks
     value: 1500
     flavor: "Wound in 1602. Still furious."
     melee:
       arc_type: 1
-      animation_frames: 10
     graphics:
       slash_color: [200, 195, 185]
       slash_fx: "clock_mainspring"
       slash_width: 22
       slash_length: 80
 
-  escapement_mace:
-    name: "Escapement Mace"
-    description: "A ratcheting cog-mace that strips armor tooth by tooth"
-    category: "mace"
-    damage: 19
-    range: 1
-    bonus_stat: "Might"
-    crit_chance: 18
-    armor_shred_pct: 20
-    armor_shred_seconds: 10
+  escapement_staff:
+    name: "Escapement Staff"
+    legacy_names: ["Escapement Mace"]  # it was a mace once; saved copies become the staff
+    description: "A tower clock's escapement on a brass staff, ticking out the time of every blessing"
+    category: "staff"
+    damage: 16
+    range: 6
+    bonus_stat: "Intellect"
+    damage_type: "spirit"
+    crit_chance: 14
+    buff_duration_pct: 50       # the escapement lets the clock run longer
     rarity: "unique"
     no_loot: true  # Clockmaker stock and the clock_tower_gear table only: no random loot or rarity racks
     value: 1500
-    flavor: "Tick: your pauldron. Tock: your greave."
-    melee:
-      arc_type: 2
-      animation_frames: 9
+    projectile_school: "spirit"
+    flavor: "Tick: one more minute. Tock: one more."
+    physics:
+      speed_tiles: 10.0
+      range_tiles: 6.0
+      hitbox: standard
     graphics:
-      slash_color: [225, 200, 140]
-      slash_fx: "clock_escapement"
-      slash_width: 40
-      slash_length: 54
+      held_model: escapement_staff
+      max_size: 30
+      min_size: 4
+      base_size: 15
+      color: [214, 192, 255]
+      projectile_fx: clock_escapement
 
   clockwork_pistol:
     name: "Clockwork Pistol"
@@ -1497,11 +1549,13 @@ weapons:
     no_loot: true  # Clockmaker stock and the clock_tower_gear table only: no random loot or rarity racks
     value: 1600
     flavor: "Wind, aim, and the mechanism does the rest."
+    signature: {kind: wind_up, charge_limit: 3}  # a spring per round without firing
     physics:
       speed_tiles: 14.0
       range_tiles: 6.0
       hitbox: standard
     graphics:
+      held_model: clockwork_pistol
       max_size: 34
       min_size: 2
       base_size: 10
@@ -1537,7 +1591,6 @@ weapons:
     flavor: "What it bites, it brands."
     melee:
       arc_type: 2
-      animation_frames: 12
     graphics:
       slash_color: [235, 120, 60]
       slash_width: 44
@@ -1560,7 +1613,6 @@ weapons:
     flavor: "It does not finish fights. It swallows them."
     melee:
       arc_type: 3
-      animation_frames: 14
     graphics:
       slash_color: [200, 70, 50]
       slash_width: 52
@@ -1577,7 +1629,7 @@ weapons:
     crit_chance: 12
     damage_type: "fire"
     aoe_radius_tiles: 1.5
-    death_burst_damage: 45
+    death_burst_max_hp_pct: 33
     death_burst_radius_tiles: 2.0
     rarity: "legendary"
     value: 5000
@@ -1585,7 +1637,6 @@ weapons:
     flavor: "Hatch, little one."
     melee:
       arc_type: 2
-      animation_frames: 12
     graphics:
       slash_color: [255, 140, 40]
       slash_width: 46
@@ -1600,14 +1651,13 @@ weapons:
     range: 2
     bonus_stat: "Might"
     crit_chance: 12
-    true_damage: 10
+    true_damage_pct: 33
     rarity: "legendary"
     value: 5000
     no_loot: true
     flavor: "Armor is a rumor it declines to believe."
     melee:
       arc_type: 1
-      animation_frames: 11
     graphics:
       slash_color: [180, 200, 210]
       slash_width: 30
@@ -1623,14 +1673,13 @@ weapons:
     bonus_stat: "Might"
     crit_chance: 12
     slow_pct: 30
-    slow_seconds: 5
+    slow_seconds: 9
     rarity: "legendary"
     value: 5000
     no_loot: true
     flavor: "The tarn keeps what slows down."
     melee:
       arc_type: 1
-      animation_frames: 11
     graphics:
       slash_color: [90, 160, 150]
       slash_width: 34
@@ -1655,7 +1704,6 @@ weapons:
     flavor: "Small teeth teach long lessons."
     melee:
       arc_type: 1
-      animation_frames: 9
     graphics:
       slash_color: [120, 220, 90]
       slash_width: 24
@@ -1671,14 +1719,13 @@ weapons:
     bonus_stat: "Might"
     crit_chance: 10
     weaken_pct: 25
-    weaken_seconds: 8
+    weaken_seconds: 12
     rarity: "legendary"
     value: 5500
     no_loot: true
     flavor: "The roar breaks what the steel forgives."
     melee:
       arc_type: 2
-      animation_frames: 13
     graphics:
       slash_color: [200, 170, 120]
       slash_width: 50
@@ -1704,6 +1751,7 @@ weapons:
       range_tiles: 8.0
       hitbox: standard
     graphics:
+      held_model: wyrmspine_bow
       max_size: 24
       min_size: 2
       base_size: 9
@@ -1730,6 +1778,7 @@ weapons:
       range_tiles: 9.0
       hitbox: standard
     graphics:
+      held_model: nest_arbalest
       max_size: 26
       min_size: 2
       base_size: 10
@@ -1758,6 +1807,7 @@ weapons:
       range_tiles: 7.0
       hitbox: wide
     graphics:
+      held_model: verdant_eye_scepter
       max_size: 34
       min_size: 4
       base_size: 18
@@ -1785,6 +1835,7 @@ weapons:
       range_tiles: 5.0
       hitbox: standard
     graphics:
+      held_model: suppressor_gun
       max_size: 22
       min_size: 2
       base_size: 8
@@ -1810,6 +1861,7 @@ weapons:
       range_tiles: 20.0
       hitbox: standard
     graphics:
+      held_model: longlance_rifle
       max_size: 24
       min_size: 2
       base_size: 8
@@ -1831,7 +1883,6 @@ weapons:
     flavor: "It does not cut. It disagrees."
     melee:
       arc_type: 2
-      animation_frames: 10
     graphics:
       slash_color: [130, 235, 235]
       slash_width: 40
@@ -1855,6 +1906,7 @@ weapons:
       range_tiles: 11.0
       hitbox: standard
     graphics:
+      held_model: compound_bow
       max_size: 24
       min_size: 2
       base_size: 9

@@ -80,7 +80,7 @@ func TestDwellTooltipsOpenAfterTheRest(t *testing.T) {
 			g.party.Members[g.selectedChar] = character.CreateCharacter("Lysander", character.ClassSorcerer, g.config)
 			g.party.Members[g.selectedChar].QuickSlots[0] = &spell
 			g.menuOpen, g.currentTab = true, TabSpellbook
-			bar := computeBookLayout(computeTabbedMenuLayout(g.config.GetScreenWidth(), gameplayViewportBottom(g)).content).quick
+			bar := computeBookLayout(computeTabbedMenuLayout(g.config.GetScreenWidth(), gameplayViewportBottom(g)).content, 1).quick
 			_, cells := quickSlotRects(bar.x, bar.y, bar.w)
 			return centerOf(cells[0]), spell.Name
 		}},

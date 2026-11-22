@@ -3,11 +3,9 @@ package game
 import (
 	"fmt"
 	"image/color"
-	"time"
 	uitext "ugataima/assets/text"
 
 	"ugataima/internal/character"
-	"ugataima/internal/items"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )
@@ -81,22 +79,27 @@ func (ui *UISystem) drawMainMenu(screen *ebiten.Image) {
 		back := controlTipsBackRect(panel)
 		ui.drawBackButton(screen, back.x, back.y, func() { ui.game.mainMenuMode = MenuMain })
 
-	case MenuSaveSelect:
-		for _, line := range saveMenuHeaderLines(MenuSaveSelect, px, py) {
-			drawUIText(screen, line.text, line.x, line.y)
+	case MenuSaveSelect, MenuLoadSelect:
+		saving := ui.game.mainMenuMode == MenuSaveSelect
+		l := escSaveListLayout(w, h)
+		heading, hint := "Load Game", loadMenuHint
+		if saving {
+			heading, hint = "Save Game", saveMenuHint
 		}
-		ui.drawSaveRowList(screen, px, py, panelW, panelH, color.RGBA{80, 180, 80, 200})
+		ui.drawSaveList(screen, l, heading, ui.game.slotSelection, saving)
+		g := ui.game
+		if saving {
+			ui.saveListInput(l, func(i int) { g.slotSelection = i; g.saveToSelectedRow() },
+				func(i int) { g.slotSelection = i; g.openSaveRename(g.savePage*saveRowsPerPage + i) })
+		} else {
+			ui.saveListInput(l, func(i int) { g.slotSelection = i; g.loadSelectedRow() }, nil)
+		}
+		drawUITextColored(screen, clipUIText(hint, l.title.w), l.title.x, l.hintY, gameplayInk.muted)
 		if ui.game.saveRenameOpen {
 			ui.drawSaveRenameDialog(screen)
 		} else {
-			ui.drawSaveRowHoverTooltip(screen, px, py, panelW)
+			ui.drawSaveRowHoverTooltip(screen, l)
 		}
-	case MenuLoadSelect:
-		for _, line := range saveMenuHeaderLines(MenuLoadSelect, px, py) {
-			drawUIText(screen, line.text, line.x, line.y)
-		}
-		ui.drawSaveRowList(screen, px, py, panelW, panelH, color.RGBA{180, 120, 60, 200})
-		ui.drawSaveRowHoverTooltip(screen, px, py, panelW)
 	case MenuSettings:
 		settingsLayout := audioSettingsPanelLayoutAt(px, py, panelW, panelH, false)
 		ui.drawSettingsContent(screen, settingsLayout.px, settingsLayout.py, settingsLayout.panelW, settingsLayout.panelH, settingsLayout.contentInset)
@@ -114,135 +117,8 @@ func mainMenuTitleRect(panel layoutRect) layoutRect {
 	return layoutRect{panel.x + 32, panel.y + 16, panel.w - 64, 20}
 }
 
-// menuTextLine is one left-aligned label and its drawUIText origin.
-type menuTextLine struct {
-	text string
-	x, y int
-}
-
-// saveMenuHeaderLines are the save/load menus' title and key-help lines.
-func saveMenuHeaderLines(mode MainMenuMode, px, py int) [2]menuTextLine {
-	title, help := "Save Game - Select Slot", "Enter: Save  R: Rename  Left/Right: Page"
-	if mode == MenuLoadSelect {
-		title, help = "Load Game - Select Slot", "Enter: Load  Left/Right: Page"
-	}
-	return [2]menuTextLine{{title, px + 16, py + 14}, {help, px + 16, py + 32}}
-}
-
-// pagerRect is a button hitbox shared between the save-menu draw and input code.
+// pagerRect is a button hitbox shared between draw and input code.
 type pagerRect struct{ x1, y1, x2, y2 int }
-
-// savePagerButtonRects returns the Prev and Next button boxes for the save/load
-// menus: a strip just below the panel, buttons pinned to the left and right
-// edges. Shared by drawSaveRowList (render) and navigateSavePage (clicks).
-func savePagerButtonRects(px, py, panelW, panelH int) (prev, next pagerRect) {
-	const bw, bh = 84, 26
-	y := py + panelH + 6
-	prev = pagerRect{px, y, px + bw, y + bh}
-	next = pagerRect{px + panelW - bw, y, px + panelW, y + bh}
-	return
-}
-
-// drawSaveRowList renders the saveRowsPerPage rows of the current page (row 0 of
-// page 0 are the load-only Autosave and Quicksave) plus a Prev/Next pager strip below the panel.
-// highlight tints the selected row.
-func (ui *UISystem) drawSaveRowList(screen *ebiten.Image, px, py, panelW, panelH int, highlight color.RGBA) {
-	g := ui.game
-	for i := 0; i < saveRowsPerPage; i++ {
-		row := g.savePage*saveRowsPerPage + i
-		box, tx, ty := menuRowRect(px, py, panelW, saveMenuListTopY, saveMenuRowPitch, i)
-		sum := GetSaveRowSummary(row)
-		label := saveRowLabel(row)
-		if sum.Name != "" && !saveRowIsLoadOnly(row) {
-			label = fmt.Sprintf("%s: %s", label, truncateSaveName(sum.Name, 18))
-		}
-		if sum.Exists {
-			mode := "RT"
-			if sum.TurnBased {
-				mode = "TB"
-			}
-			t := sum.SavedAt
-			if len(t) > 19 {
-				t = t[:19]
-			}
-			label = fmt.Sprintf("%s  [%s %s]", label, mode, t)
-		} else if saveRowIsLoadOnly(row) {
-			label = fmt.Sprintf("%s  (empty)", label)
-		}
-		if i == g.slotSelection {
-			drawFilledRect(screen, box.x1, box.y1, box.x2-box.x1, box.y2-box.y1, highlight)
-		}
-		// Saves from THIS playthrough glow so your own run stands out. Matched
-		// by run id: member names collide across runs (the default roster is
-		// identical every new game) and shift within one (tavern swaps).
-		if sum.Exists && sum.RunID != "" && sum.RunID == g.playthroughID {
-			drawFilledRect(screen, box.x1, box.y1, 4, box.y2-box.y1, color.RGBA{110, 200, 110, 255})
-			drawRectBorder(screen, box.x1, box.y1, box.x2-box.x1, box.y2-box.y1, 1, color.RGBA{110, 200, 110, 160})
-		}
-		drawUIText(screen, label, tx, ty)
-	}
-	ui.drawSavePagerStrip(screen, px, py, panelW, panelH)
-	// Note: the hover tooltip is drawn by the menu case AFTER this, so it sits on
-	// top of the pager strip instead of being covered by it.
-}
-
-// drawSaveRowHoverTooltip shows play time + the saved party (name, level, class)
-// for the row under the cursor, so you can tell saves apart before loading.
-func (ui *UISystem) drawSaveRowHoverTooltip(screen *ebiten.Image, px, py, panelW int) {
-	mx, my := uiCursorPosition()
-	for i := 0; i < saveRowsPerPage; i++ {
-		box, _, _ := menuRowRect(px, py, panelW, saveMenuListTopY, saveMenuRowPitch, i)
-		if mx < box.x1 || mx >= box.x2 || my < box.y1 || my >= box.y2 {
-			continue
-		}
-		sum := GetSaveRowSummary(ui.game.savePage*saveRowsPerPage + i)
-		if !sum.Exists {
-			return
-		}
-		var lines []string
-		if sum.PlayTime != "" {
-			lines = append(lines, "Play time: "+sum.PlayTime)
-		}
-		for _, m := range sum.Party {
-			lines = append(lines, fmt.Sprintf("%s  Lv.%d %s", m.Name, m.Level, character.CharacterClass(m.Class).String()))
-		}
-		if len(lines) > 0 {
-			ui.drawTooltipLines(screen, mx+16, my+16, lines)
-		}
-		return
-	}
-}
-
-// drawTooltipLines renders a small bordered tooltip box of text lines, clamped to
-// the screen so it never spills off the edge.
-func (ui *UISystem) drawTooltipLines(screen *ebiten.Image, x, y int, lines []string) {
-	sw, sh := uiBounds(screen).Dx(), uiBounds(screen).Dy()
-	r := singleTooltipLayout(lines, nil, false, x, y, sw, sh)
-	drawTooltip(screen, lines, nil, nil, nil, "", r.x, r.y, r.right(), ui.game.sprites)
-}
-
-// drawSavePagerStrip draws the Prev/Next buttons and the page indicator on a
-// short strip below the menu panel. Inactive buttons (at the first/last page) are
-// dimmed. Mirrors the hitboxes from savePagerButtonRects.
-func (ui *UISystem) drawSavePagerStrip(screen *ebiten.Image, px, py, panelW, panelH int) {
-	g := ui.game
-	prev, next := savePagerButtonRects(px, py, panelW, panelH)
-	stripY := prev.y1
-	stripH := prev.y2 - prev.y1
-	ui.drawThemeFrame(screen, frameSilver, px, stripY, panelW, stripH)
-
-	drawPagerBtn := func(r pagerRect, label string, enabled bool) {
-		ui.drawButtonFrame(screen, r.x1, r.y1, r.x2-r.x1, r.y2-r.y1, false)
-		drawCenteredUIText(screen, label, r.x1, r.y1, r.x2-r.x1, r.y2-r.y1)
-	}
-	drawPagerBtn(prev, "< Prev", true) // pages wrap - both directions always live
-	drawPagerBtn(next, "Next >", true)
-	drawCenteredUIText(screen, fmt.Sprintf("Page %d/%d", g.savePage+1, savePageCount), px, stripY+(stripH-12)/2, panelW, 12)
-}
-
-func truncateSaveName(name string, max int) string {
-	return clipUITextSuffix(name, max*uiTextCharWidth, "...")
-}
 
 func saveRenameDialogRect(screenW, screenH int) layoutRect {
 	return centeredRect(screenW, screenH, 420, 140)
@@ -295,14 +171,15 @@ func (ui *UISystem) drawTabbedMenu(screen *ebiten.Image) {
 
 		// A modal above the hub owns the click queue; tabs must not consume one of
 		// its buttons through the overlay (topModalLayer).
-		if !ui.modalLayerOwnsInput() {
-			ui.handleTabClick(tabRect.x, tabRect.y, tabRect.w, tabRect.h, tabInfo.tab)
-		}
+		tab := tabInfo.tab
+		ui.onClick(tabRect, !ui.modalLayerOwnsInput(), func() {
+			if tab == TabSpellbook && ui.game.currentTab != TabSpellbook {
+				ui.spellPage = 0
+			}
+			ui.game.showMenuTab(tab)
+		})
 	}
-	// Handle mouse clicks on close button
-	if !ui.modalLayerOwnsInput() {
-		ui.handleCloseButtonClick(layout.close.x, layout.close.y, layout.close.w, layout.close.h)
-	}
+	ui.onClick(layout.close, !ui.modalLayerOwnsInput(), func() { ui.game.menuOpen = false })
 
 	ui.drawCloseButtonVisual(screen, layout.close.x, layout.close.y, layout.close.w, layout.close.h)
 
@@ -360,63 +237,27 @@ func (ui *UISystem) drawCardsContent(screen *ebiten.Image, content layoutRect) {
 	}
 }
 
-// handleTabClick checks if mouse clicked on a tab and switches to it
-func (ui *UISystem) handleTabClick(tabX, tabY, tabWidth, tabHeight int, tab MenuTab) {
-	if ui.displayedInput.building {
-		ui.onDisplayedInput(uiCommandClick, layoutRect{tabX, tabY, tabWidth, tabHeight}, func() { ui.handleTabClick(tabX, tabY, tabWidth, tabHeight, tab) })
-		return
-	}
-
-	if ui.game.consumeLeftClickIn(tabX, tabY, tabX+tabWidth, tabY+tabHeight) {
-		if tab == TabSpellbook && ui.game.currentTab != TabSpellbook {
-			// Entering the spellbook fresh: no spell highlighted until user picks one.
-			ui.game.selectedSpell = -1
-			ui.spellPage = 0
-		}
-		ui.game.currentTab = tab
-	}
-}
-
-// handleCloseButtonClick checks if mouse clicked on the close button and closes the menu
-func (ui *UISystem) handleCloseButtonClick(buttonX, buttonY, buttonWidth, buttonHeight int) {
-	if ui.displayedInput.building {
-		ui.onDisplayedInput(uiCommandClick, layoutRect{buttonX, buttonY, buttonWidth, buttonHeight}, func() { ui.handleCloseButtonClick(buttonX, buttonY, buttonWidth, buttonHeight) })
-		return
-	}
-
-	if ui.game.consumeLeftClickIn(buttonX, buttonY, buttonX+buttonWidth, buttonY+buttonHeight) {
-		ui.game.menuOpen = false
-	}
-}
-
 // dispatchCharacterHubWorldAction closes the hub before a world-facing action
-// observes game state. Failed actions restore the hub so the player can correct
-// the selection; successful actions always return to the world. Mouse and
-// keyboard dispatch share this one transition.
+// observes game state. Refused actions restore the hub unless a follow-up modal
+// took ownership (target selection is not yet a committed action). The return
+// value still reports commitment, so opening a picker never spends an action.
+// Mouse and keyboard dispatch share this one transition.
 func (g *MMGame) dispatchCharacterHubWorldAction(action func() bool) bool {
 	wasOpen := g.menuOpen
 	g.menuOpen = false
 	if action() {
 		return true
 	}
-	g.menuOpen = wasOpen
+	if topModalLayerFor(g, false) == modalLayerNone {
+		g.menuOpen = wasOpen
+	}
 	return false
 }
 
 // handleSpellbookSchoolClick checks if mouse clicked on a magic school and selects it
 func (ui *UISystem) handleSpellbookSchoolClick(bounds layoutRect, schoolIndex int, school character.MagicSchoolID) {
-	if ui.displayedInput.building {
-		ui.onDisplayedInput(uiCommandClick, bounds, func() { ui.handleSpellbookSchoolClick(bounds, schoolIndex, school) })
-		return
-	}
-
-	if ui.modalLayerOwnsInput() {
-		return
-	}
-	if ui.game.consumeLeftClickIn(bounds.x, bounds.y, bounds.right(), bounds.bottom()) {
-		currentTime := ui.game.mouseLeftClickAt
-		doubleClick := ui.game.lastSchoolClickedIdx == schoolIndex &&
-			withinDoubleClickWindow(currentTime, ui.game.lastSchoolClickTime)
+	ui.onGatedClick(bounds, func() bool { return !ui.modalLayerOwnsInput() }, func() {
+		doubleClick := ui.game.schoolClicks.click(schoolIndex, ui.game.mouseLeftClickAt)
 
 		ui.game.selectedSchool = schoolIndex
 		// Don't auto-select a spell - wait for the user to click one.
@@ -425,14 +266,8 @@ func (ui *UISystem) handleSpellbookSchoolClick(bounds layoutRect, schoolIndex in
 
 		if doubleClick {
 			ui.game.collapsedSpellSchools[school] = !ui.game.collapsedSpellSchools[school]
-			ui.game.lastSchoolClickTime = 0
-			ui.game.lastSchoolClickedIdx = -1
-			return
 		}
-
-		ui.game.lastSchoolClickTime = currentTime
-		ui.game.lastSchoolClickedIdx = schoolIndex
-	}
+	})
 }
 
 // syncCharacterHubClickContext prevents one screen's first click from pairing
@@ -451,37 +286,22 @@ func (ui *UISystem) syncCharacterHubClickContext() {
 	ui.hubInteractionOpen = true
 	ui.hubInteractionChar = ui.game.selectedChar
 	ui.hubInteractionTab = ui.game.currentTab
-	ui.lastClickTime = time.Time{}
-	ui.lastClickedItem = -1
-	ui.lastEquipClickTime = time.Time{}
-	ui.lastClickedSlot = items.EquipSlot(-1)
-	ui.game.lastBookClickTime = 0
-	ui.game.lastClickedBookEntry = -1
-	ui.game.lastClickedBookGroup = -1
-	ui.game.lastSchoolClickTime = 0
-	ui.game.lastSchoolClickedIdx = -1
+	ui.bagClicks.reset()
+	ui.equipClicks.reset()
+	ui.game.bookClicks.reset()
+	ui.game.schoolClicks.reset()
 }
 
 // Both books bind a double-click to the quick action. The callback only
 // supplies the book's selection and equipment rules; gesture ownership is shared.
 func (ui *UISystem) handleBookEntryClick(bounds layoutRect, group, index int, selectEntry, equipEntry func()) {
-	if ui.displayedInput.building {
-		ui.onDisplayedInput(uiCommandClick, bounds, func() { ui.handleBookEntryClick(bounds, group, index, selectEntry, equipEntry) })
-		return
-	}
-	if ui.modalLayerOwnsInput() || !ui.game.consumeLeftClickIn(bounds.x, bounds.y, bounds.right(), bounds.bottom()) {
-		return
-	}
-	g := ui.game
-	now := g.mouseLeftClickAt
-	doubleClick := g.lastClickedBookEntry == index && g.lastClickedBookGroup == group && withinDoubleClickWindow(now, g.lastBookClickTime)
-	selectEntry()
-	if doubleClick {
-		equipEntry()
-		g.lastBookClickTime, g.lastClickedBookEntry, g.lastClickedBookGroup = 0, -1, -1
-		return
-	}
-	g.lastBookClickTime, g.lastClickedBookEntry, g.lastClickedBookGroup = now, index, group
+	ui.onGatedClick(bounds, func() bool { return !ui.modalLayerOwnsInput() }, func() {
+		doubleClick := ui.game.bookClicks.click(bookClickKey{group, index}, ui.game.mouseLeftClickAt)
+		selectEntry()
+		if doubleClick {
+			equipEntry()
+		}
+	})
 }
 
 func (ui *UISystem) handleSpellbookSpellClick(x, y, w, h, schoolIndex, spellIndex int) {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	uitext "ugataima/assets/text"
+	"ugataima/internal/stash"
 )
 
 // Menu layout boxes. Each collision-prone menu exposes its sections (headings,
@@ -72,6 +73,9 @@ func settingsLayoutBoxes(screenW, screenH int, ornate bool, tab settingsTabKind)
 		boxes = append(boxes, namedLayoutBox(fmt.Sprintf("tab-%d", tab), settingsTabRect(px, py, panelW, settingsTabKind(tab))))
 	}
 	if tab == settingsTabCombat {
+		for page := range gameplayPageLabels {
+			boxes = append(boxes, namedLayoutBox(fmt.Sprintf("page-%d", page), gameplayPageRect(px, py, gameplayPage(page))))
+		}
 		for _, wide := range []bool{false, true} {
 			boxes = append(boxes, namedLayoutBox(fmt.Sprintf("view-%v", wide), viewChoiceRect(px, py, panelW, wide)))
 		}
@@ -82,6 +86,7 @@ func settingsLayoutBoxes(screenW, screenH int, ornate bool, tab settingsTabKind)
 		}
 		for _, enabled := range []bool{false, true} {
 			boxes = append(boxes, namedLayoutBox(fmt.Sprintf("choice-%v", enabled), combatOverlayChoiceRect(px, py, panelW, enabled)))
+			boxes = append(boxes, namedLayoutBox(fmt.Sprintf("auto-turn-%v", enabled), autoTurnBasedChoiceRect(px, py, panelW, enabled)))
 		}
 	} else {
 		for row, def := range audioSettingDefinitions {
@@ -90,7 +95,7 @@ func settingsLayoutBoxes(screenW, screenH int, ornate bool, tab settingsTabKind)
 		}
 	}
 	back := audioBackRect(px, py, panelH, layout.contentInset)
-	hint, hintX, hintY := settingsHintPosition(tab, "", px, py, panelW, panelH, layout.contentInset)
+	hint, hintX, hintY := settingsHintPosition(tab, gameplayPageView, "", px, py, panelW, panelH, layout.contentInset)
 	boxes = append(boxes,
 		uiBox{"back", back.x1, back.y1, back.x2 - back.x1, back.y2 - back.y1},
 		textLineBox("hint", hint, hintX, hintY),
@@ -111,7 +116,7 @@ func tabbedMenuLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
 
 func inventoryLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
 	menu := computeTabbedMenuLayout(screenW, gameplayViewportBottomWithPartyHUD(screenH))
-	l := computeInventoryContentLayout(menu.content)
+	l := computeInventoryContentLayout(menu.content, 1)
 	return namedLayoutBox("inventory-content", menu.content), []uiBox{
 		namedLayoutBox("personal-grid", l.personalGrid), namedLayoutBox("personal-pager", l.personalPager),
 		namedLayoutBox("shared-filters", l.categories),
@@ -156,7 +161,7 @@ func charactersLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
 
 func bookLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
 	menu := computeTabbedMenuLayout(screenW, gameplayViewportBottomWithPartyHUD(screenH))
-	l := computeBookLayout(menu.content)
+	l := computeBookLayout(menu.content, 1)
 	return namedLayoutBox("book-content", menu.content), []uiBox{
 		namedLayoutBox("header", l.header),
 		{"book", l.bookX, l.bookY, l.bookW, l.bookH},
@@ -291,70 +296,62 @@ func cardCollectorLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
 
 // stashLayoutBoxes returns the stash modal's region and its section boxes.
 func stashLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
-	L := computeStashLayout(screenW, screenH)
-	region := uiBox{"stash-popup", L.popupX, L.popupY, stashPopupW, stashPopupH}
-	gridX := L.centerX - L.gridW/2
-	chestH := L.chestRows*stashCellSize + (L.chestRows-1)*stashCellGap
-	bagH := L.bagRows*stashCellSize + (L.bagRows-1)*stashCellGap
-	toggle := stashToggleRect(L)
-	boxes := []uiBox{
-		textLineBox("title", "Tavern Stash", L.popupX+16, L.popupY+14),
-		textLineBox("subtitle", stashSubtitle, L.popupX+16, L.popupY+34),
-		// "Card Vault - cards only" is the wider of the two tab headings; check it.
-		centeredTextBox("chest-heading", "Card Vault - cards only", L.popupX, L.chestTop-16, stashPopupW, 14),
-		{"chest-tab-toggle", toggle.Min.X, toggle.Min.Y, toggle.Dx(), toggle.Dy()},
-		{"chest-cells", gridX, L.chestTop, L.gridW, chestH},
-		centeredTextBox("bag-heading", "Your Bag", L.popupX, L.invTop-16, stashPopupW, 14),
-		{"bag-cells", gridX, L.invTop, L.gridW, bagH},
-		{"pager", gridX, L.pagerY, L.gridW, 18},
-	}
-	return region, boxes
+	popup, L := computeStashLayout(screenW, screenH)
+	return namedLayoutBox("stash-popup", popup), append([]uiBox{
+		textLineBox("title", uitext.Text("stash.title"), popup.x+16, popup.y+14),
+		{"hint", popup.x + 16, popup.y + 34, min(uiTextWidth(uitext.Text("stash.hint")), popup.w-72), uiTextCharHeight},
+	}, stashManagerBoxes(L)...)
 }
 
-// saveMenuLayoutBoxes returns the in-game save/load menu's region (panel + the
-// pager strip below it) and its section boxes for the given page.
-func saveMenuLayoutBoxes(screenW, screenH, page int, modeLoad bool) (uiBox, []uiBox) {
-	px := (screenW - saveMenuPanelW) / 2
-	py := (screenH - saveMenuPanelH) / 2
-	prev, next := savePagerButtonRects(px, py, saveMenuPanelW, saveMenuPanelH)
-	region := uiBox{"save-menu", px, py, saveMenuPanelW, next.y2 - py + 4}
-
-	mode := MenuSaveSelect
-	if modeLoad {
-		mode = MenuLoadSelect
+// stashManagerBoxes are the stash grids and their labels in either host.
+func stashManagerBoxes(L stashLayout) []uiBox {
+	// The widest the counter gets: every cell full.
+	counter := fmt.Sprintf("%d / %d", stash.SlotCount, stash.SlotCount)
+	return []uiBox{
+		textLineBox("chest-heading", uitext.Text("stash.chest"), L.chest.x, L.headY),
+		textLineBox("chest-counter", counter, L.chest.right()-uiTextWidth(counter), L.headY),
+		namedLayoutBox("chest-cells", L.chest),
+		{"chest-note", L.chest.x, L.noteY, min(uiTextWidth(uitext.Text("stash.shared")), L.chest.w), uiTextCharHeight},
+		textLineBox("bag-heading", uitext.Text("stash.bag"), L.bag.x, L.headY),
+		namedLayoutBox("bag-cells", L.bag),
+		{"pager", L.bag.x, L.noteY, L.bag.w, pagerBtnH},
 	}
-	header := saveMenuHeaderLines(mode, px, py)
-	boxes := []uiBox{
-		textLineBox("title", header[0].text, header[0].x, header[0].y),
-		textLineBox("help", header[1].text, header[1].x, header[1].y),
-	}
-	for i := 0; i < saveRowsPerPage; i++ {
-		row := page*saveRowsPerPage + i
-		_, tx, ty := menuRowRect(px, py, saveMenuPanelW, saveMenuListTopY, saveMenuRowPitch, i)
-		boxes = append(boxes, textLineBox(fmt.Sprintf("row-%d", row), saveRowLabel(row), tx, ty))
-	}
-	boxes = append(boxes,
-		uiBox{"pager-prev", prev.x1, prev.y1, prev.x2 - prev.x1, prev.y2 - prev.y1},
-		uiBox{"pager-next", next.x1, next.y1, next.x2 - next.x1, next.y2 - next.y1},
-	)
-	return region, boxes
 }
 
-// entryLoadLayoutBoxes returns the title-screen Load list's panel and section
-// boxes (rows, Prev/Next buttons, Back) for the given page.
-func entryLoadLayoutBoxes(screenW, screenH, page int) (uiBox, []uiBox) {
-	panel := entryLoadPanelRect(screenW, screenH)
-	l := makeEntryLoadListLayout(panel)
-	boxes := []uiBox{textLineBox("title", entryLoadTitle, l.title.x, l.title.y)}
+// saveListBoxes are the shared save list's sections: the 2x heading, the
+// rows, the pager, and the widest hint line at its origin.
+func saveListBoxes(l saveListLayout, heading, hint string, hintX int, page int) []uiBox {
+	hw, hh := 2*uiTextWidth(heading)+4, 2*uiTextCharHeight
+	boxes := []uiBox{{"title", l.title.x + (l.title.w-hw)/2, l.title.y + (l.title.h-hh)/2, hw, hh}}
 	for i, r := range l.rows {
 		boxes = append(boxes, namedLayoutBox(fmt.Sprintf("row-%d", page*saveRowsPerPage+i), r))
 	}
-	boxes = append(boxes,
+	pageLabel := fmt.Sprintf("Page %d of %d", savePageCount, savePageCount)
+	return append(boxes,
 		namedLayoutBox("pager-prev", l.prev),
 		namedLayoutBox("pager-next", l.next),
-		namedLayoutBox("back", l.back),
+		centeredTextBox("page", pageLabel, l.page.x, l.page.y, l.page.w, l.page.h),
+		textLineBox("hint", hint, hintX, l.hintY),
 	)
-	return namedLayoutBox("entry-load-panel", panel), boxes
+}
+
+// saveMenuLayoutBoxes returns the in-game save/load menu's panel and sections
+// for the given page.
+func saveMenuLayoutBoxes(screenW, screenH, page int, modeLoad bool) (uiBox, []uiBox) {
+	l := escSaveListLayout(screenW, screenH)
+	heading, hint := "Save Game", saveMenuHint
+	if modeLoad {
+		heading, hint = "Load Game", loadMenuHint
+	}
+	return namedLayoutBox("save-menu", l.panel), saveListBoxes(l, heading, hint, l.title.x, page)
+}
+
+// entryLoadLayoutBoxes returns the title-screen Load page's panel and sections
+// (heading, rows, pager, hint, Back) for the given page.
+func entryLoadLayoutBoxes(screenW, screenH, page int) (uiBox, []uiBox) {
+	l := entrySaveListLayout(screenW, screenH)
+	boxes := saveListBoxes(l, "Load Game", entryLoadHint, l.title.right()-uiTextWidth(entryLoadHint), page)
+	return namedLayoutBox("entry-load-panel", l.panel), append(boxes, namedLayoutBox("back", l.back))
 }
 
 // skillTrainerPopupLayoutBoxes returns the mastery-trainer popup's region and
@@ -378,6 +375,42 @@ func skillTrainerPopupLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
 		x, y, w, h := skillTrainerOptionRect(px, py, row)
 		// -2/+4: the hover/selection background pads the row rect vertically.
 		boxes = append(boxes, uiBox{fmt.Sprintf("option-row-%d", row), x, y - 2, w, h + 4})
+	}
+	return region, boxes
+}
+
+// collectionLayoutBoxes returns the Storage Clerk's collections screen: its
+// panel and the leaf sections of one tab (showcase or binder) beside the bag.
+func collectionLayoutBoxes(screenW, screenH, tab int) (uiBox, []uiBox) {
+	L := computeCollectionLayout(screenW, gameplayViewportBottomWithPartyHUD(screenH), tab)
+	region := namedLayoutBox("collection-panel", L.panel)
+	title, progress, about := uitext.Text("collection.tab_showcase"), uitext.Text("collection.progress_showcase", 99, 99), uitext.Text("collection.about_showcase")
+	if tab == collectionTabBinder {
+		title, progress, about = uitext.Text("collection.tab_binder"), uitext.Text("collection.progress_binder", 99, 99, 999), uitext.Text("collection.about_binder", stash.AlbumCopies)
+	}
+	boxes := []uiBox{
+		namedLayoutBox("tab-showcase", L.tabs[0]),
+		namedLayoutBox("tab-binder", L.tabs[1]),
+		namedLayoutBox("close", L.close),
+		textLineBox("title", title, L.page.x+16, L.page.y+10),
+		textLineBox("progress", progress, L.page.right()-16-uiTextWidth(progress), L.page.y+10),
+		{"about", L.page.x + 16, L.page.y + 28, min(uiTextWidth(about), L.page.w-32), uiTextCharHeight},
+		centeredTextBox("bag-heading", uitext.Text("collection.bag"), L.side.x, L.side.y+10, L.side.w, 16),
+		namedLayoutBox("bag-cells", L.bagGrid),
+		namedLayoutBox("bag-pager", L.pager),
+		{"bag-hint", L.hint.x, L.hint.y, L.hint.w, len(wrapUIText(collectionBagHint(tab == collectionTabBinder), L.hint.w)) * collectionHintLineH},
+		// The side column's bottom edge: the hint must end above it.
+		{"bag-column-end", L.side.x, L.side.bottom(), L.side.w, 1},
+	}
+	if tab == collectionTabBinder {
+		for i, page := range L.pages {
+			boxes = append(boxes, namedLayoutBox(fmt.Sprintf("binder-page-%d", i), page))
+		}
+		boxes = append(boxes, namedLayoutBox("page-turner", L.turner))
+	} else {
+		// The case's brass trim runs one unit outside its glass.
+		trim := layoutRect{L.glass.x - 1, L.glass.y - 1, L.glass.w + 2, L.glass.h + 2}
+		boxes = append(boxes, namedLayoutBox("showcase-case", trim), namedLayoutBox("showcase-scrollbar", L.track))
 	}
 	return region, boxes
 }

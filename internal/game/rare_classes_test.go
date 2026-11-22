@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"ugataima/internal/status"
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
@@ -55,8 +56,8 @@ func TestRarePurifyLifeStates(t *testing.T) {
 			victim.SpellPoints = 3
 			victim.PoisonFramesRemaining = 100
 			victim.BurnFramesRemaining = 100
-			victim.StunFramesRemaining = 100
-			victim.StunTurnsRemaining = 2
+			victim.Stun.Frames = 100
+			victim.Stun.Turns = 2
 			valid := life != character.ConditionDead && life != character.ConditionEradicated
 			cost := g.techniqueSPCost(c, config.Technique("purify"))
 			if got := g.useTechnique(0, "purify", false, false); got != valid {
@@ -66,7 +67,7 @@ func TestRarePurifyLifeStates(t *testing.T) {
 				t.Fatal("cleanse healed or revived")
 			}
 			if valid {
-				if victim.Purifiable() || victim.PoisonFramesRemaining != 0 || victim.BurnFramesRemaining != 0 || victim.StunTurnsRemaining != 0 {
+				if victim.Purifiable() || victim.PoisonFramesRemaining != 0 || victim.BurnFramesRemaining != 0 || victim.Stun.Turns != 0 {
 					t.Fatal("affliction timer survived")
 				}
 				if life == character.ConditionUnconscious && !victim.HasCondition(life) {
@@ -158,7 +159,7 @@ func TestRarePharmacologyCoherentSourceAndTooltip(t *testing.T) {
 		}
 	}
 	a.Conditions = []character.Condition{character.ConditionStunned}
-	a.StunFramesRemaining = 100
+	a.Stun.Frames = 100
 	if got := g.party.PotionSupport(recipient, 10, 0, false); got.Source != b.Name {
 		t.Fatal("incapacitated source contributed")
 	}
@@ -174,13 +175,27 @@ func TestRarePharmacologyCoherentSourceAndTooltip(t *testing.T) {
 
 func TestRareTechniqueAutocastTransaction(t *testing.T) {
 	for _, tb := range []bool{false, true} {
-		for _, blocked := range []string{"none", "checkbox", "SP", "AP", "overlay", "guard"} {
+		for _, blocked := range []string{"none", "checkbox", "SP", "AP", "overlay", "guard", "stunned", "monster_phase", "focus"} {
 			t.Run(fmt.Sprintf("tb=%v/%s", tb, blocked), func(t *testing.T) {
 				g, c := rareClassGame(t, character.ClassWayfarer, tb)
+				g.config.AutocastIntervalRounds = 3
 				g.selectedChar = 1
 				c.RareClass.Automatic = map[string]bool{"purify": true, "phase_veil": true, "quickening": true}
 				g.party.Members[1].Conditions = []character.Condition{character.ConditionPoisoned}
 				switch blocked {
+				case "stunned":
+					c.AddCondition(character.ConditionStunned)
+					c.Stun.Frames = 100
+				case "monster_phase":
+					if !tb {
+						t.Skip("RT has no monster phase")
+					}
+					g.currentTurn = 1
+				case "focus":
+					if tb {
+						t.Skip("focus applies only in RT")
+					}
+					g.focusedPartyMask = 2
 				case "checkbox":
 					c.RareClass.Automatic = nil
 				case "SP":
@@ -191,21 +206,17 @@ func TestRareTechniqueAutocastTransaction(t *testing.T) {
 				case "overlay":
 					g.menuOpen = true
 				case "guard":
-					c.RareClass.AutoFrames = 100
+					c.AutocastCD = framesClock(100)
 				}
-				ap, sp := c.ActionsRemaining, c.SpellPoints
+				ap, sp, recovery := c.ActionsRemaining, c.SpellPoints, c.RTCooldown
 				cost := g.techniqueSPCost(c, config.Technique("purify"))
 				otherAP := g.party.Members[1].ActionsRemaining
 				(&GameLoop{game: g}).updateAutomaticTechniques()
-				if blocked == "none" {
-					if g.party.Members[1].Purifiable() || c.SpellPoints != sp-cost || c.RareClass.AutoFrames != 3*g.config.GetTPS() {
+				if blocked == "none" || blocked == "AP" {
+					if g.party.Members[1].Purifiable() || c.SpellPoints != sp-cost || c.AutocastCD.Frames != g.config.GetTPS()*9 {
 						t.Fatal("automatic cleanse not committed")
 					}
-					wantAP := ap
-					if tb {
-						wantAP--
-					}
-					if c.ActionsRemaining != wantAP || c.RTCooldown <= 0 {
+					if c.ActionsRemaining != ap || c.RTCooldown != recovery || g.actionInputStagger != 0 || g.partyActionsUsed != 0 || g.partyPenaltyFreeActionsUsed != 0 {
 						t.Fatal("incorrect actor action cost")
 					}
 					if g.selectedChar != 1 || g.party.Members[1].ActionsRemaining != otherAP {
@@ -247,11 +258,11 @@ func TestRareSpatialStepsFreeButTransactional(t *testing.T) {
 			case "SP":
 				c.SpellPoints = 0
 			case "reuse":
-				g.spatialReuseFrames = 1
+				g.spatialReuse = framesClock(1)
 			case "enemyphase":
 				g.currentTurn = 1
 			case "rooted":
-				g.partyRoot = PartyRootState{Frames: 600, Turns: 2}
+				g.partyRoot = status.DualClock{Frames: 600, Turns: 2}
 			}
 			sp := c.SpellPoints
 			cost := g.techniqueSPCost(c, fold)
@@ -260,7 +271,7 @@ func TestRareSpatialStepsFreeButTransactional(t *testing.T) {
 				t.Fatalf("cast=%v reason=%s", got, g.techniqueRefusal(0, "fold_step"))
 			}
 			if !got {
-				if c.SpellPoints != sp || g.camera.X != x || g.camera.Y != y || c.RareClass.Anchor.Frames != 0 {
+				if c.SpellPoints != sp || g.camera.X != x || g.camera.Y != y || c.RareClass.Anchor.Clock.Frames != 0 {
 					t.Fatal("rejected step changed state")
 				}
 				return
@@ -269,14 +280,14 @@ func TestRareSpatialStepsFreeButTransactional(t *testing.T) {
 			if c.ActionsRemaining != 0 || c.RTCooldown != 0 || c.SpellPoints != sp-cost || math.Abs(g.camera.X-x-distance) > .01 {
 				t.Fatal("spatial step paid AP or moved incorrectly")
 			}
-			if c.FlowingStaffCharges() == 0 || c.RareClass.Anchor.X != x || g.spatialReuseFrames != fold.ReuseSeconds*g.config.GetTPS() {
+			if c.FlowingStaffCharges() == 0 || c.RareClass.Anchor.X != x || g.spatialReuse.Frames != fold.ReuseSeconds*g.config.GetTPS() {
 				t.Fatal("step state missing")
 			}
 			if g.useTechnique(0, "return_step", false, false) {
 				t.Fatal("shared lock bypassed")
 			}
 			g.startPartyTurn()
-			if !g.useTechnique(0, "return_step", false, false) || math.Abs(g.camera.X-x) > .01 || c.RareClass.Anchor.Frames != 0 {
+			if !g.useTechnique(0, "return_step", false, false) || math.Abs(g.camera.X-x) > .01 || c.RareClass.Anchor.Clock.Frames != 0 {
 				t.Fatal("return failed")
 			}
 		})
@@ -292,13 +303,13 @@ func TestRareReturnStepRespectsRoot(t *testing.T) {
 		t.Fatal("setup Fold rejected")
 	}
 	g.startPartyTurn()
-	g.spatialReuseFrames = 0
-	g.partyRoot = PartyRootState{Frames: 600, Turns: 2}
+	g.spatialReuse = status.DualClock{}
+	g.partyRoot = status.DualClock{Frames: 600, Turns: 2}
 	foldX, foldY, sp := g.camera.X, g.camera.Y, c.SpellPoints
 	if g.useTechnique(0, "return_step", false, false) || g.camera.X != foldX || g.camera.Y != foldY || c.SpellPoints != sp {
 		t.Fatal("a rooted party returned to its anchor")
 	}
-	g.partyRoot = PartyRootState{}
+	g.partyRoot = status.DualClock{}
 	if !g.useTechnique(0, "return_step", false, false) || math.Abs(g.camera.X-x) > .01 || math.Abs(g.camera.Y-y) > .01 {
 		t.Fatal("Return Step failed once the root ended")
 	}
@@ -309,45 +320,55 @@ func TestRareCombatClocksAndPersistence(t *testing.T) {
 	if !g.useTechnique(0, "quickening", false, false) {
 		t.Fatal("cast failed")
 	}
-	b, _ := g.combatBuffByID("quickening")
+	b, _ := g.combatBuffByID(config.TechniqueID("quickening"))
 	d, tier := config.Technique("quickening"), c.SkillTier(character.SkillTranslocation)
 	if b.RecoveryPct != config.TierValue(d.Power, tier) || b.ExtraActions != config.TierValue(d.TBPower, tier) || b.RecoveryPct <= 0 || b.ExtraActions <= 0 {
 		t.Fatalf("cast ignored the authored tier values: %+v", b)
 	}
-	frames := b.Frames
+	frames := b.Clock.Frames
 	for i := 0; i < 120; i++ {
 		g.tickCombatBuffs()
 	}
-	b, _ = g.combatBuffByID("quickening")
-	if b.Frames != frames {
+	b, _ = g.combatBuffByID(config.TechniqueID("quickening"))
+	if b.Clock.Frames != frames {
 		t.Fatal("thinking time consumed new buff")
 	}
-	pre, _ := g.combatBuffByID("quickening")
+	pre, _ := g.combatBuffByID(config.TechniqueID("quickening"))
 	saved := buildCombatBuffSaves(g.combatBuffs)
 	g.combatBuffs = restoreCombatBuffs(saved)
-	b, _ = g.combatBuffByID("quickening")
-	if b.RecoveryPct != pre.RecoveryPct || b.ExtraActions != pre.ExtraActions || b.Frames != pre.Frames || !b.DeferFirstTurnTick {
+	b, _ = g.combatBuffByID(config.TechniqueID("quickening"))
+	if b.RecoveryPct != pre.RecoveryPct || b.ExtraActions != pre.ExtraActions || b.Clock.Frames != pre.Clock.Frames || !b.DeferFirstTurnTick {
 		t.Fatalf("buff restore lost values: %+v, saved %+v", b, pre)
 	}
-	g.tickCombatBuffsTurn(3 * g.config.GetTPS())
-	b, _ = g.combatBuffByID("quickening")
-	if b.Frames != frames {
+	// Older saves stored the bare technique key as the buff id.
+	legacy := buildCombatBuffSaves(g.combatBuffs)
+	for i := range legacy {
+		legacy[i].ID = strings.TrimPrefix(legacy[i].ID, config.TechniqueID(""))
+	}
+	g.combatBuffs = restoreCombatBuffs(legacy)
+	b, _ = g.combatBuffByID(config.TechniqueID("quickening"))
+	if len(g.combatBuffs) != 1 || b.RecoveryPct != pre.RecoveryPct || b.ExtraActions != pre.ExtraActions || b.Clock.Frames != pre.Clock.Frames {
+		t.Fatalf("legacy technique buff not migrated: %+v", g.combatBuffs)
+	}
+	g.advanceCombatBuffs(true)
+	b, _ = g.combatBuffByID(config.TechniqueID("quickening"))
+	if b.Clock.Frames != frames {
 		t.Fatal("lost duration before first bonus turn")
 	}
-	g.tickCombatBuffsTurn(3 * g.config.GetTPS())
-	b, _ = g.combatBuffByID("quickening")
-	if b.Frames != frames-3*g.config.GetTPS() {
+	g.advanceCombatBuffs(true)
+	b, _ = g.combatBuffByID(config.TechniqueID("quickening"))
+	if b.Clock.Frames != frames-3*g.config.GetTPS() {
 		t.Fatal("TB clock did not advance")
 	}
 	g.turnBasedMode = false
 	g.tickCombatBuffs()
-	b, _ = g.combatBuffByID("quickening")
+	b, _ = g.combatBuffByID(config.TechniqueID("quickening"))
 	if b.DeferFirstTurnTick {
 		t.Fatal("RT kept deferred tick")
 	}
 	c.RareClass.Automatic = map[string]bool{"purify": true}
 	c.RareClass.AutoFrames = 10
-	c.RareClass.Anchor = character.SpatialAnchor{MapKey: "forest", X: 12, Y: 34, Frames: 80}
+	c.RareClass.Anchor = character.SpatialAnchor{MapKey: "forest", X: 12, Y: 34, Clock: framesClock(80)}
 	state := c.RareClass.Clone()
 	state.Automatic["purify"] = false
 	if !c.RareClass.Automatic["purify"] {
@@ -374,10 +395,10 @@ func TestRareFlaskStockShortcutAndAreaPacket(t *testing.T) {
 			if !g.equipFlask(0, key) || g.flaskStock(g.party.Members[0], key) != 2 {
 				t.Fatal("equipping took stock")
 			}
-			if !g.throwFlask(0, key, false) || g.flaskStock(g.party.Members[0], key) != 1 || c.ActionsRemaining != 1 || len(g.magicProjectiles) != 1 {
+			if !g.throwFlask(0, key, false) || g.flaskStock(g.party.Members[0], key) != 1 || c.ActionsRemaining != 1 || len(g.flasks) != 1 {
 				t.Fatal("throw did not commit exactly one stock/action")
 			}
-			p := &g.magicProjectiles[0]
+			p := &g.flasks[0]
 			victims := []int{}
 			for i := 0; i < 3; i++ {
 				m := zoneVictim(t, g)
@@ -399,7 +420,7 @@ func TestRareFlaskStockShortcutAndAreaPacket(t *testing.T) {
 					t.Fatal("burn missing")
 				}
 			}
-			g.returnQuickItemToInventory(c.Equipment[items.SlotSpell])
+			g.returnQuickItemToInventory(c.Equipment[items.SlotQuickAction])
 			if g.flaskStock(g.party.Members[0], key) != 1 {
 				t.Fatal("virtual shortcut duplicated stock")
 			}
@@ -555,32 +576,57 @@ func TestRareHarvestDawnSaveAndRoster(t *testing.T) {
 }
 
 func TestRareSaveRealCharacterAndTurnState(t *testing.T) {
-	for _, class := range []character.CharacterClass{character.ClassAlchemist, character.ClassWayfarer} {
-		g, c := rareClassGame(t, class, true)
-		c.RareClass = character.RareClassState{KitGranted: true, Automatic: map[string]bool{"purify": true}, AutoFrames: 88, PurifyFrames: 123, FlowCharges: 3, FlowDistance: 13, Anchor: character.SpatialAnchor{MapKey: "forest", X: 50, Y: 90, Frames: 260}}
-		key := "purify"
-		it, _ := config.TechniqueItem(key)
-		if class == character.ClassAlchemist {
-			key = "harm_flask"
-			it, _ = config.FlaskItem(key)
-		}
-		c.Equipment[items.SlotSpell] = it
-		c.QuickSlots[0] = &it
-		raw, err := json.Marshal(buildCharacterSave(c))
-		if err != nil {
-			t.Fatal(err)
-		}
-		var saved CharacterSave
-		if err = json.Unmarshal(raw, &saved); err != nil {
-			t.Fatal(err)
-		}
-		restored := restoreCharacterSave(saved)
-		if restored.Class != class || !reflect.DeepEqual(restored.RareClass, c.RareClass) || restored.QuickSlots[0] == nil || restored.QuickSlots[0].Type != it.Type || restored.Equipment[items.SlotSpell].Type != it.Type {
-			t.Fatal("real save/restore lost rare class state or shortcut type")
-		}
-		g.restoreSavedTurnState(&GameSave{TurnBased: true, SpatialReuseFrames: 150, SpatialStepThisTurn: true, PartyActionsUsed: 1})
-		if g.spatialReuseFrames != 150 || !g.spatialStepThisTurn || g.partyActionsUsed != 1 {
-			t.Fatal("turn restore lost spatial guard")
+	for _, tc := range []struct {
+		class character.CharacterClass
+		key   string
+		item  func(string) (items.Item, bool)
+	}{
+		{character.ClassWayfarer, "purify", config.TechniqueItem},
+		{character.ClassAlchemist, "harm_flask", config.FlaskItem},
+		{character.ClassThief, "cleave_trap", config.TrapItem},
+	} {
+		for _, legacy := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/legacy=%v", tc.key, legacy), func(t *testing.T) {
+				g, c := rareClassGame(t, tc.class, true)
+				item, ok := tc.item(tc.key)
+				if !ok || item.Name == "" {
+					t.Fatalf("catalog shortcut %q missing", tc.key)
+				}
+				c.RareClass = character.RareClassState{KitGranted: true, Automatic: map[string]bool{"purify": true}, FlowCharges: 3, FlowDistance: 13, Anchor: character.SpatialAnchor{MapKey: "forest", X: 50, Y: 90, Clock: framesClock(260)}}
+				slot, quick := item, item
+				if legacy {
+					// Older saves kept every shortcut's key in SpellEffect.
+					slot = items.Item{Name: item.Name, Type: item.Type, SpellEffect: items.SpellEffect(tc.key)}
+					quick = slot
+				}
+				c.Equipment[items.SlotQuickAction] = slot
+				c.QuickSlots[0] = &quick
+				raw, err := json.Marshal(buildCharacterSave(c))
+				if err != nil {
+					t.Fatal(err)
+				}
+				var saved CharacterSave
+				if err = json.Unmarshal(raw, &saved); err != nil {
+					t.Fatal(err)
+				}
+				restored := restoreCharacterSave(saved)
+				if restored.Class != tc.class || !reflect.DeepEqual(restored.RareClass, c.RareClass) || restored.QuickSlots[0] == nil {
+					t.Fatal("real save/restore lost rare class state or the quick slot")
+				}
+				if !reflect.DeepEqual(restored.Equipment[items.SlotQuickAction], item) || !reflect.DeepEqual(*restored.QuickSlots[0], item) {
+					t.Fatalf("shortcuts did not restore to the catalog item: %+v / %+v", restored.Equipment[items.SlotQuickAction], *restored.QuickSlots[0])
+				}
+				// An older save kept the step lock as frames; a newer one keeps the clock.
+				g.restoreSavedTurnState(&GameSave{TurnBased: true, SpatialReuseFrames: 150, PartyActionsUsed: 1})
+				if g.spatialReuse.Frames != 150 || !g.spatialReuse.Active() || g.partyActionsUsed != 1 {
+					t.Fatal("turn restore lost spatial guard")
+				}
+				lock := framesClock(90)
+				g.restoreSavedTurnState(&GameSave{TurnBased: true, SpatialReuse: lock.Saved()})
+				if g.spatialReuse != lock {
+					t.Fatalf("turn restore lost the step clock: %+v, want %+v", g.spatialReuse, lock)
+				}
+			})
 		}
 	}
 }
@@ -595,14 +641,14 @@ func TestRareFlaskRangeAndWallImpactOnce(t *testing.T) {
 			if !g.throwFlask(0, "harm_flask", false) {
 				t.Fatal("launch failed")
 			}
-			p := &g.magicProjectiles[0]
+			p := &g.flasks[0]
 			x, y := p.X, p.Y
-			rangePx := p.FlaskRemaining
+			rangePx := p.Remaining
 			m := zoneVictim(t, g)
 			m.ArmorClass = 0
 			m.X = x + rangePx
 			m.Y = y
-			wrapper := &MagicProjectileWrapper{MagicProjectile: p, collisionSystem: g.collisionSystem, projectileID: p.ID, game: g}
+			wrapper := &FlaskProjectileWrapper{Flask: p, collisionSystem: g.collisionSystem, game: g}
 			if impact == "wall" {
 				wrapper.OnCollision(x+rangePx, y)
 			} else {
@@ -646,7 +692,7 @@ func TestRareMonsterBurnClockAndBossRule(t *testing.T) {
 					}
 				}
 				// One tick per second: the authored percent of max HP, floored at the minimum.
-				want := 3 * max(3, m.MaxHitPoints*config.BurnPercent(boss)/100)
+				want := 3 * max(3, m.MaxHitPoints*config.DoTPercent("burn", boss)/100)
 				if m.MaxHitPoints-m.HitPoints != want {
 					t.Fatalf("burn=%d want=%d", m.MaxHitPoints-m.HitPoints, want)
 				}
@@ -664,7 +710,7 @@ func TestRareSpatialNoExtraTurnBothOrdersAndMeditation(t *testing.T) {
 		want := c.SpellPoints
 		for _, key := range []string{"fold_step", "phase_veil"} {
 			base := config.TierValue(config.Technique(key).SPCost, tier)
-			want -= (base*(100-MeditationGMSpellCostReductionPct) + 50) / 100
+			want -= (base*(100-MeditationGMSPCostReductionPct) + 50) / 100
 		}
 		step := func() {
 			if !g.useTechnique(0, "fold_step", false, false) {
@@ -723,7 +769,7 @@ func TestRareBrewedBuffRefreshesOrdinaryEffect(t *testing.T) {
 						t.Fatalf("cannot drink %s", k)
 					}
 				}
-				if len(g.combatBuffs) != 1 || g.combatBuffs[0].SpellID != key || len(g.party.Inventory) != 0 {
+				if len(g.combatBuffs) != 1 || g.combatBuffs[0].ID != key || len(g.party.Inventory) != 0 {
 					t.Fatalf("duplicate effect or unspent potion: %+v", g.combatBuffs)
 				}
 				restored := restoreCombatBuffs(buildCombatBuffSaves(g.combatBuffs))
@@ -752,7 +798,7 @@ func TestRareCraftedSourceProductionGuards(t *testing.T) {
 				switch source {
 				case "merchant":
 					p := filepath.Join(t.TempDir(), "npcs.yaml")
-					body := fmt.Sprintf("npcs:\n  test:\n    name: Trader\n    type: merchant\n    render_category: standee\n    inventory:\n      - {name: %q, type: consumable, cost: 1, quantity: 1}\n", d.Name)
+					body := fmt.Sprintf("npcs:\n  test:\n    name: Trader\n    type: merchant\n    render_category: standee\n    inventory:\n      - {key: %s, cost: 1, quantity: 1}\n", key)
 					if err = os.WriteFile(p, []byte(body), 0600); err != nil {
 						t.Fatal(err)
 					}
@@ -806,7 +852,7 @@ func TestRareDisplayedAutocastCheckboxes(t *testing.T) {
 			g.currentTab = TabSpellbook
 			g.showPartyStats = true
 			content := computeTabbedMenuLayout(size[0], gameplayViewportBottom(g)).content
-			l := computeRareBookLayout(content, false)
+			l := computeRareBookLayout(content, false, 1)
 			for i, d := range config.GlobalTechniques.Techniques {
 				if d.Automatic {
 					for _, want := range []bool{true, false, true} {
@@ -815,7 +861,7 @@ func TestRareDisplayedAutocastCheckboxes(t *testing.T) {
 						if c.RareClass.Automatic[d.Key] != want {
 							t.Fatalf("displayed %s checkbox=%v want %v", d.Key, c.RareClass.Automatic[d.Key], want)
 						}
-						if c.Equipment[items.SlotSpell].Type == items.ItemTechnique {
+						if c.Equipment[items.SlotQuickAction].Type == items.ItemTechnique {
 							t.Fatal("checkbox unexpectedly equipped a technique")
 						}
 					}
@@ -860,17 +906,22 @@ func TestRareTechniqueQuickSlotAndBookCosts(t *testing.T) {
 
 func TestRareAutomaticSupportTriggers(t *testing.T) {
 	for _, tb := range []bool{false, true} {
-		for _, state := range []string{"peace", "distant", "surrounded", "low_hp", "already_active", "incapacitated"} {
+		for _, state := range []string{"peace", "distant", "surrounded", "low_hp", "already_active", "incapacitated", "afflicted"} {
 			t.Run(fmt.Sprintf("tb=%v/%s", tb, state), func(t *testing.T) {
 				g, c := rareClassGame(t, character.ClassWayfarer, tb)
 				c.RareClass.Automatic = map[string]bool{"phase_veil": true, "quickening": true}
+				if state == "afflicted" {
+					// Every trigger fires at once: the cleanse goes first.
+					c.RareClass.Automatic["purify"] = true
+					g.party.Members[1].AddCondition(character.ConditionPoisoned)
+				}
 				if state != "peace" {
 					m := zoneVictim(t, g)
 					m.WasAttacked = true
 					m.IsEngagingPlayer = true
 					m.X += 10 * float64(g.config.GetTileSize())
 				}
-				if state == "surrounded" {
+				if state == "surrounded" || state == "afflicted" {
 					for i := 0; i < 2; i++ {
 						m := zoneVictim(t, g)
 						m.IsEngagingPlayer = true
@@ -880,7 +931,9 @@ func TestRareAutomaticSupportTriggers(t *testing.T) {
 					g.party.Members[1].HitPoints = 1
 				}
 				if state == "already_active" {
-					g.addCombatBuff(TimedCombatBuff{SpellID: "quickening", Frames: 100})
+					d := config.Technique("quickening")
+					g.addCombatBuff(TimedCombatBuff{ID: config.TechniqueID("quickening"), Clock: framesClock(100),
+						RecoveryPct: config.TierValue(d.Power, 0), ExtraActions: config.TierValue(d.TBPower, 0)})
 				}
 				if state == "incapacitated" {
 					c.ApplyCharStun(120, 2)
@@ -893,8 +946,12 @@ func TestRareAutomaticSupportTriggers(t *testing.T) {
 				if state == "surrounded" || state == "low_hp" {
 					want = "phase_veil"
 				}
-				if want != "" {
-					if b, ok := g.combatBuffByID(want); !ok || !b.CombatClock || c.SpellPoints >= 100 {
+				if state == "afflicted" {
+					if g.party.Members[1].Purifiable() || len(g.combatBuffs) != 0 || c.SpellPoints >= 100 {
+						t.Fatal("purify did not take priority over the pressure triggers")
+					}
+				} else if want != "" {
+					if b, ok := g.combatBuffByID(config.TechniqueID(want)); !ok || !b.CombatClock || c.SpellPoints >= 100 {
 						t.Fatalf("missing automatic %s", want)
 					}
 				} else if c.SpellPoints != 100 {
@@ -912,11 +969,11 @@ func TestRareFlowChargeActualAttack(t *testing.T) {
 	for _, action := range []string{"staff", "other_weapon", "pixie_replacement", "stunned", "projectile_cap"} {
 		t.Run(action, func(t *testing.T) {
 			g, c := rareClassGame(t, character.ClassWayfarer, false)
-			g.notifyPilgrimDisplacement(g.camera.X, g.camera.Y)
+			g.partyMoved(g.camera.X, g.camera.Y)
 			if c.FlowingStaffCharges() != 0 {
 				t.Fatal("standing still charged staff")
 			}
-			g.notifyPilgrimDisplacement(g.camera.X-float64(g.config.GetTileSize()), g.camera.Y)
+			g.partyMoved(g.camera.X-float64(g.config.GetTileSize()), g.camera.Y)
 			if c.FlowingStaffCharges() != 1 {
 				t.Fatal("one tile did not charge staff")
 			}
@@ -925,7 +982,7 @@ func TestRareFlowChargeActualAttack(t *testing.T) {
 				c.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("iron_sword")
 			}
 			if action == "pixie_replacement" {
-				wd := lookupWeaponConfigByName("Oak Staff")
+				wd := lookupWeaponConfig(testWeapon("Oak Staff"))
 				oldRange := wd.Range
 				wd.Range = 3
 				t.Cleanup(func() { wd.Range = oldRange })
@@ -939,7 +996,7 @@ func TestRareFlowChargeActualAttack(t *testing.T) {
 				c.ApplyCharStun(120, 2)
 			}
 			if action == "projectile_cap" {
-				wd := lookupWeaponConfigByName("Oak Staff")
+				wd := lookupWeaponConfig(testWeapon("Oak Staff"))
 				oldCap := wd.MaxProjectiles
 				wd.MaxProjectiles = 1
 				t.Cleanup(func() { wd.MaxProjectiles = oldCap })
@@ -1027,21 +1084,17 @@ func TestTechniqueCardsMatchTheirUse(t *testing.T) {
 					if !strings.Contains(card, fmt.Sprintf("Reuse: %ds", d.ReuseSeconds)) {
 						t.Fatalf("card lacks the %ds reuse lock:\n%s", d.ReuseSeconds, card)
 					}
-					g.party.Members[1].PoisonFramesRemaining = 100 // something for Purify to clear
 					if d.Key == "return_step" {
 						// Return needs the anchor a Fold leaves; then let space settle.
 						if !g.useTechnique(0, "fold_step", false, false) {
 							t.Fatal("fold failed")
 						}
-						g.spatialReuseFrames, g.spatialStepThisTurn = 0, false
+						g.spatialReuse = status.DualClock{}
 					}
 					if !g.useTechnique(0, d.Key, false, false) {
 						t.Fatal("use failed")
 					}
-					lock := c.RareClass.PurifyFrames
-					if d.FreeStep {
-						lock = g.spatialReuseFrames
-					}
+					lock := g.spatialReuse.Frames
 					if lock != d.ReuseSeconds*tps {
 						t.Fatalf("use set a %d-frame lock, the card says %ds", lock, d.ReuseSeconds)
 					}

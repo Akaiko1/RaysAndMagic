@@ -5,19 +5,23 @@ import (
 	"os"
 	"sort"
 
-	"gopkg.in/yaml.v3"
 	"ugataima/internal/items"
+	"ugataima/internal/strictyaml"
 )
 
 type FlaskDefinition struct {
-	Sprite          string  `yaml:"sprite"`
-	Element         string  `yaml:"element"`
-	Damage          [4]int  `yaml:"damage"`
-	PoisonSeconds   [4]int  `yaml:"poison_seconds"`
-	BurnSeconds     [4]int  `yaml:"burn_seconds"`
-	RangeTiles      int     `yaml:"range_tiles"`
-	RadiusTiles     int     `yaml:"radius_tiles"`
-	CooldownSeconds float64 `yaml:"cooldown_seconds"`
+	Reusable         bool    `yaml:"reusable,omitempty"` // a throw_flask device scaled by Alchemy, never consumed
+	CatalysisPercent [4]int  `yaml:"catalysis_percent,omitempty"`
+	CatalysisSeconds int     `yaml:"catalysis_seconds,omitempty"`
+	ProjectileFx     string  `yaml:"projectile_fx,omitempty"`
+	Sprite           string  `yaml:"sprite"`
+	Element          string  `yaml:"element"`
+	Damage           [4]int  `yaml:"damage"`
+	PoisonSeconds    [4]int  `yaml:"poison_seconds"`
+	BurnSeconds      [4]int  `yaml:"burn_seconds"`
+	RangeTiles       int     `yaml:"range_tiles"`
+	RadiusTiles      int     `yaml:"radius_tiles"`
+	CooldownSeconds  float64 `yaml:"cooldown_seconds"`
 }
 type AlchemyAlternative struct {
 	Items []string `yaml:"items"`
@@ -102,7 +106,7 @@ func LoadAlchemyConfig(filename string) (*AlchemyConfig, error) {
 		return nil, err
 	}
 	var c AlchemyConfig
-	if err = yaml.Unmarshal(data, &c); err != nil {
+	if err = strictyaml.Decode(data, &c); err != nil {
 		return nil, err
 	}
 	if err = validateAlchemyConfig(&c); err != nil {
@@ -176,7 +180,7 @@ func LoadAlchemySpawns(filename string) (*AlchemySpawnConfig, error) {
 		return nil, err
 	}
 	var c AlchemySpawnConfig
-	if err = yaml.Unmarshal(data, &c); err != nil {
+	if err = strictyaml.Decode(data, &c); err != nil {
 		return nil, err
 	}
 	if c.Respawn != "dawn" || len(c.Placement.TerrainTypes) == 0 {
@@ -241,17 +245,26 @@ func validateCraftedItem(key string, d *ItemDefinitionConfig) error {
 		return fmt.Errorf("item %q: crafted products require consumable type and value 1", key)
 	}
 	if f := d.Flask; f != nil {
+		if err := validateFlaskCapability(key, d); err != nil {
+			return err
+		}
 		element, err := canonicalDamageSchool(f.Element)
 		if err != nil {
 			return err
 		}
 		f.Element = element
-		if f.Sprite == "" || !d.CraftedOnly || f.RangeTiles < 1 || f.RadiusTiles < 1 || f.CooldownSeconds <= 0 || d.HealBase > 0 || d.ManaBase > 0 || d.Revive || d.SummonDistanceTiles > 0 || d.HasTimedBuff() {
+		if (f.Sprite == "" && f.ProjectileFx == "") || (!d.CraftedOnly && !f.Reusable) || f.RangeTiles < 1 || f.RadiusTiles < 1 || f.CooldownSeconds <= 0 || d.HealBase > 0 || d.ManaBase > 0 || d.Revive || d.SummonDistanceTiles > 0 || d.HasTimedBuff() {
 			return fmt.Errorf("item %q: invalid throwable flask", key)
 		}
 		for i := range f.Damage {
 			if f.Damage[i] < 1 || f.PoisonSeconds[i] < 0 || f.BurnSeconds[i] < 0 {
 				return fmt.Errorf("item %q: invalid flask mastery values", key)
+			}
+			if err := validateEffectFields(
+				effectField{fmt.Sprintf("item %q: poison_seconds[%d]", key, i), f.PoisonSeconds[i]},
+				effectField{fmt.Sprintf("item %q: burn_seconds[%d]", key, i), f.BurnSeconds[i]},
+			); err != nil {
+				return err
 			}
 		}
 	}
@@ -270,6 +283,22 @@ func ValidateOrdinaryItemGrant(key string) error {
 	return nil
 }
 
+// ValidateBarterGrant lets a barter hand out a gathering ingredient only for
+// gathering ingredients: herbs trade for herbs, never for coin or loot. Every
+// other output follows the ordinary grant rule.
+func ValidateBarterGrant(key string, goods []string) error {
+	d, _ := GetItemDefinition(key)
+	if d == nil || d.HarvestSprite == "" || d.CraftedOnly {
+		return ValidateOrdinaryItemGrant(key)
+	}
+	for _, good := range goods {
+		if paid, _ := GetItemDefinition(good); paid == nil || paid.HarvestSprite == "" {
+			return fmt.Errorf("barter for harvest-only item %q must be paid in gathering ingredients, not %q", key, good)
+		}
+	}
+	return nil
+}
+
 // Explicit monster herb drops do not open herbs to ordinary catalog grants.
 func ValidateMonsterHarvestGrant(key string) error {
 	d, ok := GetItemDefinition(key)
@@ -284,7 +313,7 @@ func FlaskItem(key string) (items.Item, bool) {
 	if d == nil || d.Flask == nil {
 		return items.Item{}, false
 	}
-	return items.Item{Name: d.Name, Type: items.ItemThrowable, SpellEffect: items.SpellEffect(key), Description: d.Description}, true
+	return items.Item{Name: d.Name, Type: items.ItemThrowable, Flask: key, Description: d.Description}, true
 }
 func FlaskKeys() []string {
 	var keys []string
@@ -297,4 +326,41 @@ func FlaskKeys() []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+// validateFlaskCapability: a reusable flask is exactly a throw_flask device
+// (device rules in validateDeviceDefinition) with its own projectile look.
+func validateFlaskCapability(key string, d *ItemDefinitionConfig) error {
+	f := d.Flask
+	if f == nil {
+		return nil
+	}
+	if d.BrewColor == ([3]int{}) {
+		return fmt.Errorf("item %q: a flask needs brew_color, the tint of its burst", key)
+	}
+	if f.Reusable != (d.UseAction == "throw_flask") {
+		return fmt.Errorf("item %q: a reusable flask is exactly a throw_flask device", key)
+	}
+	if f.Reusable && (d.CraftedOnly || f.ProjectileFx == "") {
+		return fmt.Errorf("item %q: a reusable flask is never crafted and needs projectile_fx", key)
+	}
+	if !f.Reusable && f.ProjectileFx != "" {
+		return fmt.Errorf("item %q: projectile_fx is for reusable flasks", key)
+	}
+	if f.CatalysisSeconds != 0 {
+		if !f.Reusable {
+			return fmt.Errorf("item %q: catalysis requires reusable", key)
+		}
+		if err := ValidateEffectSeconds("flask catalysis_seconds", f.CatalysisSeconds); err != nil {
+			return err
+		}
+		for _, pct := range f.CatalysisPercent {
+			if !validPercent(pct) {
+				return fmt.Errorf("item %q: catalysis_percent must be 1..100 at every mastery", key)
+			}
+		}
+	} else if f.CatalysisPercent != [4]int{} {
+		return fmt.Errorf("item %q: catalysis_percent requires catalysis_seconds", key)
+	}
+	return nil
 }

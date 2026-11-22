@@ -94,15 +94,15 @@ func (e spellCardEnv) scaled(base, gm int) int {
 	return scaledMasteryValueAt(base, gm, character.SpellMasteryTier(e.char, e.def))
 }
 
-// stunSpan is the "(Ns / M TB turn" span; the plural suffix is left to the card.
+// stunSpan is the stun's duration as every card writes it.
 func (e spellCardEnv) stunSpan() string {
-	return fmt.Sprintf("%ds / %d TB turn", e.def.StunDurationSeconds, e.def.StunDurationTurns)
+	return config.DurationText(e.def.StunDurationSeconds)
 }
 
 func (e spellCardEnv) duration() string {
-	seconds := character.SpellDurationBreakdown(e.def, e.char).Seconds
-	rounds := (seconds + character.TurnBasedTurnSeconds - 1) / character.TurnBasedTurnSeconds
-	return fmt.Sprintf("Current Duration: %ds (TB: %s)", seconds, pluralizeCount(rounds, "round", "rounds"))
+	seconds := character.SpellDurationSeconds(e.def, e.char)
+	rounds := config.CombatRounds(seconds)
+	return fmt.Sprintf("Current Duration: %ds / %s", seconds, pluralizeCount(rounds, "TB turn", "TB turns"))
 }
 
 // Every spell card states the mechanics the 2026-09-30 audit checked against
@@ -115,7 +115,7 @@ func TestSpellCardsStateAuditedMechanics(t *testing.T) {
 		t.Cleanup(func() { monster.MonsterConfig = prev })
 		monster.MustLoadMonsterConfig("../../assets/monsters.yaml")
 	}
-	armorCap := fmt.Sprintf("(up to %d%%)", character.ArmorElementalMitigationCap)
+	armorCap := fmt.Sprintf("(up to %d%%)", config.ArmorElementalMitigationCap)
 	for _, tc := range []struct {
 		name    string
 		id      spells.SpellID
@@ -126,6 +126,14 @@ func TestSpellCardsStateAuditedMechanics(t *testing.T) {
 		mustNot []string
 		derive  func(spellCardEnv) (want, mustNot []string)
 	}{
+		{id: "body_purify", mustNot: []string{"Cleansing reuse"}},
+		{id: "dispel_magic", mustNot: []string{"Cleansing reuse"}},
+		{id: "flying_fist", want: []string{"Body Magic", "Body Damage", "Body Resistance"}, mustNot: []string{"Physical Damage", "physical damage"}},
+		{id: "shrapmetal", want: []string{"Dark Magic", "Physical Damage", "Physical Resistance", "Damage per fragment:"}, mustNot: []string{"Dark Damage", "Dark Resistance", "shown below", "shown above"}},
+		{id: "prismatic_light", want: []string{"Damage:", "Intellect", "Personality"}, mustNot: []string{"Ray of Light", "formula /"}},
+		{id: "frozen_ground", tier: character.MasteryGrandMaster, mustNot: []string{"+0%"}},
+		{name: "mass_fear/compact", id: "mass_fear", compact: true, want: []string{"Targets may resist."}, mustNot: []string{"Higher-level targets", "Resisted casts still spend mana"}},
+		{id: "mass_fear", want: []string{"Targets may resist.", "Higher-level targets"}, mustNot: []string{"Resisted casts still spend mana"}},
 		{id: "fireball", want: []string{"Reduced by target Armor " + armorCap + " and Fire Resistance",
 			"Bursts where it stops: on a target, a wall or at the end of its range", "a target that dodges escapes only its own hit"}, mustNot: []string{"tile AoE"},
 			derive: func(e spellCardEnv) ([]string, []string) {
@@ -214,10 +222,10 @@ func TestSpellCardsStateAuditedMechanics(t *testing.T) {
 		}},
 		{id: "awaken", want: []string{"With no one unconscious, the SP is kept", "Wakes all unconscious allies"}},
 		{id: "heal", want: []string{"Personality ("}},
-		{id: "heal_other", want: []string{"Heals the ally you point at, else the selected hero; from the spellbook, the most wounded ally"}, mustNot: []string{"Can target any party member"}},
+		{id: "heal_other", want: []string{"Heals the ally you point at, else the most wounded ally; never an ally at 0 HP"}, mustNot: []string{"Can target any party member"}},
 		{id: "mass_heal", want: []string{"Skips allies at 0 HP"}},
 		{id: "town_portal", want: []string{"nothing is spent until you choose one"}},
-		{id: "fly", want: []string{"Inside a wall or tree nobody can attack or cast", "Ends at once on a map without open sky", "No RT cooldown - TB: 1 action", "(TB: ", "Only under an open sky"}},
+		{id: "fly", want: []string{"Inside a wall or tree nobody can attack or cast", "Ends at once on a map without open sky", "No RT cooldown - TB: 1 action", " TB turns", "Only under an open sky"}},
 		{name: "fly/compact", id: "fly", compact: true, tier: character.MasteryExpert, mustNot: []string{"Air Mastery -"},
 			derive: func(e spellCardEnv) ([]string, []string) { return []string{e.duration()}, nil }},
 		{id: "water_breathing", want: []string{"Deep water takes the party down to the Ocean Depths", "surfaces where it dove in"}, mustNot: []string{"Allows underwater travel"}},
@@ -247,18 +255,18 @@ func TestSpellCardsStateAuditedMechanics(t *testing.T) {
 			return []string{fmt.Sprintf("Current physical damage bonus: +%d", e.scaled(e.def.OutgoingDamageBonus, e.def.OutgoingDamageBonusGrandmaster))},
 				[]string{fmt.Sprintf("deal +%d to +%d", e.def.OutgoingDamageBonus, e.def.OutgoingDamageBonusGrandmaster)}
 		}},
-		{id: "stone_skin", want: []string{"true damage and damage over time pass"}, derive: func(e spellCardEnv) ([]string, []string) {
-			return []string{fmt.Sprintf("Current reduction: -%d per hit", e.scaled(e.def.IncomingDamageReduction, e.def.IncomingDamageReductionGrandmaster))}, nil
+		{id: "stone_skin", want: []string{"Does not reduce true damage or damage over time"}, derive: func(e spellCardEnv) ([]string, []string) {
+			return []string{fmt.Sprintf("Flat damage reduction: %d per hit (party)", e.scaled(e.def.IncomingDamageReduction, e.def.IncomingDamageReductionGrandmaster))}, nil
 		}},
 		{name: "stone_skin/compact", id: "stone_skin", compact: true, tier: character.MasteryGrandMaster, derive: func(e spellCardEnv) ([]string, []string) {
-			return []string{fmt.Sprintf("Current reduction: -%d per hit", e.scaled(e.def.IncomingDamageReduction, e.def.IncomingDamageReductionGrandmaster))},
-				[]string{fmt.Sprintf("Party takes -%d to -%d", e.def.IncomingDamageReduction, e.def.IncomingDamageReductionGrandmaster)}
+			return []string{fmt.Sprintf("Flat damage reduction: %d per hit (party)", e.scaled(e.def.IncomingDamageReduction, e.def.IncomingDamageReductionGrandmaster))},
+				[]string{fmt.Sprintf("Flat damage reduction: %d to %d", e.def.IncomingDamageReduction, e.def.IncomingDamageReductionGrandmaster)}
 		}},
-		{id: "hour_of_power", want: []string{"true damage and damage over time pass", "No RT cooldown - TB: 1 action"},
+		{id: "hour_of_power", want: []string{"Does not reduce true damage or damage over time", "No RT cooldown - TB: 1 action"},
 			derive: func(e spellCardEnv) ([]string, []string) {
 				return []string{
 					fmt.Sprintf("Current damage bonus: +%d", e.scaled(e.def.OutgoingDamageBonus, e.def.OutgoingDamageBonusGrandmaster)),
-					fmt.Sprintf("Current reduction: -%d per hit", e.scaled(e.def.IncomingDamageReduction, e.def.IncomingDamageReductionGrandmaster)),
+					fmt.Sprintf("Flat damage reduction: %d per hit (party)", e.scaled(e.def.IncomingDamageReduction, e.def.IncomingDamageReductionGrandmaster)),
 				}, nil
 			}},
 	} {

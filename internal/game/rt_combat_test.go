@@ -120,8 +120,8 @@ func TestRTHoldSpace_HighSpeedAttacksMore(t *testing.T) {
 	g.selectedChar = 0
 	for f := 0; f < 20*g.config.GetTPS(); f++ {
 		// The per-frame RT clocks the game loop advances.
-		if g.spellInputCooldown > 0 {
-			g.spellInputCooldown--
+		if g.actionInputStagger > 0 {
+			g.actionInputStagger--
 		}
 		before := make([]int, n)
 		for i, m := range members {
@@ -159,11 +159,11 @@ func TestSmartAttack_HealPriority(t *testing.T) {
 			t.Fatalf("create %s spell item: %v", id, err)
 		}
 		c.LearnSpell(id)
-		c.Equipment[items.SlotSpell] = spellItem
+		c.Equipment[items.SlotQuickAction] = spellItem
 	}
 	slottedHeal := func(t *testing.T, c *character.MMCharacter) {
 		c.LearnSpell("heal_other")
-		c.Equipment[items.SlotSpell] = items.Item{
+		c.Equipment[items.SlotQuickAction] = items.Item{
 			Name: "Heal", Type: items.ItemUtilitySpell,
 			SpellEffect: items.SpellEffectHealOther, SpellCost: 4,
 		}
@@ -178,7 +178,7 @@ func TestSmartAttack_HealPriority(t *testing.T) {
 	}{
 		{"slotted_heal_heals_most_wounded", 0, 1, slottedHeal, 50, "heal_other"},
 		{"healthy_party_casts_nothing", 0, -1, slottedHeal, 50, ""},
-		{"book_heal_without_quick_slot", 2, 0, func(_ *testing.T, c *character.MMCharacter) { delete(c.Equipment, items.SlotSpell) }, 50, "heal_other"},
+		{"book_heal_without_quick_slot", 2, 0, func(_ *testing.T, c *character.MMCharacter) { delete(c.Equipment, items.SlotQuickAction) }, 50, "heal_other"},
 		{"book_heal_over_offensive_slot", 2, 1, func(t *testing.T, c *character.MMCharacter) { slot(t, c, "harm") }, 50, "heal_other"},
 		{"slotted_heal_over_book_heal", 2, 1, func(t *testing.T, c *character.MMCharacter) { slot(t, c, "mass_heal") }, 80, "mass_heal"},
 	} {
@@ -205,7 +205,8 @@ func TestSmartAttack_HealPriority(t *testing.T) {
 			}
 			spBefore := caster.SpellPoints
 
-			cast, id := cs.SmartAttack()
+			action := cs.SmartAttack()
+			cast, id := action.Acted, action.Spell
 			if id != tc.want || (tc.want != "" && !cast) {
 				t.Fatalf("SmartAttack cast=%v id=%q, want %q", cast, id, tc.want)
 			}
@@ -241,9 +242,9 @@ func TestRTCycle_CapabilityAware(t *testing.T) {
 		c.HitPoints, c.MaxHitPoints = 50, 50
 		c.RTCooldown = 0
 	}
-	m[0].Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("iron_sword")                                                       // only armed
-	m[1].Equipment[items.SlotSpell] = items.Item{Type: items.ItemBattleSpell, SpellEffect: items.SpellEffect("fireball"), SpellCost: 4} // only caster
-	m[2].MagicSchools[character.MagicSchoolBody] = &character.MagicSkill{KnownSpells: []spells.SpellID{"heal"}}                         // only healer
+	m[0].Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("iron_sword")                                                             // only armed
+	m[1].Equipment[items.SlotQuickAction] = items.Item{Type: items.ItemBattleSpell, SpellEffect: items.SpellEffect("fireball"), SpellCost: 4} // only caster
+	m[2].MagicSchools[character.MagicSchoolBody] = &character.MagicSkill{KnownSpells: []spells.SpellID{"heal"}}                               // only healer
 
 	check := func(kind rtActionKind, from, want int, msg string) {
 		g.selectedChar = from
@@ -252,23 +253,23 @@ func TestRTCycle_CapabilityAware(t *testing.T) {
 			t.Errorf("%s: from %d want %d, got %d", msg, from, want, g.selectedChar)
 		}
 	}
-	check(rtActCast, 0, 1, "F lands on the only caster")
-	check(rtActCast, 1, 1, "F stays on the sole caster")
+	check(rtActSlotted, 0, 1, "F lands on the only caster")
+	check(rtActSlotted, 1, 1, "F stays on the sole caster")
 	check(rtActHeal, 0, 2, "C lands on the only healer")
 	check(rtActHeal, 3, 2, "C skips non-healers to the healer")
 	check(rtActWeapon, 3, 0, "R lands on the only armed")
 
 	// Caster on cooldown: F waits on them (capable), not jump to an incapable member.
 	m[1].RTCooldown = 30
-	check(rtActCast, 0, 1, "F waits on the capable caster even on cooldown")
-	if g.rtActionReady(1, rtActCast) {
+	check(rtActSlotted, 0, 1, "F waits on the capable caster even on cooldown")
+	if g.rtActionReady(1, rtActSlotted) {
 		t.Errorf("caster on cooldown must not be ready")
 	}
 	// A broke caster (no SP) is incapable -> not selected.
 	m[1].RTCooldown = 0
 	m[1].SpellPoints = 0
 	g.selectedChar = 0
-	g.advanceRTActor(rtActCast)
+	g.advanceRTActor(rtActSlotted)
 	if g.selectedChar == 1 {
 		t.Errorf("F should skip a caster with no SP")
 	}
@@ -294,8 +295,8 @@ func TestRTCycle_WaitsQuietlyWhenAllOnCooldown(t *testing.T) {
 		c.RTCooldown = 0
 	}
 	// Two casters (1 & 3), both on cooldown; non-casters elsewhere.
-	m[1].Equipment[items.SlotSpell] = items.Item{Type: items.ItemBattleSpell, SpellEffect: items.SpellEffect("fireball"), SpellCost: 4}
-	m[3].Equipment[items.SlotSpell] = items.Item{Type: items.ItemBattleSpell, SpellEffect: items.SpellEffect("fireball"), SpellCost: 4}
+	m[1].Equipment[items.SlotQuickAction] = items.Item{Type: items.ItemBattleSpell, SpellEffect: items.SpellEffect("fireball"), SpellCost: 4}
+	m[3].Equipment[items.SlotQuickAction] = items.Item{Type: items.ItemBattleSpell, SpellEffect: items.SpellEffect("fireball"), SpellCost: 4}
 	m[1].RTCooldown, m[3].RTCooldown = 40, 40
 
 	// Replays the pre-fire selection steps without firing.
@@ -312,7 +313,7 @@ func TestRTCycle_WaitsQuietlyWhenAllOnCooldown(t *testing.T) {
 	}
 
 	g.selectedChar = 0 // start on a non-caster
-	step(rtActCast)    // one-time park onto a capable caster
+	step(rtActSlotted) // one-time park onto a capable caster
 	parked := g.selectedChar
 	if parked != 1 && parked != 3 {
 		t.Fatalf("F should park on a caster, got %d", parked)
@@ -320,15 +321,15 @@ func TestRTCycle_WaitsQuietlyWhenAllOnCooldown(t *testing.T) {
 	for f := 0; f < 30; f++ { // tick cooldowns down (still >0) - must not move
 		m[1].RTCooldown--
 		m[3].RTCooldown--
-		step(rtActCast)
+		step(rtActSlotted)
 		if g.selectedChar != parked {
 			t.Fatalf("frame %d: selection jittered off the parked caster %d -> %d", f, parked, g.selectedChar)
 		}
 	}
 	// When a caster comes off cooldown, selection may move to fire it.
 	m[1].RTCooldown, m[3].RTCooldown = 0, 0
-	step(rtActCast)
-	if !g.rtActionReady(g.selectedChar, rtActCast) {
+	step(rtActSlotted)
+	if !g.rtActionReady(g.selectedChar, rtActSlotted) {
 		t.Errorf("once ready, selection should rest on a fireable caster, got %d", g.selectedChar)
 	}
 }

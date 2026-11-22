@@ -5,9 +5,12 @@ import (
 	"math"
 	"sort"
 	"testing"
+	"ugataima/internal/status"
 
 	"ugataima/internal/character"
+	"ugataima/internal/collision"
 	"ugataima/internal/config"
+	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/items"
 	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/spells"
@@ -25,8 +28,9 @@ func partyDamageTargets(g *MMGame, tile float64) (*monsterPkg.Monster3D, *monste
 	return primary, secondary
 }
 
-// RT/TB x every authored AoE weapon x pre-impact marks x launch crit x
-// surviving/lethal primary. A death burst remains its own, non-critical hit.
+// Every authored AoE weapon x pre-impact marks x launch crit x surviving or
+// lethal primary, in RT, plus one TB cell per weapon. A death burst remains
+// its own, non-critical hit.
 func TestAuthoredWeaponSplashDesignationContract(t *testing.T) {
 	newTestCombatSystemWithConfig(t)
 	var keys []string
@@ -39,77 +43,94 @@ func TestAuthoredWeaponSplashDesignationContract(t *testing.T) {
 	if len(keys) == 0 {
 		t.Fatal("no AoE weapons loaded")
 	}
+	type cell struct {
+		key, marks   string
+		tb, critical bool
+		lethal       bool
+	}
+	var cells []cell
 	for _, key := range keys {
-		for _, tb := range []bool{false, true} {
-			for _, marks := range []string{"none", "primary", "secondary", "both"} {
-				for _, critical := range []bool{false, true} {
-					for _, lethal := range []bool{false, true} {
-						t.Run(fmt.Sprintf("%s/tb=%v/%s/crit=%v/lethal=%v", key, tb, marks, critical, lethal), func(t *testing.T) {
-							g, _, ch, tile := sniperFixture(t, tb)
-							isolateTrueDamageMember(ch, 0)
-							ch.Skills[character.SkillDesignateTarget] = &character.Skill{}
-							ch.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML(key)
-							g.combat.designationRoll = func(int) int { return 0 }
-							g.cardSlots = [MaxCardSlots]cardSlot{}
-							g.addCombatBuff(TimedCombatBuff{SpellID: "test", Frames: 600, OutBonus: 7, OutDamageType: "all"})
-							def, _ := config.GetWeaponDefinition(key)
-							primary, secondary := partyDamageTargets(g, tile)
-							if marks == "primary" || marks == "both" {
-								g.designateTarget(ch, primary)
-							}
-							if marks == "secondary" {
-								g.designateTarget(ch, secondary)
-							}
-							if marks == "both" {
-								other := character.CreateCharacter("Other", character.ClassSniper, g.config)
-								g.party.Members = append(g.party.Members, other)
-								g.designateTarget(other, secondary)
-							}
-							if lethal {
-								primary.HitPoints = 1
-							}
-							normal := 100
-							if critical {
-								normal = 200
-							}
-							trueDamage, _ := g.combat.weaponMasteryStrike(ch, def)
-							if def.Range > 3 {
-								shot := &Arrow{ID: "splash-contract", Active: true, LifeTime: 60, Owner: ProjectileOwnerPlayer,
-									Attacker: ch, BowKey: key, Damage: normal, TrueDamage: trueDamage, DamageType: weaponDamageTypeStr(def), Crit: critical}
-								g.combat.applyProjectileDamage(shot, "arrow", primary, shot.ID)
-								if ch.DesignatedTargetID != primary.ID {
-									t.Fatal("successful ranged hit did not replace the mark")
-								}
-								if shot.Damage != normal || shot.Crit != critical {
-									t.Fatal("impact modified the launch payload")
-								}
-							} else {
-								g.combat.ApplyDamageToMonster(primary, normal, def.Name, critical)
-							}
-							for i, victim := range []*monsterPkg.Monster3D{primary, secondary} {
-								if i == 0 && lethal {
-									if victim.IsAlive() {
-										t.Fatal("lethal primary survived")
-									}
-									continue
-								}
-								wantNormal := 100
-								if critical || marks == "both" || (i == 0 && marks == "primary") || (i == 1 && marks == "secondary") {
-									wantNormal = 200
-								}
-								want := wantNormal + 7 + trueDamage
-								if i == 1 && lethal && def.DeathBurstRadiusTiles >= 0.5 {
-									want += def.DeathBurstDamage
-								}
-								if got := 10000 - victim.HitPoints; got != want {
-									t.Fatalf("%s took %d, want %d (crit affects only its pre-buff normal damage)", victim.Name, got, want)
-								}
-							}
-						})
-					}
+		for _, critical := range []bool{false, true} {
+			// A launch crit already doubles every victim: marks cannot upgrade
+			// it further, so a crit needs only no marks and every mark.
+			marks := []string{"none", "primary", "secondary", "both"}
+			if critical {
+				marks = []string{"none", "both"}
+			}
+			for _, m := range marks {
+				for _, lethal := range []bool{false, true} {
+					cells = append(cells, cell{key: key, marks: m, critical: critical, lethal: lethal})
 				}
 			}
 		}
+		// The damage contract reads no combat mode; one TB cell per weapon
+		// keeps the turn-based path honest.
+		cells = append(cells, cell{key: key, marks: "secondary", tb: true, lethal: true})
+	}
+	for _, c := range cells {
+		key, tb, marks, critical, lethal := c.key, c.tb, c.marks, c.critical, c.lethal
+		t.Run(fmt.Sprintf("%s/tb=%v/%s/crit=%v/lethal=%v", key, tb, marks, critical, lethal), func(t *testing.T) {
+			g, _, ch, tile := sniperFixture(t, tb)
+			isolateTrueDamageMember(ch, 0)
+			ch.Skills[character.SkillDesignateTarget] = &character.Skill{}
+			ch.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML(key)
+			g.combat.designationRoll = func(int) int { return 0 }
+			g.cardSlots = [MaxCardSlots]cardSlot{}
+			g.addCombatBuff(TimedCombatBuff{ID: "test", Clock: framesClock(600), OutBonus: 7, OutDamageType: "all"})
+			def, _ := config.GetWeaponDefinition(key)
+			primary, secondary := partyDamageTargets(g, tile)
+			if marks == "primary" || marks == "both" {
+				g.designateTarget(ch, primary)
+			}
+			if marks == "secondary" {
+				g.designateTarget(ch, secondary)
+			}
+			if marks == "both" {
+				other := character.CreateCharacter("Other", character.ClassSniper, g.config)
+				g.party.Members = append(g.party.Members, other)
+				g.designateTarget(other, secondary)
+			}
+			if lethal {
+				primary.HitPoints = 1
+			}
+			normal := 100
+			if critical {
+				normal = 200
+			}
+			trueDamage, _ := g.combat.weaponMasteryStrike(ch, def)
+			if def.Range > 3 {
+				shot := &Arrow{ID: "splash-contract", Active: true, LifeTime: 60, Owner: ProjectileOwnerPlayer,
+					Attacker: ch, BowKey: key, Damage: normal, TrueDamage: trueDamage, DamageType: weaponDamageTypeStr(def), Crit: critical}
+				g.combat.applyProjectileDamage(shot, primary, shot.ID)
+				if ch.DesignatedTargetID != primary.ID {
+					t.Fatal("successful ranged hit did not replace the mark")
+				}
+				if shot.Damage != normal || shot.Crit != critical {
+					t.Fatal("impact modified the launch payload")
+				}
+			} else {
+				g.combat.ApplyDamageToMonster(primary, normal, testWeapon(def.Name), critical)
+			}
+			for i, victim := range []*monsterPkg.Monster3D{primary, secondary} {
+				if i == 0 && lethal {
+					if victim.IsAlive() {
+						t.Fatal("lethal primary survived")
+					}
+					continue
+				}
+				wantNormal := 100
+				if critical || marks == "both" || (i == 0 && marks == "primary") || (i == 1 && marks == "secondary") {
+					wantNormal = 200
+				}
+				want := wantNormal + 7 + trueDamage
+				if i == 1 && lethal && def.DeathBurstRadiusTiles >= 0.5 {
+					want += primary.MaxHitPoints * def.DeathBurstMaxHPPct / 100
+				}
+				if got := 10000 - victim.HitPoints; got != want {
+					t.Fatalf("%s took %d, want %d (crit affects only its pre-buff normal damage)", victim.Name, got, want)
+				}
+			}
+		})
 	}
 }
 
@@ -123,11 +144,11 @@ func TestDesignationConversionAndRestoredMark(t *testing.T) {
 				g.combat.designationRoll = func(int) int { return 0 }
 				g.cardSlots = [MaxCardSlots]cardSlot{}
 				g.cardSlots[0].key = "masked_hexer_girl_card"
-				g.addCombatBuff(TimedCombatBuff{SpellID: "test", Frames: 600, OutBonus: 7, OutDamageType: "all"})
+				g.addCombatBuff(TimedCombatBuff{ID: "test", Clock: framesClock(600), OutBonus: 7, OutDamageType: "all"})
 				primary, secondary := partyDamageTargets(g, tile)
 				for _, m := range g.world.Monsters {
 					m.Resistances = map[monsterPkg.DamageType]int{monsterPkg.DamageDark: 50}
-					m.SoakDamage, m.SoakFrames = 5, 60
+					m.SoakDamage, m.Soak.Frames = 5, 60
 				}
 				g.designateTarget(ch, secondary)
 				if restored {
@@ -139,18 +160,16 @@ func TestDesignationConversionAndRestoredMark(t *testing.T) {
 				// this is the same source packet as the authored melee maul.
 				if ranged {
 					shot := &Arrow{ID: "conversion", Active: true, LifeTime: 60, Owner: ProjectileOwnerPlayer, Attacker: ch,
-						BowKey: "idol_breakers_maul", Damage: 101, TrueDamage: 13, DamageType: "physical"}
-					g.combat.applyProjectileDamage(shot, "arrow", primary, shot.ID)
+						BowKey: "idol_breakers_maul", Damage: 101, TrueDamage: 12, DamageType: "physical"}
+					g.combat.applyProjectileDamage(shot, primary, shot.ID)
 				} else {
 					ch.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("idol_breakers_maul")
-					old := def.TrueDamage
-					def.TrueDamage = 13
-					t.Cleanup(func() { def.TrueDamage = old })
-					g.combat.ApplyDamageToMonster(primary, 101, def.Name, false)
+					g.cardSlots[1].key = "orc_card" // 12 flat melee true
+					g.combat.ApplyDamageToMonster(primary, 101, testWeapon(def.Name), false)
 				}
-				// Ordinary: 108 -> 87 physical + 21 dark -> 97, minus 5 soak, plus 13 true.
-				// Marked: 209 -> 168 physical + 41 dark -> 188, minus 5 soak, plus 13 true.
-				for i, want := range []int{105, 196} {
+				// Ordinary: 108 -> 87 physical + 21 dark -> 97, minus 5 soak, plus 12 true.
+				// Marked: 209 -> 168 physical + 41 dark -> 188, minus 5 soak, plus 12 true.
+				for i, want := range []int{104, 195} {
 					if got := 10000 - g.world.Monsters[i].HitPoints; got != want {
 						t.Fatalf("victim %d took %d, want %d", i, got, want)
 					}
@@ -186,7 +205,7 @@ func TestAuthoredSpellVictimBonusContract(t *testing.T) {
 				g.combat.designationRoll = func(int) int { return 0 }
 				g.cardSlots = [MaxCardSlots]cardSlot{}
 				g.cardSlots[0].key = "elf_archer_card"
-				g.addCombatBuff(TimedCombatBuff{SpellID: "test", Frames: 600, OutBonus: 7, OutDamageType: "all"})
+				g.addCombatBuff(TimedCombatBuff{ID: "test", Clock: framesClock(600), OutBonus: 7, OutDamageType: "all"})
 				primary, secondary := partyDamageTargets(g, tile)
 				secondary.MonsterType = "dragon"
 				g.designateTarget(ch, secondary)
@@ -207,7 +226,7 @@ func TestAuthoredSpellVictimBonusContract(t *testing.T) {
 					}
 				default:
 					shot := &MagicProjectile{ID: "spell-contract", Active: true, LifeTime: 60, Damage: normal, TrueDamage: trueDamage, SpellType: key, Attacker: ch}
-					g.combat.applyProjectileDamage(shot, "magic_projectile", primary, shot.ID)
+					g.combat.applyProjectileDamage(shot, primary, shot.ID)
 					splash = def.AoeRadiusTiles > 0
 				}
 				for i, victim := range []*monsterPkg.Monster3D{primary, secondary} {
@@ -221,6 +240,70 @@ func TestAuthoredSpellVictimBonusContract(t *testing.T) {
 					if got := 10000 - victim.HitPoints; got != want {
 						t.Fatalf("%s took %d, want %d; bonus must be per victim and normal only", victim.Name, got, want)
 					}
+				}
+			})
+		}
+	}
+}
+
+// A spell's rolled crit reaches the victim's log line whichever way the
+// spell lands: a direct projectile hit or a mortar bloom.
+func TestSpellCritReachesTheLog(t *testing.T) {
+	for _, delivery := range []string{"projectile", "mortar"} {
+		for _, crit := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/crit=%v", delivery, crit), func(t *testing.T) {
+				g, _, ch, tile := sniperFixture(t, false)
+				primary, _ := partyDamageTargets(g, tile)
+				switch delivery {
+				case "projectile":
+					shot := &MagicProjectile{ID: "crit-shot", Active: true, LifeTime: 60, Damage: 50, SpellType: "fireball", Attacker: ch, Crit: crit}
+					g.combat.applyProjectileDamage(shot, primary, shot.ID)
+				case "mortar":
+					def, _ := spells.GetSpellDefinitionByID("stone_blossom")
+					g.combat.detonateMortar(pendingMortar{SpellID: "stone_blossom", X: primary.X, Y: primary.Y, RadiusTiles: def.AoeRadiusTiles,
+						Damage: 50, School: def.School, Caster: ch, Crit: crit})
+				}
+				if primary.HitPoints == primary.MaxHitPoints {
+					t.Fatal("fixture: the spell did not land")
+				}
+				if got := countCombatLog(g, "Critical!") > 0; got != crit {
+					t.Fatalf("log shows a crit=%v, want %v", got, crit)
+				}
+			})
+		}
+	}
+}
+
+// A monster's crit - a champion's weapon or spell roll, a boss's
+// critical_chance - names itself in its hit line like a party crit, on a hero
+// and on a monster, struck directly or by a bolt; a dodged blow says nothing.
+func TestMonsterCritReachesTheLog(t *testing.T) {
+	for _, route := range []string{"direct", "bolt", "on a monster", "dodged"} {
+		for _, crit := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/crit=%v", route, crit), func(t *testing.T) {
+				g, _, ch, tile := sniperFixture(t, false)
+				ch.HitPoints, ch.MaxHitPoints, ch.Luck = 10000, 10000, 0
+				src := mkTestMonster("Critter", 1000)
+				hit := monsterCharacterHit{Parts: damagecalc.Parts{Normal: 20}, DamageType: "physical", Melee: true, Critical: crit}
+				switch route {
+				case "direct":
+					g.combat.monsterHitCharacter(src, ch, src.Name, hit)
+				case "dodged":
+					ch.Luck = 100 * LuckToDodgeDivisor
+					g.combat.monsterHitCharacter(src, ch, src.Name, hit)
+				case "bolt":
+					shot := MagicProjectile{ID: "crit-bolt", X: g.camera.X, Y: g.camera.Y, Damage: 20, LifeTime: 10, Active: true,
+						SpellType: "firebolt", Owner: ProjectileOwnerMonster, SourceName: src.Name, SourceMonster: src, Crit: crit}
+					g.magicProjectiles = append(g.magicProjectiles, shot)
+					g.collisionSystem.RegisterEntity(collision.NewEntity(shot.ID, shot.X, shot.Y, 8, 8, collision.CollisionTypeProjectile, false))
+					g.combat.CheckProjectilePlayerCollisions()
+				case "on a monster":
+					victim, _ := partyDamageTargets(g, tile)
+					victim.Bound = true
+					g.combat.strikeMonsterPacketFor(src, victim, singleMonsterDamagePacket(damagecalc.Parts{Normal: 20}, "physical", 0), nil, false, false, false, crit)
+				}
+				if got := countCombatLog(g, "Critical!") > 0; got != (crit && route != "dodged") {
+					t.Fatalf("log shows a crit=%v: %v", got, g.combatLogHistory)
 				}
 			})
 		}
@@ -248,7 +331,7 @@ func TestDesignationContinuationUsesLaunchPayloadAndCurrentMark(t *testing.T) {
 					} else {
 						shot.RicochetLeft = 1
 					}
-					g.combat.applyProjectileDamage(shot, "arrow", primary, shot.ID)
+					g.combat.applyProjectileDamage(shot, primary, shot.ID)
 					if got := 10000 - primary.HitPoints; got != 213 {
 						t.Fatalf("marked first impact took %d, want 213", got)
 					}
@@ -262,7 +345,7 @@ func TestDesignationContinuationUsesLaunchPayloadAndCurrentMark(t *testing.T) {
 					if markNext {
 						g.designateTarget(ch, secondary)
 					}
-					g.combat.applyProjectileDamage(next, "arrow", secondary, next.ID)
+					g.combat.applyProjectileDamage(next, secondary, next.ID)
 					want := 113
 					if markNext {
 						want = 213
@@ -288,9 +371,9 @@ func TestDesignationImpactEligibility(t *testing.T) {
 			case "active":
 				want = 200
 			case "expired":
-				ch.DesignationFrames = 0
+				ch.Designation = status.DualClock{}
 			case "stunned":
-				ch.StunFramesRemaining = 60
+				ch.Stun.Frames = 60
 			case "dead":
 				ch.HitPoints = 0
 			case "reserve":
@@ -303,7 +386,7 @@ func TestDesignationImpactEligibility(t *testing.T) {
 			switch state {
 			case "spell":
 				shot := &MagicProjectile{ID: "spell", Active: true, LifeTime: 60, Attacker: ch, SpellType: "fireball", Damage: 100}
-				g.combat.applyProjectileDamage(shot, "magic_projectile", primary, shot.ID)
+				g.combat.applyProjectileDamage(shot, primary, shot.ID)
 			default:
 				shot := &Arrow{ID: "eligibility", Active: true, LifeTime: 60, Owner: ProjectileOwnerPlayer, Attacker: ch, BowKey: "bow_of_hellfire", Damage: 100, DamageType: "dark"}
 				if state == "proc bolt" {
@@ -311,7 +394,7 @@ func TestDesignationImpactEligibility(t *testing.T) {
 					// A proc has no splash, so check its direct hit against the marked foe.
 					primary = secondary
 				}
-				g.combat.applyProjectileDamage(shot, "arrow", primary, shot.ID)
+				g.combat.applyProjectileDamage(shot, primary, shot.ID)
 			}
 			if got := 10000 - secondary.HitPoints; got != want {
 				t.Fatalf("%s: marked victim took %d, want %d", state, got, want)
@@ -362,6 +445,10 @@ func TestAuthoredSingleTargetWeaponsUseDesignation(t *testing.T) {
 			ch.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML(key)
 			g.combat.designationRoll = func(int) int { return 0 }
 			primary, secondary := partyDamageTargets(g, tile)
+			// A wounded target keeps victim-state multipliers (the Mainspring
+			// Pike's fresh strike) out of this packet check; they have their own.
+			primary.HitPoints = primary.MaxHitPoints * 8 / 10
+			before := primary.HitPoints
 			g.designateTarget(ch, primary)
 			def, _ := config.GetWeaponDefinition(key)
 			// Instakill chance/immunity has its own production contract table. Force
@@ -381,14 +468,17 @@ func TestAuthoredSingleTargetWeaponsUseDesignation(t *testing.T) {
 				}
 			}
 			trueDamage, _ := g.combat.weaponMasteryStrike(ch, def)
+			if signature := def.Signature; signature != nil && signature.Kind == "rune_discharge" && ch.SpellPoints >= signature.SPCost {
+				firstHitBonus += statScaledDamage(signature.StatScaledDamage, ch)
+			}
 			if def.Range > 3 {
 				shot := &Arrow{ID: "single", Active: true, LifeTime: 60, Owner: ProjectileOwnerPlayer, Attacker: ch, BowKey: key,
 					Damage: 100, TrueDamage: trueDamage, DamageType: weaponDamageTypeStr(def), ElementalAbilityDamage: firstHitBonus}
-				g.combat.applyProjectileDamage(shot, "arrow", primary, shot.ID)
+				g.combat.applyProjectileDamage(shot, primary, shot.ID)
 			} else {
-				g.combat.ApplyDamageToMonster(primary, 100, def.Name, false)
+				g.combat.ApplyDamageToMonster(primary, 100, testWeapon(def.Name), false)
 			}
-			if got := 10000 - primary.HitPoints; got != 200+trueDamage+firstHitBonus {
+			if got := before - primary.HitPoints; got != 200+trueDamage+firstHitBonus {
 				t.Fatalf("marked primary took %d, want %d", got, 200+trueDamage+firstHitBonus)
 			}
 			if secondary.HitPoints != 10000 {

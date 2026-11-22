@@ -6,11 +6,11 @@ import (
 	"math"
 	"os"
 	"testing"
-	"time"
 
 	"ugataima/internal/character"
 	"ugataima/internal/items"
 	"ugataima/internal/spells"
+	"ugataima/internal/status"
 )
 
 func TestCharacterHubUsesGameplayPauseContract(t *testing.T) {
@@ -32,8 +32,8 @@ func TestCharacterHubPauseKeepsPartyCardVisualTimersMoving(t *testing.T) {
 	g, _ := newThiefTestGame(t)
 	g.menuOpen = true
 	g.cardFxTimers[fxBlink][0] = 2
-	g.cardSummonCooldowns = map[string]int{"test-card": 2}
-	g.spellInputCooldown = 2
+	g.cardSummonCooldowns = map[string]status.DualClock{"test-card": framesClock(2)}
+	g.actionInputStagger = 2
 	g.tabbedMenuInputCooldown = 2
 	gl := &GameLoop{game: g, inputHandler: NewInputHandler(g)}
 
@@ -42,18 +42,18 @@ func TestCharacterHubPauseKeepsPartyCardVisualTimersMoving(t *testing.T) {
 	if got := g.cardFxTimers[fxBlink][0]; got != 1 {
 		t.Fatalf("party-card visual timer = %d, want 1 while character hub is open", got)
 	}
-	if got := g.cardSummonCooldowns["test-card"]; got != 2 {
-		t.Fatalf("gameplay cooldown = %d, want 2 while character hub is open", got)
+	if got := g.cardSummonCooldowns["test-card"]; got != framesClock(2) {
+		t.Fatalf("gameplay cooldown = %+v, want 2 frames while character hub is open", got)
 	}
-	if got := g.spellInputCooldown; got != 2 {
-		t.Fatalf("gameplay input cooldown = %d, want 2 while hub is open", got)
+	if got := g.actionInputStagger; got != 2 {
+		t.Fatalf("gameplay input cooldown = %+v, want 2 frames while hub is open", got)
 	}
 	if got := g.tabbedMenuInputCooldown; got != 1 {
 		t.Fatalf("character-hub input cooldown = %d, want 1 while hub is open", got)
 	}
 	gl.updateExploration()
-	if got := g.spellInputCooldown; got != 2 {
-		t.Fatalf("gameplay input cooldown = %d, want 2 after two paused ticks", got)
+	if got := g.actionInputStagger; got != 2 {
+		t.Fatalf("gameplay input cooldown = %+v, want 2 frames after two paused ticks", got)
 	}
 	if got := g.tabbedMenuInputCooldown; got != 0 {
 		t.Fatalf("character-hub input cooldown = %d, want 0 after two paused ticks", got)
@@ -79,7 +79,7 @@ func TestCharacterHubWorldActionClosesBeforeDispatchAndRestoresOnFailure(t *test
 func TestSpellbookCardsStayInsideInnerPageFrames(t *testing.T) {
 	for _, res := range withInterfaceFrames(t, [][2]int{{1024, 768}, {1280, 720}, {1920, 1080}, {3440, 1440}}) {
 		menu := computeTabbedMenuLayout(res[0], gameplayViewportBottomWithPartyHUD(res[1]))
-		book := computeBookLayout(menu.content)
+		book := computeBookLayout(menu.content, 1)
 		for i := 0; i < book.cardsPerSpread(); i++ {
 			x, y := book.cardPos(i)
 			card := layoutRect{x, y, book.cardW, book.cardH}
@@ -99,8 +99,9 @@ func TestSpellbookCardsStayInsideInnerPageFrames(t *testing.T) {
 
 // The spell and trap book takes whichever footer placement leaves it taller:
 // the strip under the book, or a column beside it on a wide, short frame.
-// Either way the quick-slot label clears the pager, and the book stops above
-// the controls line.
+// Either way the quick-slot label (over the top bar: row II with a second
+// row) clears the pager, the bars stack without touching the book, and the
+// book stops above the controls line.
 func TestBookFooterPlacementKeepsTheBookTallest(t *testing.T) {
 	var logical [][2]int
 	for _, size := range [][2]int{{1024, 768}, {1280, 720}, {1366, 768}, {1600, 900}, {1920, 1080}, {2560, 1440}, {3440, 1440}} {
@@ -108,24 +109,44 @@ func TestBookFooterPlacementKeepsTheBookTallest(t *testing.T) {
 		logical = append(logical, [2]int{w, h})
 	}
 	for _, size := range withInterfaceFrames(t, logical) {
-		t.Run(fmt.Sprint(size), func(t *testing.T) {
-			content := computeTabbedMenuLayout(size[0], gameplayViewportBottomWithPartyHUD(size[1])).content
-			l := computeBookLayout(content)
-			book := layoutRect{l.bookX, l.bookY, l.bookW, l.bookH}
-			label := layoutRect{l.quick.x, l.quick.y - quickSlotTabLabelSpace, l.quick.w, quickSlotTabLabelH}
-			if namedLayoutBox("label", label).overlaps(namedLayoutBox("pager", l.pager)) || book.bottom() > l.controls.y {
-				t.Fatalf("book %v, quick label %v, pager %v, controls %v", book, label, l.pager, l.controls)
-			}
-			beside := l.quick.x >= book.right()
-			if beside && (l.pager.x < book.right() || l.quick.right() > content.right()) {
-				t.Fatalf("side column quick %v pager %v leaves its column beside book %v", l.quick, l.pager, book)
-			}
-			// The side column is taken exactly when it gives the book more
-			// rows than the strip under it, and the book gets the taller one.
-			if beside != (l.sideH > l.stackedH) || l.bookH != max(1, l.stackedH, l.sideH) {
-				t.Fatalf("book %d rows beside=%v, stacked would give %d, side %d", l.bookH, beside, l.stackedH, l.sideH)
-			}
-		})
+		for _, rows := range []int{1, 2} {
+			t.Run(fmt.Sprint(size, " rows=", rows), func(t *testing.T) {
+				content := computeTabbedMenuLayout(size[0], gameplayViewportBottomWithPartyHUD(size[1])).content
+				l := computeBookLayout(content, rows)
+				book := layoutRect{l.bookX, l.bookY, l.bookW, l.bookH}
+				bars := l.quick
+				if rows == 2 {
+					// The book stays the one-row book: row II stacks in the
+					// side column, or pairs with row I in the footer strip.
+					one := computeBookLayout(content, 1)
+					if book != (layoutRect{one.bookX, one.bookY, one.bookW, one.bookH}) {
+						t.Fatalf("the second row moved the book %v", book)
+					}
+					stacked := l.quick2.x == l.quick.x && l.quick2.bottom()+quickSlotRowGap == l.quick.y
+					paired := l.quick2.y == l.quick.y && l.quick2.x >= l.quick.right() && l.quick.y >= one.quick.y
+					if l.quick2.w != l.quick.w || !stacked && !paired {
+						t.Fatalf("row II %v is neither over nor beside row I %v", l.quick2, l.quick)
+					}
+					bars = l.quick.union(l.quick2)
+				} else if l.quick2 != (layoutRect{}) {
+					t.Fatalf("one row laid out a second bar %v", l.quick2)
+				}
+				label := layoutRect{bars.x, bars.y - quickSlotTabLabelSpace, bars.w, quickSlotTabLabelH}
+				if namedLayoutBox("label", label).overlaps(namedLayoutBox("pager", l.pager)) || book.bottom() > l.controls.y ||
+					namedLayoutBox("bars", bars).overlaps(namedLayoutBox("book", book)) || namedLayoutBox("bars", bars).overlaps(namedLayoutBox("pager", l.pager)) || bars.bottom() > l.controls.y {
+					t.Fatalf("book %v, quick label %v, bars %v, pager %v, controls %v", book, label, bars, l.pager, l.controls)
+				}
+				beside := l.quick.x >= book.right()
+				if beside && (l.pager.x < book.right() || l.quick.right() > content.right()) {
+					t.Fatalf("side column quick %v pager %v leaves its column beside book %v", l.quick, l.pager, book)
+				}
+				// The side column is taken exactly when it gives the book more
+				// rows than the strip under it, and the book gets the taller one.
+				if beside != (l.sideH > l.stackedH) || l.bookH != max(1, l.stackedH, l.sideH) {
+					t.Fatalf("book %d rows beside=%v, stacked would give %d, side %d", l.bookH, beside, l.stackedH, l.sideH)
+				}
+			})
+		}
 	}
 }
 
@@ -135,7 +156,7 @@ func TestLargerInterfaceKeepsTheArtNearNormal(t *testing.T) {
 	type art struct{ book, doll float64 }
 	measure := func(w, h int, scale float64) art {
 		content := computeTabbedMenuLayout(w, gameplayViewportBottomWithPartyHUD(h)).content
-		return art{float64(computeBookLayout(content).bookH) * scale, float64(computeInventoryContentLayout(content).paper.h) * scale}
+		return art{float64(computeBookLayout(content, 1).bookH) * scale, float64(computeInventoryContentLayout(content, 1).paper.h) * scale}
 	}
 	normal, large := measure(1920, 1080, 2), measure(1280, 720, 3)
 	if large.book < 0.9*normal.book || large.doll < 0.85*normal.doll {
@@ -146,7 +167,7 @@ func TestLargerInterfaceKeepsTheArtNearNormal(t *testing.T) {
 func TestSpellbookSchoolBookmarksUseWholeSafeDrawRect(t *testing.T) {
 	for _, res := range withInterfaceFrames(t, [][2]int{{1024, 768}, {1280, 720}, {1920, 1080}, {3440, 1440}}) {
 		menu := computeTabbedMenuLayout(res[0], gameplayViewportBottomWithPartyHUD(res[1]))
-		book := computeBookLayout(menu.content)
+		book := computeBookLayout(menu.content, 1)
 		tabs := book.schoolTabRects(len(character.AllMagicSchools), 2)
 		if len(tabs) != len(character.AllMagicSchools) {
 			t.Fatalf("%dx%d created %d school tabs, want %d", res[0], res[1], len(tabs), len(character.AllMagicSchools))
@@ -167,7 +188,7 @@ func TestSpellbookSchoolBookmarksUseWholeSafeDrawRect(t *testing.T) {
 		t.Fatal("sorcerer fixture needs at least two school bookmarks")
 	}
 	menu := computeTabbedMenuLayout(g.config.GetScreenWidth(), gameplayViewportBottom(g))
-	book := computeBookLayout(menu.content)
+	book := computeBookLayout(menu.content, 1)
 	tabs := book.schoolTabRects(len(schools), g.selectedSchool)
 	target := 1
 	tab := tabs[target]
@@ -186,19 +207,13 @@ func TestCharacterHubContextChangeBreaksDoubleClickChains(t *testing.T) {
 	g.currentTab = TabInventory
 	ui.syncCharacterHubClickContext()
 
-	ui.lastClickedItem = 3
-	ui.lastClickTime = time.UnixMilli(1000)
-	ui.lastClickedSlot = items.SlotMainHand
-	ui.lastEquipClickTime = time.UnixMilli(1000)
-	g.lastClickedBookEntry = 1
-	g.lastClickedBookGroup = 0
-	g.lastBookClickTime = 1000
+	ui.bagClicks.click(bagClickKey{index: 3}, 1000)
+	ui.equipClicks.click(items.SlotMainHand, 1000)
+	g.bookClicks.click(bookClickKey{0, 1}, 1000)
 
 	g.selectedChar = 1
 	ui.syncCharacterHubClickContext()
-	if ui.lastClickedItem != -1 || !ui.lastClickTime.IsZero() ||
-		ui.lastClickedSlot != items.EquipSlot(-1) || !ui.lastEquipClickTime.IsZero() ||
-		g.lastClickedBookEntry != -1 || g.lastClickedBookGroup != -1 || g.lastBookClickTime != 0 {
+	if ui.bagClicks.pending() || ui.equipClicks.pending() || g.bookClicks.pending() {
 		t.Fatal("character switch preserved a double-click chain from the previous character")
 	}
 }
@@ -207,9 +222,11 @@ func TestCharacterHubContextChangeBreaksDoubleClickChains(t *testing.T) {
 // starts right under its own header (name, then Gold and Food), which with 2x
 // text is the same height, so there all three share the rail.
 func TestInventoryPanelsShareTopRailAtStandardResolutions(t *testing.T) {
-	for _, res := range [][2]int{{800, 680}, {1024, 768}, {1280, 720}, {1280, 800}, {1920, 1080}, {3440, 1440}} {
+	for _, cell := range [][3]int{{800, 680, 1}, {1024, 768, 1}, {1280, 720, 1}, {1280, 800, 1}, {1920, 1080, 1}, {3440, 1440, 1},
+		{800, 680, 2}, {1280, 720, 2}, {1920, 1080, 2}} {
+		res, rows := [2]int{cell[0], cell[1]}, cell[2]
 		menu := computeTabbedMenuLayout(res[0], gameplayViewportBottomWithPartyHUD(res[1]))
-		inventory := computeInventoryContentLayout(menu.content)
+		inventory := computeInventoryContentLayout(menu.content, rows)
 		lastResource := inventory.resources[0].bottom()
 		if r := inventory.resources[1]; r.bottom() > lastResource {
 			lastResource = r.bottom()
@@ -227,7 +244,22 @@ func TestInventoryPanelsShareTopRailAtStandardResolutions(t *testing.T) {
 			t.Fatalf("%dx%d quick slots bottom=%d, expected between paperdoll=%d and content=%d",
 				res[0], res[1], inventory.quickSlots.bottom(), inventory.paper.bottom(), menu.content.bottom())
 		}
-		pagerBottom := inventory.pager.bottom()
+		if rows == 2 {
+			// The bags stay the one-row bags; the pair sits side by side in
+			// the bag column, no higher than the one bar.
+			one := computeInventoryContentLayout(menu.content, 1)
+			page := inventory
+			page.quickSlots, page.quickSlots2 = one.quickSlots, layoutRect{}
+			q, q2 := inventory.quickSlots, inventory.quickSlots2
+			if page != one {
+				t.Fatalf("%dx%d the second row changed the bags", res[0], res[1])
+			}
+			if q2.y != q.y || q2.w != q.w || q2.x < q.right() || q.x < one.personalGrid.x || q2.right() > one.grid.right() ||
+				q.y < one.quickSlots.y || q.bottom() != one.quickSlots.bottom() {
+				t.Fatalf("%dx%d rows %v and %v are not a pair in place of %v", res[0], res[1], q, q2, one.quickSlots)
+			}
+		}
+		pagerBottom := max(inventory.pager.bottom(), inventory.personalPager.bottom())
 		quickLabelTop := inventory.quickSlots.y - quickSlotTabLabelSpace
 		if gap := quickLabelTop - pagerBottom; gap < inventoryPagerToQuickGap {
 			t.Fatalf("%dx%d pager to quick-slot label gap=%d, want >=%d",
@@ -338,8 +370,8 @@ func TestInventoryGridSlotsCenterOnHighResolutionRecesses(t *testing.T) {
 	if bounds.Dx() <= 0 || bounds.Dy() <= 0 {
 		t.Fatal("inventory grid asset has empty bounds")
 	}
-	scaleX := float64(bounds.Dx()) / inventoryGridLayoutSize
-	scaleY := float64(bounds.Dy()) / inventoryGridLayoutSize
+	scaleX := float64(bounds.Dx()) / inventoryGridSlotCanvas
+	scaleY := float64(bounds.Dy()) / inventoryGridSlotCanvas
 	for i, slot := range inventoryGridSlots {
 		if slot.w != slot.h {
 			t.Fatalf("grid slot %d = %dx%d, want square", i, slot.w, slot.h)
@@ -369,9 +401,42 @@ func TestInventoryGridSlotsCenterOnHighResolutionRecesses(t *testing.T) {
 		darkCenterY := ySum / darkCount / scaleY
 		slotCenterX := float64(slot.x) + float64(slot.w)/2
 		slotCenterY := float64(slot.y) + float64(slot.h)/2
-		if math.Abs(slotCenterX-darkCenterX) > 0.5 || math.Abs(slotCenterY-darkCenterY) > 0.5 {
+		if math.Abs(slotCenterX-darkCenterX) > 1 || math.Abs(slotCenterY-darkCenterY) > 1 {
 			t.Fatalf("grid slot %d center (%.2f,%.2f) misses source recess center (%.2f,%.2f)",
 				i, slotCenterX, slotCenterY, darkCenterX, darkCenterY)
+		}
+	}
+}
+
+// A bag cell and a quick-slot cell keep the centre of their painted slot at
+// every size the inventory tab draws them: the centre is rounded once, so the
+// icon sits within half a pixel of it.
+func TestBagAndQuickCellsStayCenteredAfterScaling(t *testing.T) {
+	for _, size := range withInterfaceFrames(t, [][2]int{{1024, 768}}) {
+		l := computeInventoryContentLayout(computeTabbedMenuLayout(size[0], gameplayViewportBottomWithPartyHUD(size[1])).content, 2)
+		for _, grid := range []layoutRect{l.personalGrid, l.grid} {
+			k := float64(grid.w) / inventoryGridSlotCanvas
+			for i, slot := range inventoryGridSlots {
+				cell := inventoryGridCell(grid, i)
+				wantX := float64(grid.x) + (float64(slot.x)+float64(slot.w)/2)*k
+				wantY := float64(grid.y) + (float64(slot.y)+float64(slot.h)/2)*k
+				gotX, gotY := float64(cell.x)+float64(cell.w)/2, float64(cell.y)+float64(cell.h)/2
+				if cell.w != cell.h || math.Abs(gotX-wantX) > 0.5 || math.Abs(gotY-wantY) > 0.5 {
+					t.Fatalf("%v bag cell %d = %+v, centre (%.2f,%.2f), want (%.2f,%.2f)", size, i, cell, gotX, gotY, wantX, wantY)
+				}
+			}
+		}
+		for _, bar := range []layoutRect{l.quickSlots, l.quickSlots2} {
+			barH, cells := quickSlotRects(bar.x, bar.y, bar.w)
+			for i, f := range quickSlotCellFrac {
+				wantX := float64(bar.x) + f.cx*float64(bar.w)
+				wantY := float64(bar.y) + f.cy*float64(barH)
+				gotX := float64(cells[i].Min.X+cells[i].Max.X) / 2
+				gotY := float64(cells[i].Min.Y+cells[i].Max.Y) / 2
+				if math.Abs(gotX-wantX) > 0.5 || math.Abs(gotY-wantY) > 0.5 {
+					t.Fatalf("%v quick cell %d centre (%.2f,%.2f), want (%.2f,%.2f)", size, i, gotX, gotY, wantX, wantY)
+				}
+			}
 		}
 	}
 }

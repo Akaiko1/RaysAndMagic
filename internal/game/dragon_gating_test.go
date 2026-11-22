@@ -2,6 +2,7 @@ package game
 
 import (
 	"maps"
+	"math"
 	"slices"
 	"testing"
 
@@ -104,5 +105,65 @@ func TestDragonRoster_BaseWildElitesStatueQuestGating(t *testing.T) {
 	cs.updateQuestProgress(target)
 	if prog() != 1 {
 		t.Errorf("flagged %s must credit dragon_slayer, got %d", summoned[len(summoned)-1], prog())
+	}
+}
+
+// A summoned monster can always get back to its statue, where the party stood
+// to call it: no tile of the spawn ring may seal it in. An elder dragon left
+// in a dune-ringed nook (flight does not clear opaque dunes) was out of the
+// party's reach for good, which locked the hunt. Reach uses the monster's own
+// movement rule (CanTraverseTile: terrain, body, solid props and NPCs).
+func TestStatueSummonsCanReachTheirStatue(t *testing.T) {
+	t.Chdir("../..")
+	g, _, _ := bootOpenWorldGame(t, true)
+	w := g.world
+	ih := g.gameLoop.inputHandler
+	ts := float64(g.config.GetTileSize())
+	statues := 0
+	for _, npc := range w.NPCs {
+		if npc == nil || len(npc.Summons) == 0 {
+			continue
+		}
+		statues++
+		sx, sy := int(npc.X/ts), int(npc.Y/ts)
+		ring := map[monsterPkg.TileCoord]bool{}
+		for r := encounterSpawnMinTiles; r <= encounterSpawnMaxTiles; r += 0.25 {
+			for deg := 0; deg < 360; deg += 2 {
+				a := float64(deg) * math.Pi / 180
+				x, y := npc.X+math.Cos(a)*r*ts, npc.Y+math.Sin(a)*r*ts
+				if ih.isPositionWalkable(x, y) {
+					ring[monsterPkg.TileCoord{X: int(x / ts), Y: int(y / ts)}] = true
+				}
+			}
+		}
+		if len(ring) == 0 {
+			t.Fatalf("%s has no walkable spawn tile", npc.Name)
+		}
+		for _, s := range npc.Summons {
+			m := monsterPkg.NewMonster3DFromConfig(npc.X, npc.Y, s.Monster, g.config)
+			g.registerSpawnedMonster(m)
+			for start := range ring {
+				seen := map[monsterPkg.TileCoord]bool{start: true}
+				queue := []monsterPkg.TileCoord{start}
+				home := false
+				for h := 0; h < len(queue) && !home; h++ {
+					c := queue[h]
+					home = max(c.X-sx, sx-c.X, c.Y-sy, sy-c.Y) <= 1
+					for _, o := range [4][2]int{{1, 0}, {-1, 0}, {0, 1}, {0, -1}} {
+						n := monsterPkg.TileCoord{X: c.X + o[0], Y: c.Y + o[1]}
+						if !seen[n] && m.CanTraverseTile(g.collisionSystem, n) {
+							seen[n] = true
+							queue = append(queue, n)
+						}
+					}
+				}
+				if !home {
+					t.Errorf("%s: %s spawned at tile %v cannot reach the statue at (%d,%d)", npc.Name, s.Monster, start, sx, sy)
+				}
+			}
+		}
+	}
+	if statues == 0 {
+		t.Fatal("no summoning statue in the open world")
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	damagecalc "ugataima/internal/damage"
@@ -41,11 +42,11 @@ func spellAreaLines(def spells.SpellDefinition) []string {
 		}
 		if def.ZoneBurnSeconds > 0 {
 			lines = append(lines, fmt.Sprintf("Sets monsters it touches burning for %.0fs: %d%% of max HP per second (%d%% on bosses), ignoring fire resistance",
-				def.ZoneBurnSeconds, config.BurnPercent(false), config.BurnPercent(true)))
+				def.ZoneBurnSeconds, config.DoTPercent("burn", false), config.DoTPercent("burn", true)))
 		}
 		lines = append(lines, "A monster that walks in is hit at once")
 		lines = append(lines, fmt.Sprintf("RT: one tick every %.0fs", def.ZoneTickSeconds))
-		if ticks := int(float64(TurnBasedPeriodicEffectSeconds) / def.ZoneTickSeconds); def.ZoneTickSeconds > 0 && ticks > 1 {
+		if ticks := int(float64(config.CombatRoundSeconds) / def.ZoneTickSeconds); def.ZoneTickSeconds > 0 && ticks > 1 {
 			lines = append(lines, fmt.Sprintf("TB: %d ticks per monster turn", ticks))
 		} else {
 			lines = append(lines, "TB: one tick per monster turn")
@@ -55,20 +56,18 @@ func spellAreaLines(def spells.SpellDefinition) []string {
 }
 
 func addWeaponCooldown(sec *ttSection, ch *character.MMCharacter, cs *CombatSystem, def *config.WeaponDefinitionConfig) {
-	tps := float64(config.GetTargetTPS())
-	if cs != nil && cs.game != nil {
-		tps = float64(cs.game.config.GetTPS())
-	}
-	reference := math.Round(float64(calculateSpeedActionCooldownFrames(0)) * RTBaseCooldownMult * character.WeaponCooldownMultiplier(def))
+	g := cs.gameOrNil()
+	tps := float64(g.tickRate())
+	reference := float64(g.speedCurveFrames(0, RTBaseCooldownMult, character.WeaponCooldownMultiplier(def)))
 	if ch == nil {
 		sec.Add("Base weapon cooldown: %.2fs", character.CardSeconds(reference/tps))
 		sec.AddDetail("Scales with wielder Speed - TB: 1 action")
 		return
 	}
-	cd := cs.weaponCooldownBreakdown(ch, def.Name)
+	cd := cs.weaponCooldownBreakdown(ch, def)
 	sec.Add("%s", cooldownLine(cs, cd.TotalFrames))
 	sec.AddDetail("Base weapon cooldown: %.2fs", character.CardSeconds(reference/tps))
-	atSpeed := math.Round(cd.BaseFrames * cd.WeaponMultiplier)
+	atSpeed := float64(g.speedCurveFrames(cd.Speed, RTBaseCooldownMult, cd.WeaponMultiplier))
 	// Subtract displayed stages so their two-decimal values add up on the card.
 	delta := math.Round(atSpeed*100/tps)/100 - math.Round(reference*100/tps)/100
 	sec.AddDetail("Speed (%d): %+.2fs", cd.Speed, delta)
@@ -92,45 +91,61 @@ func addCooldownAdjustments(sec *ttSection, cs *CombatSystem, raw, clamped, tota
 
 // addCastingCost shows the SP a cast pays and returns it.
 func addCastingCost(sec *ttSection, base int, ch *character.MMCharacter, cs *CombatSystem) int {
-	cost := base
-	if cs != nil {
-		cost = cs.effectiveSpellCost(ch, base)
-	}
+	cost := ch.MeditatedSPCost(base)
 	if cost != base {
 		sec.AddDetail("Base Cost: %d SP", base)
-		sec.AddDetail("Meditation - Grandmaster: -%d%%", MeditationGMSpellCostReductionPct)
+		sec.AddDetail("Meditation - Grandmaster: -%d%%", MeditationGMSPCostReductionPct)
 	}
 	sec.Add("Cost: %d SP", cost)
 	return cost
 }
 
 func addSpellCooldown(sec *ttSection, id spells.SpellID, ch *character.MMCharacter, cs *CombatSystem) {
-	tb := "1 action"
 	def, err := spells.GetSpellDefinitionByID(id)
-	isSpell := err == nil
-	if isSpell {
-		tb = character.SpellTBCost(def)
+	if err != nil {
+		return
 	}
-	if ch == nil || cs == nil {
-		if base, ok := baseCastCooldownSeconds(id); ok && base > 0 {
+	tb := character.SpellTBCost(def)
+	if !def.HasRTCooldown() {
+		// Buffs have no personal RT cooldown; a TB cast still spends the action.
+		sec.Add("No RT cooldown - TB: %s", tb)
+		return
+	}
+	var cd *cooldownBreakdown
+	if ch != nil && cs != nil {
+		b := cs.spellCooldownBreakdown(ch, id)
+		cd = &b
+	}
+	addCooldownStages(sec, def.CooldownSeconds, tb, cd, cs)
+}
+
+// addActionCooldown is the recovery of a non-spell action (a trap): one TB
+// action, Speed-scaled in RT, no spell staff perk.
+func addActionCooldown(sec *ttSection, seconds float64, ch *character.MMCharacter, cs *CombatSystem) {
+	var cd *cooldownBreakdown
+	if ch != nil && cs != nil {
+		b := cs.actionCooldownBreakdown(ch, seconds)
+		cd = &b
+	}
+	addCooldownStages(sec, seconds, "1 action", cd, cs)
+}
+
+// addCooldownStages shows the base cooldown without a hero, the full Speed,
+// weapon, limit and Quickening breakdown with one.
+func addCooldownStages(sec *ttSection, base float64, tb string, cd *cooldownBreakdown, cs *CombatSystem) {
+	if cd == nil {
+		if base > 0 {
 			sec.Add("Base cooldown: %.2fs", base)
 			sec.AddDetail("Scales with caster Speed - TB: %s", tb)
-		} else if isSpell && def.IsBuff() {
-			sec.Add("No RT cooldown - TB: %s", tb)
 		}
 		return
 	}
-	cd := cs.spellCooldownBreakdown(ch, id)
 	if cd.TotalFrames <= 0 {
-		// Buffs have no personal RT cooldown; a TB cast still spends the action.
-		if isSpell && def.IsBuff() {
-			sec.Add("No RT cooldown - TB: %s", tb)
-		}
 		return
 	}
 	sec.AddDetail("Base cooldown: %.2fs", character.CardSeconds(cd.BaseSeconds))
 	tps := float64(cs.game.config.GetTPS())
-	atSpeed := math.Round(cd.BaseSeconds*cd.SpeedFactor*tps) / tps
+	atSpeed := float64(cs.game.framesForSeconds(cd.BaseSeconds*cd.SpeedFactor)) / tps
 	delta := math.Round(atSpeed*100)/100 - math.Round(cd.BaseSeconds*100)/100
 	sec.AddDetail("Speed (%d): %+.2fs", cd.Speed, delta)
 	if cd.WeaponMultiplier != 1 {
@@ -170,15 +185,19 @@ func spellCurrentEffects(def spells.SpellDefinition, char *character.MMCharacter
 	tier, tierName := spellMasteryTier(char, def)
 	effects := ttSection{Title: "EFFECTS"}
 	if includeDamageType && def.IsProjectile && !def.DealsNoDamage {
-		effects.Add("%s", damageTypeAoELine(def.School, def.AoeRadiusTiles))
+		effects.AddText(character.DamageTypeAoE(def.DamageType(), def.AoeRadiusTiles))
 	}
-	for _, ln := range def.CoreEffectLines() {
+	effectTier := -1
+	if char != nil {
+		effectTier = tier
+	}
+	for _, ln := range def.CoreEffectLinesForMastery(effectTier) {
 		effects.Add("%s", ln)
 	}
 	hero := char != nil
 	if def.SummonMonster != "" {
 		if tierName != "" {
-			effects.AddDetail("%s Mastery - %s", formatSchoolName(spellSchoolForChar(char, def)), tierName)
+			effects.AddDetail("%s", uitext.Text("mastery.tier", formatSchoolName(spellSchoolForChar(char, def)), tierName))
 		}
 		for _, stat := range []struct {
 			label  string
@@ -216,17 +235,39 @@ func spellCurrentEffects(def spells.SpellDefinition, char *character.MMCharacter
 		scaled(target+" bonus", "+%s", def.OutgoingDamageBonus, def.OutgoingDamageBonusGrandmaster)
 	}
 	if def.IncomingDamageReduction > 0 {
-		scaled("reduction", "-%s per hit", def.IncomingDamageReduction, def.IncomingDamageReductionGrandmaster)
-		effects.AddDetail("Cuts normal damage after armor and resistance; true damage and damage over time pass")
+		values := tierValues(func(t int) int {
+			return scaledMasteryValueAt(def.IncomingDamageReduction, def.IncomingDamageReductionGrandmaster, t)
+		})
+		effects.Add("%s", uitext.Text("damage.flat_reduction_value", tierValueText(hero, tier, values)))
+		effects.AddDetail("%s", uitext.Text("damage.flat_reduction_rules"))
 	}
 	return effects
 }
 
-func addDamageTotal(sec *ttSection, label string, total, trueDamage int) {
-	if trueDamage > 0 {
-		sec.Add("%s: %d (%d Normal + %d True)", label, total, total-trueDamage, trueDamage)
-		sec.AddDetail("True Damage ignores armor and dodge")
-	} else {
-		sec.Add("%s: %d", label, total)
+// addShareDetails lists a split's shares on their own, then what the party's
+// per-school buffs added to the hit, for the Shift breakdown.
+func addShareDetails(sec *ttSection, shares, buffGains []character.DamageShare) {
+	for _, share := range shares {
+		sec.AddDetailText(character.DamageShareTotal(share.School, share.Amount))
 	}
+	for _, gain := range buffGains {
+		sec.AddDetailText(character.SchoolBuff(gain.School, gain.Amount))
+	}
+}
+
+// addDamageTotal states a result from its normal shares, as
+// MergeDamageShares gives them, and true damage. school is the hit's own
+// school; the total is split by school unless it is all normal damage of
+// that school. It returns the shares the
+// split names, nil for a single total.
+func addDamageTotal(sec *ttSection, label string, shares []character.DamageShare, school string, trueDamage int) []character.DamageShare {
+	if trueDamage <= 0 && (len(shares) == 0 || len(shares) == 1 && character.SameSchool(shares[0].School, school)) {
+		sec.Add("%s: %d", label, character.SumDamageShares(shares))
+		return nil
+	}
+	sec.AddText(character.DamageSplit(label, shares, school, trueDamage))
+	if trueDamage > 0 {
+		sec.AddDetail("%s", uitext.Text("damage.true_rule"))
+	}
+	return shares
 }

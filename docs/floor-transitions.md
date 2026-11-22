@@ -5,6 +5,15 @@ never change tile collision, walkability, flight rules, height, or water gamepla
 In particular, `void` is a visual blending rule, not a way to create a chasm.
 Keep the gameplay flags in `assets/tiles.yaml` consistent with the artwork.
 
+## Terms and abbreviations
+
+| Term | Meaning |
+| --- | --- |
+| GPU | Graphics processing unit (graphics processor): runs the floor shader. |
+| NPC | Non-player character: a person or prop placed on a map. |
+| UV | Texture coordinates: where on its texture a floor pixel is read. |
+| YAML | YAML Ain't Markup Language: the text format of the content files. |
+
 ## Configure a texture group
 
 Tiles select a `floor_texture_group` from their biome. Assign its transition
@@ -43,7 +52,7 @@ group. Existing shipped groups declare their intended profiles explicitly.
 | --- | --- | --- |
 | `hard` | Bridges, paving, boards, and painted transition art | Never blends with neighboring tiles, even variants within its own group. |
 | `natural` | Grass, sand, soil, and ordinary rock ground | Blends with natural ground and water; accepts a cliff rim only on its solid side. Receives a narrow wet-darkening band near water. |
-| `water` | Water surfaces and streams | Blends with water and natural ground using a narrower boundary band. Contributes to the distance field that drives shoreline effects. |
+| `water` | Water surfaces and streams | Meets natural ground along a thin waterline that turns tile corners on a small arc; fades into another water group (shallow into deep) in one smooth gradient. Contributes to the distance field that drives shoreline effects. Whether waves break on the bank is set per body of water, not by the profile (see Surf). |
 | `void` | Textures depicting the bottom of a chasm | Blends only with other `void` textures; never with land, water, rims, or bridges. |
 | `cliff_east` | Rim art with its drop on the right (+X) | Blends only with a `natural` tile immediately to its left (-X), on the solid side. |
 | `cliff_west` | Rim art with its drop on the left (-X) | Blends only with a `natural` tile immediately to its right (+X), on the solid side. |
@@ -123,11 +132,45 @@ frequency/amplitude, wet darkening, and shoreline distance are renderer settings
 in code, not supported YAML attributes. Do not add guessed `blend_width` or
 similar keys and expect them to work.
 
-Natural boundaries use a wider band than boundaries involving water, void, or
-cliff profiles. Noise is anchored in world coordinates, with reduced detail at
-distance. Texture interiors retain their source art; compatible boundaries mix
+Band widths, noise strengths and the look of the surf are named constants at
+the top of [floor.kage](../internal/shaders/floor.kage) (`floorBand*`,
+`floorSurf*`, in tiles). How fast crests travel is `floorSurfPeriodSeconds` in
+[render_floor_transitions.go](../internal/game/render_floor_transitions.go):
+
+| Pair | Band |
+| --- | --- |
+| Natural against natural | Wide cross-fade, slight noise. |
+| Water against natural | A thin waterline, about one texel, no noise. It follows the tile edge and turns a corner, convex or concave, on a circular arc of radius `floorBankRound` tiles; past its own tiles a texture tiles on, so no edge pixel is stretched. A hard tile among the four cells keeps the corner square. |
+| Two water groups (shallow and deep, a stream and a lake) | One smooth gradient from tile centre to tile centre, no noise, so a deep patch has a soft rim and a stream runs into a lake. Both textures tile on across it; no edge pixel is stretched. |
+| Variants of one water group; ice against open water | Narrow cross-fade; a variant keeps its own art inside its tile and ice keeps a crisp edge. |
+| Void or cliff pairings | Narrow cross-fade. |
+
+### Surf
+
+Every body of water on a map is classified in `assets/map_configs.yaml` under
+the map's `water_bodies`: one entry per 8-connected body of `type: water`
+tiles (water, deep water, streams, fords, koi), named by any of its cells in
+map-local coordinates, with a `kind` of `river`, `lake`, `sea`, `pool` or
+`stream`. Waves break on the bank of a lake or sea only, over every water cell
+of the body within `floorSurfReach` tiles of land, deep cells included. A body
+may mix tiles; its kind covers all of them. The boot fails on an unlisted
+body, an entry off water, two entries on one body or an unknown kind, and the
+message lists each unlisted body by its first cell.
+
+Crests `floorSurfSpacing` apart move one spacing every
+`floorSurfPeriodSeconds` on the world clock, each a crisp line with flecks of
+foam behind it, broken into runs, cut on the texture's pixel grid. Surf
+covers water a rounded corner places inside a land tile. Nothing outlines the
+bank. Frozen water has no surf. Off the map counts as a bank: a wall is drawn
+there in both world modes. Water an NPC's or monster's `ground_tile` stamps is
+part of the map and needs its entry like any other; water a terrain change
+places after load belongs to no body and stays calm.
+
+Noise is anchored in world coordinates, with reduced detail at distance.
+Texture interiors retain their source art; compatible boundaries mix
 neighboring samples. This is texture blending, not generated transition art or
-terrain geometry.
+terrain geometry. Collision stays on the tile grid; a rounded bank corner departs from
+it by a few texels.
 
 The implementation is split between:
 
@@ -145,15 +188,15 @@ under-entity ground, and save/load. For directional art, inspect both the separa
 map and its stitched placement. Confirm bridges and drop edges remain distinct.
 
 Automated coverage lives in `internal/game/render_floor_transitions_test.go`,
-`internal/game/debug_floor_transitions_test.go`, and
-`internal/config/floor_transitions_test.go`. From the repository root:
+`internal/game/debug_floor_sampling_test.go`,
+`internal/config/floor_transitions_test.go` and
+`internal/world/water_bodies_test.go`. From the repository root:
 
 ```sh
-go test ./internal/config ./internal/world ./internal/game -run 'TestTerrain|TestFloorTransition|TestKageShadersCompile'
-RAM_DEBUG_SIM=1 go test -tags debug ./internal/game -run '^TestDebugSim_(Terrain.*|FloorMinificationStable)$' -count=1
+go test ./internal/config ./internal/world ./internal/game -run 'TestTerrain|TestFloorTransition|TestKageShadersCompile|TestShaderConstantsMatchGo|TestResolveWaterBodies'
+RAM_DEBUG_SIM=1 go test -tags debug ./internal/game -run '^TestDebugSim_FloorMinificationStable$' -count=1
 ```
 
-The second command requires a working graphics environment. Set
-`RAM_TERRAIN_GALLERY=/tmp/rays-terrain-gallery` on that command to export test
-scenes using the actual floor shader and shipped textures. These scenes supplement
-inspection of the real maps; they do not include the full game scene.
+The second command requires a working graphics environment. How a boundary
+looks is judged in the game: stand at the bank and compare the three view modes,
+near and far.

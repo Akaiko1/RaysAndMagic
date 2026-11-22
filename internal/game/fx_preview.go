@@ -11,6 +11,7 @@ import (
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
 	"ugataima/internal/spells"
+	"ugataima/internal/status"
 	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -44,6 +45,7 @@ const (
 	FxTile
 	FxCard
 	FxStatus
+	FxFlask
 )
 
 // FxItem is one selectable effect in the editor's FX tab.
@@ -56,13 +58,15 @@ type FxItem struct {
 	// Status exhibits: the motif, staged on the hero card or a stage monster.
 	status statusVisuals
 	onHero bool
+	// Charged variants are separate catalog entries; normal attacks stay comparable.
+	charged bool
 }
 
 const fxStageMapKey = "fx_stage"
 
-// fxRespawnTicks is the minimum interval between preview casts. Finite attack
+// fxRespawnSeconds is the minimum interval between preview casts. Finite attack
 // visuals and persistent fields finish before the next cast can begin.
-const fxRespawnTicks = 75 // ~0.62s at 120 TPS
+const fxRespawnSeconds = 0.625
 
 // fxHeroIdx is the sandbox hero whose party card the card stage represents.
 const fxHeroIdx = 0
@@ -224,7 +228,7 @@ func (p *FxPreview) Items() []FxItem {
 		// an empty preview.
 		def := config.GlobalSpells.Spells[k]
 		if !def.IsProjectile && def.ZoneRadiusTiles <= 0 && !def.StarburstFx && def.BuffFxSprite == "" &&
-			(def.Graphics == nil || (def.Graphics.NovaFx == "" && def.Graphics.CastOverlay == "")) {
+			(def.Graphics == nil || (def.Graphics.NovaFx == "" && def.Graphics.CastOverlay == "" && def.Graphics.WorldFx == "" && def.Graphics.TargetFlights == nil)) {
 			continue
 		}
 		spellKeys = append(spellKeys, k)
@@ -240,7 +244,21 @@ func (p *FxPreview) Items() []FxItem {
 	}
 	sort.Strings(weaponKeys)
 	for _, k := range weaponKeys {
-		out = append(out, FxItem{Kind: FxWeapon, Key: k, Label: config.GlobalWeapons.Weapons[k].Name})
+		def := config.GlobalWeapons.Weapons[k]
+		out = append(out, FxItem{Kind: FxWeapon, Key: k, Label: def.Name})
+		if def.Signature != nil && def.Signature.ChargeLimit > 0 {
+			out = append(out, FxItem{Kind: FxWeapon, Key: k, Label: def.Name + " (charged)", charged: true})
+		}
+	}
+	var flaskKeys []string
+	for k, d := range config.GlobalItems.Items {
+		if d.Flask != nil {
+			flaskKeys = append(flaskKeys, k)
+		}
+	}
+	sort.Strings(flaskKeys)
+	for _, k := range flaskKeys {
+		out = append(out, FxItem{Kind: FxFlask, Key: k, Label: config.GlobalItems.Items[k].Name})
 	}
 
 	for _, k := range config.TrapKeysOrdered() {
@@ -256,10 +274,10 @@ func (p *FxPreview) Items() []FxItem {
 	}
 	for _, e := range statusVisualCatalog {
 		if e.monster != nil && fxStatusDummy() != "" {
-			out = append(out, FxItem{Kind: FxStatus, Key: "monster_" + e.key, Label: "Monster: " + e.label, status: e.flag})
+			out = append(out, FxItem{Kind: FxStatus, Key: "monster_" + e.key, Label: "Monster: " + e.label(), status: e.flag})
 		}
 		if e.hero != nil {
-			out = append(out, FxItem{Kind: FxStatus, Key: "hero_" + e.key, Label: "Hero card: " + e.label, status: e.flag, onHero: true})
+			out = append(out, FxItem{Kind: FxStatus, Key: "hero_" + e.key, Label: "Hero card: " + e.label(), status: e.flag, onHero: true})
 		}
 	}
 	return out
@@ -308,6 +326,7 @@ func (p *FxPreview) Select(item FxItem) {
 
 // clearTransient wipes leftover projectiles/effects so previews don't overlap.
 func (p *FxPreview) clearTransient() {
+	p.g.spellWorldVisuals = nil
 	g := p.g
 	// A previous utility preview (notably Fly) must not change which edges
 	// qualify for the next exhibit. Reuse the shared effect reset, without
@@ -316,15 +335,9 @@ func (p *FxPreview) clearTransient() {
 	g.world.SetTerrainPassageActive(false)
 	g.world.SetWalkOnWaterActive(false)
 	g.world.SetWaterBreathingActive(false)
-	for i := range g.magicProjectiles {
-		g.collisionSystem.UnregisterEntity(g.magicProjectiles[i].ID)
-	}
-	for i := range g.arrows {
-		g.collisionSystem.UnregisterEntity(g.arrows[i].ID)
-	}
-	g.magicProjectiles = g.magicProjectiles[:0]
-	g.arrows = g.arrows[:0]
+	g.clearProjectiles()
 	g.slashEffects = g.slashEffects[:0]
+	g.rangedHeld = nil
 	g.spellHitEffects = g.spellHitEffects[:0]
 	g.impactLights = g.impactLights[:0]
 	g.persistentDamageZones = g.persistentDamageZones[:0]
@@ -345,11 +358,12 @@ func (p *FxPreview) clearStage() {
 		g.collisionSystem.UnregisterEntity(m.ID)
 	}
 	g.world.Monsters = g.world.Monsters[:0]
-	g.partyRoot = PartyRootState{}
+	g.partyRoot = status.DualClock{}
 	g.partyHinder = PartyHinderState{}
 	if len(g.party.Members) > fxHeroIdx {
 		h := g.party.Members[fxHeroIdx]
 		h.Conditions = h.Conditions[:0]
+		h.ArmorMelt = status.DualClock{}
 	}
 }
 
@@ -379,6 +393,9 @@ func (p *FxPreview) spawn() {
 		if err != nil {
 			return
 		}
+		if authored, ok := config.GetSpellDefinition(p.sel.Key); ok && (authored.Mechanic != nil && authored.Mechanic.MaxTargets > 0 || authored.Graphics != nil && (authored.Graphics.TargetFlights != nil || authored.Graphics.WorldFx != "")) {
+			p.stageSpellTargets(authored)
+		}
 		buffAnimsBefore := len(g.buffFxAnims)
 		hitFxBefore := len(g.spellHitEffects)
 		g.combat.castResolvedSpell(id, def, m, 0, false, false)
@@ -404,9 +421,20 @@ func (p *FxPreview) spawn() {
 		if def, ok := config.GetWeaponDefinition(p.sel.Key); ok && def != nil {
 			// Straight into the slot: sandbox hero wields anything, class gates
 			// don't apply to a preview.
-			m.Equipment[items.SlotMainHand] = items.Item{Name: def.Name, Type: items.ItemWeapon}
+			m.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML(p.sel.Key)
+			if p.sel.charged && def.Signature != nil {
+				it := m.Equipment[items.SlotMainHand]
+				it.Signature.Charges = def.Signature.ChargeLimit
+				m.Equipment[items.SlotMainHand] = it
+			}
 			g.combat.EquipmentMeleeAttack()
 		}
+	case FxFlask:
+		m.Skills[character.SkillBombThrowing] = &character.Skill{Mastery: character.MasteryGrandMaster}
+		m.Skills[character.SkillAlchemy] = &character.Skill{Mastery: character.MasteryGrandMaster}
+		m.Inventory = []items.Item{items.CreateItemFromYAML(p.sel.Key)}
+		g.equipFlask(0, p.sel.Key)
+		g.throwFlask(0, p.sel.Key, false)
 	case FxTrap:
 		if def, ok := config.GetTrapDefinition(p.sel.Key); ok && def != nil {
 			g.traps = g.traps[:0]
@@ -416,7 +444,7 @@ func (p *FxPreview) spawn() {
 				Key: p.sel.Key, MapKey: fxStageMapKey,
 				TileX: tx, TileY: ty,
 				X: (float64(tx) + 0.5) * ts, Y: (float64(ty) + 0.5) * ts,
-				Owner: m, FramesLeft: 3 * g.config.GetTPS(),
+				Owner: m, Life: status.FromFrames(3*g.config.GetTPS(), g.config.GetTPS()),
 			})
 		}
 	case FxTile:
@@ -432,6 +460,50 @@ func (p *FxPreview) spawn() {
 	}
 }
 
+// stageSpellTargets gives target-dependent area flights actual recipients. The
+// sandbox holds their AI still and refreshes them on each preview loop.
+func (p *FxPreview) stageSpellTargets(def *config.SpellDefinitionConfig) {
+	p.clearStage()
+	g := p.g
+	ts := g.config.GetTileSize()
+	key := fxStatusDummy()
+	if def.Mechanic != nil && (def.Mechanic.Kind == config.MechanicTurnUndead || def.Mechanic.Kind == config.MechanicDestroyUndead) {
+		// Pick a real eligible recipient; a living dummy would make these
+		// previews silently no-op. Lowest key makes the stage deterministic.
+		key = ""
+		for k, m := range monster.MonsterConfig.Monsters {
+			if m.Type == monster.TypeUndead && m.HasAttackStats() && !m.Boss && (key == "" || k < key) {
+				key = k
+			}
+		}
+	}
+	offsets := [][2]float64{{3, -1.2}, {4.5, 0}, {3.5, 1.4}}
+	if def.Mechanic != nil && def.Mechanic.MaxTargets > 0 {
+		// The capped fan needs recipients in its authored reach. Twelve is a
+		// stage readability limit, not the spell's gameplay target cap.
+		count := min(def.Mechanic.MaxTargets, 12)
+		radius := def.Mechanic.RadiusTiles
+		if def.Physics != nil {
+			radius = def.Physics.RangeTiles
+		}
+		offsets = make([][2]float64, count)
+		for i := range offsets {
+			a := (float64(i)/float64(max(1, count-1)) - .5) * 1.15
+			d := min(4.5, radius*.82) * (1 - .13*float64(i%2))
+			offsets[i] = [2]float64{math.Cos(a) * d, math.Sin(a) * d}
+		}
+	}
+	for _, offset := range offsets {
+		m := monster.NewMonster3DFromConfig(p.homeX+offset[0]*ts, p.homeY+offset[1]*ts, key, g.config)
+		if m == nil {
+			continue
+		}
+		m.HitPoints, m.MaxHitPoints = 100000, 100000
+		m.Direction = math.Atan2(p.homeY-m.Y, p.homeX-m.X)
+		g.registerSpawnedMonster(m)
+	}
+}
+
 // refreshStagedStatus re-applies the selected motif's state to the staged
 // actor; every catalog setter refreshes rather than stacks.
 func (p *FxPreview) refreshStagedStatus() {
@@ -443,7 +515,7 @@ func (p *FxPreview) refreshStagedStatus() {
 		p.stageStatus(p.caster())
 		return
 	}
-	e.monster(p.g.world.Monsters[0])
+	e.monster(p.g, p.g.world.Monsters[0])
 }
 
 // stageStatus reproduces the motif from real game state: on the hero for card
@@ -470,7 +542,7 @@ func (p *FxPreview) stageStatus(hero *character.MMCharacter) {
 		return
 	}
 	m.Direction = math.Atan2(p.homeY-m.Y, p.homeX-m.X)
-	e.monster(m)
+	e.monster(g, m)
 	g.registerSpawnedMonster(m)
 }
 
@@ -519,7 +591,7 @@ func (p *FxPreview) resolveStageImpacts() {
 	}
 	for i := range g.arrows {
 		shot := &g.arrows[i]
-		if !shot.Active {
+		if !shot.Active || shot.Signature.ReturnLeg {
 			continue
 		}
 		def, ok := config.GetWeaponDefinition(shot.BowKey)
@@ -531,10 +603,27 @@ func (p *FxPreview) resolveStageImpacts() {
 			continue
 		}
 		shot.X, shot.Y = x, y
-		wrapper := ArrowWrapper{Arrow: shot, game: g}
-		wrapper.OnCollision(x, y)
-		wrapper.ApplyCollisionEffects()
-		g.collisionSystem.UnregisterEntity(shot.ID)
+		if shot.Signature.Flare {
+			// The common contact plane acts as a hit for this exhibit. Resolve
+			// through combat, then remove the recipient before drawing: the
+			// weapon stage stays empty like every other ranged preview.
+			target := &monster.Monster3D{ID: "fx_contact", X: x, Y: y, HitPoints: 1000000, MaxHitPoints: 1000000, NoKillRewards: true}
+			staged := g.world.Monsters
+			g.world.Monsters = append(g.world.Monsters, target)
+			g.combat.applyProjectileDamage(shot, target, shot.ID)
+			g.world.Monsters = staged
+		} else {
+			wrapper := ArrowWrapper{Arrow: shot, game: g}
+			wrapper.OnCollision(x, y)
+			wrapper.ApplyCollisionEffects()
+		}
+	}
+	// The stage contact ends shots like a wall does: blades turn back first.
+	g.combat.turnSpentBlades()
+	for i := range g.arrows {
+		if shot := &g.arrows[i]; !shot.Active {
+			g.collisionSystem.UnregisterEntity(shot.ID)
+		}
 	}
 }
 
@@ -548,25 +637,26 @@ func (p *FxPreview) Step() {
 	gl := g.gameLoop
 	g.updateInterfacePresentation()
 	g.frameCount++
+	gl.renderer.prewarmPendingMapRenderResources()
 	gl.updateSpecialEffects()
 	gl.updateProjectilesAndImpacts()
 	p.resolveStageImpacts()
 
 	p.tick++
-	interval := fxRespawnTicks
+	interval := g.framesForSeconds(fxRespawnSeconds)
 	if p.sel.Kind == FxTrap {
 		// Show the armed device, then its actual activation and complete fade.
-		armedTicks := g.config.GetTPS() * 3 / 2
+		armedTicks := g.framesForSeconds(1.5)
 		if p.tick == armedTicks {
 			for _, trap := range g.traps {
 				g.startTrapBurst(trap)
 			}
 			g.traps = g.traps[:0]
 		}
-		interval = armedTicks + int(math.Ceil(trapBurstSeconds*float64(g.config.GetTPS()))) + 15
+		interval = armedTicks + g.framesForSeconds(trapBurstSeconds+.125)
 	}
 	if p.tick >= interval {
-		if (p.sel.Kind == FxSpell || p.sel.Kind == FxWeapon) && p.attackVisualsActive() {
+		if (p.sel.Kind == FxSpell || p.sel.Kind == FxWeapon || p.sel.Kind == FxFlask) && p.attackVisualsActive() {
 			return
 		}
 		p.tick = 0
@@ -597,6 +687,11 @@ func (p *FxPreview) attackVisualsActive() bool {
 			return true
 		}
 	}
+	for _, shot := range g.flasks {
+		if shot.Active {
+			return true
+		}
+	}
 	for _, slash := range g.slashEffects {
 		if slash.Active {
 			return true
@@ -607,7 +702,7 @@ func (p *FxPreview) attackVisualsActive() bool {
 			return true
 		}
 	}
-	return len(g.buffFxAnims) > 0 || len(g.elementalAttackEffects) > 0 ||
+	return len(g.buffFxAnims) > 0 || len(g.spellWorldVisuals) > 0 || len(g.elementalAttackEffects) > 0 ||
 		len(g.persistentDamageZones) > 0 || len(g.pendingMortars) > 0
 }
 

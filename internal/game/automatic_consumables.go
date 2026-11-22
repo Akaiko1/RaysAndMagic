@@ -1,7 +1,6 @@
 package game
 
 import (
-	"math"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
@@ -21,10 +20,7 @@ func (g *MMGame) updateAutomaticConsumables() {
 		if ch == nil {
 			continue
 		}
-		if !g.turnBasedMode && ch.AutoDrinkCooldown > 0 {
-			ch.AutoDrinkCooldown--
-		}
-		if ch.AutoDrinkCooldown > 0 || !ch.CanUseCombatAction() {
+		if ch.AutoDrinkCD.Active() || !ch.CanUseCombatAction() {
 			continue
 		}
 		resources := []string{}
@@ -60,11 +56,8 @@ func (g *MMGame) updateAutomaticConsumables() {
 		}
 
 		if used {
-			seconds := rules.IntervalSeconds
-			if g.turnBasedMode {
-				seconds = max(seconds, float64(TurnBasedPeriodicEffectSeconds))
-			}
-			ch.AutoDrinkCooldown = max(1, int(math.Ceil(seconds*float64(g.config.GetTPS()))))
+			tps := g.config.GetTPS()
+			ch.AutoDrinkCD.ArmSeconds(rules.IntervalSeconds, tps)
 		}
 	}
 }
@@ -73,7 +66,7 @@ func (g *MMGame) automaticRestorative(item *items.Item, resource string) bool {
 	if item == nil || item.Type != items.ItemConsumable || item.Count() <= 0 || item.Attributes[resource] <= 0 || item.Attributes["revive"] > 0 || item.Attributes["summon_distance_tiles"] > 0 {
 		return false
 	}
-	def, _, ok := config.GetItemDefinitionByName(item.Name)
+	def, _, ok := config.ItemDefOf(*item)
 	return ok && g.config.AllowsAutoPotion(def, resource == "mana_base")
 }
 

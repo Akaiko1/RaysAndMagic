@@ -5,13 +5,12 @@ import (
 	"math"
 	"strings"
 
-	"ugataima/internal/config"
-
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
-// Material numbers match weapon_ribbon.kage. Authored geometry, colours and
-// choreography still belong to each weapon's existing signature renderer.
+// Ribbon materials: weapon_ribbon.kage branches on them by name and
+// TestShaderConstantsMatchGo keeps its const block equal. Authored geometry,
+// colours and choreography still belong to each weapon's signature renderer.
 const (
 	weaponMetal = iota
 	weaponHeat
@@ -36,11 +35,11 @@ type weaponMaterialState struct {
 
 func weaponMaterial(style string) int {
 	switch style {
-	case "solstice_thermal", "dragon_ember_egg", "dragon_fang", "fire":
+	case "solstice_thermal", "solstice_sun_crucible", "dragon_ember_egg", "dragon_fang", "fire":
 		return weaponHeat
 	case "rainfang", "solstice_flow", "dragon_tarn", "serpent_fang", "muramasa", "water":
 		return weaponLiquid
-	case "solstice_anchor", "idol_breaker", "dragon_roar", "earth":
+	case "solstice_anchor", "solstice_stone_script", "idol_breaker", "dragon_roar", "earth":
 		return weaponStone
 	case "kage_kunai", "dragon_hatchling", "dark":
 		return weaponVeil
@@ -55,33 +54,17 @@ func weaponMaterial(style string) int {
 	return weaponMetal
 }
 
-func (r *Renderer) weaponMaterialClock() float64 {
-	if r.game == nil {
-		return 0
-	}
-	tps := config.DefaultTPS
-	if r.game.config != nil {
-		tps = max(1, r.game.config.GetTPS())
-	}
-	return float64(r.game.frameCount) / float64(tps)
-}
-
 func (r *Renderer) ensureWeaponMaterialShaders() error {
-	if r.fireflyShader != nil && r.spellBoltShader != nil && r.weaponRibbonShader != nil && r.impactMaterialShader != nil && r.weaponOrbShader != nil && r.spellBodyShader != nil && r.zonePlumeShader != nil && r.weaponBodyShader != nil && r.bubbleShader != nil {
+	if r.fireflyShader != nil && r.spellBoltShader != nil && r.weaponRibbonShader != nil && r.impactMaterialShader != nil && r.weaponOrbShader != nil && r.spellBodyShader != nil && r.zonePlumeShader != nil && r.weaponBodyShader != nil && r.bubbleShader != nil && r.rangedFlameShader != nil {
 		return nil
 	}
 	for _, entry := range []struct {
-		dst **ebiten.Shader
-		src string
-	}{{&r.fireflyShader, fireflyShaderSrc}, {&r.spellBoltShader, spellBoltShaderSrc}, {&r.weaponRibbonShader, weaponRibbonShaderSrc}, {&r.impactMaterialShader, impactMaterialShaderSrc}, {&r.weaponOrbShader, weaponOrbShaderSrc}, {&r.spellBodyShader, spellBodyShaderSrc}, {&r.zonePlumeShader, zonePlumeShaderSrc}, {&r.weaponBodyShader, weaponBodyShaderSrc}, {&r.bubbleShader, bubbleShaderSrc}} {
-		if *entry.dst != nil {
-			continue
-		}
-		shader, err := ebiten.NewShader([]byte(entry.src))
-		if err != nil {
+		dst  **ebiten.Shader
+		name string
+	}{{&r.fireflyShader, "firefly.kage"}, {&r.spellBoltShader, "spell_bolt.kage"}, {&r.weaponRibbonShader, "weapon_ribbon.kage"}, {&r.impactMaterialShader, "impact_material.kage"}, {&r.weaponOrbShader, "weapon_orb.kage"}, {&r.spellBodyShader, "spell_body.kage"}, {&r.zonePlumeShader, "zone_plume.kage"}, {&r.weaponBodyShader, "weapon_body.kage"}, {&r.bubbleShader, "bubble.kage"}, {&r.rangedFlameShader, "ranged_flame.kage"}} {
+		if err := compileShader(entry.dst, entry.name); err != nil {
 			return err
 		}
-		*entry.dst = shader
 	}
 	return nil
 }
@@ -217,7 +200,7 @@ func (r *Renderer) weaponFxHalo(dst *ebiten.Image, x, y, rx, ry, width float64, 
 
 // The stock categories show a compact weapon silhouette at the moving edge.
 // Bespoke weapons keep the more specific heads already authored in their FX.
-func (r *Renderer) drawWeaponHead(dst *ebiten.Image, kind string, x, y, angle, size, alpha float64) {
+func (r *Renderer) drawWeaponHead(dst *ebiten.Image, kind swingKind, x, y, angle, size, alpha float64) {
 	r.drawWeaponSilhouette(dst, kind, "", x, y, angle, size, alpha)
 }
 
@@ -226,22 +209,21 @@ func (r *Renderer) drawWeaponCharge(dst *ebiten.Image, x, y, size, dx, dy float6
 		return
 	}
 	size *= math.Sqrt(crit)
-	phase := r.weaponMaterialClock()
+	phase := r.game.worldSeconds()
 	prev := r.weaponMaterialState
 	r.weaponMaterialState = weaponMaterialState{material: weaponEnergy, phase: phase, seed: seed}
 	defer func() { r.weaponMaterialState = prev }()
 	// Both projections retain a round charged core. Only lateral shots trail.
 	if math.Hypot(dx, dy) > .01 {
 		nx, ny := projectilePerpendicular(dx, dy)
-		for strand := 0; strand < 2; strand++ {
-			lastX, lastY := x, y
-			for k := 1; k <= 12; k++ {
-				t := float64(k) / 12
-				off := math.Sin(t*5-phase*4+float64(strand)*math.Pi) * size * t * .55
-				px, py := x-dx*size*t*3+nx*off, y-dy*size*t*3+ny*off
-				r.weaponFxSegment(dst, lastX, lastY, px, py, size*.12*(1-t)+.6, rgb, alpha*(1-t)*.65, additiveGlowBlend)
-				lastX, lastY = px, py
-			}
+		// One projectile has one continuous wake, never two crossing strands.
+		lastX, lastY := x, y
+		for k := 1; k <= 12; k++ {
+			t := float64(k) / 12
+			off := math.Sin(t*5-phase*4) * size * t * .55
+			px, py := x-dx*size*t*3+nx*off, y-dy*size*t*3+ny*off
+			r.weaponFxSegment(dst, lastX, lastY, px, py, size*.12*(1-t)+.6, rgb, alpha*(1-t)*.65, additiveGlowBlend)
+			lastX, lastY = px, py
 		}
 	}
 	for i, p := range [4][2]float64{{-1, -1}, {1, -1}, {-1, 1}, {1, 1}} {
@@ -264,6 +246,11 @@ func (r *Renderer) drawWeaponMaterialWarm(dst *ebiten.Image) {
 	r.resizeVolumeLayer(size)
 	for i, p := range [4][2]float64{{0, 0}, {1, 0}, {0, 1}, {1, 1}} {
 		r.weaponMaterialQuad[i] = weaponMaterialVertex(p[0], p[1], p[0], p[1], [3]int{}, 0)
+		r.weaponMaterialQuad[i].Custom2 = -1
+		r.weaponMaterialQuad[i].Custom3 = .25
+	}
+	if r.prepareRelicMaterial() {
+		worldDrawTrianglesShader(dst, r.weaponMaterialQuad[:], weaponQuadIndices, r.relicMaterialShader, &r.relicMaterialOpts)
 	}
 	for _, shader := range []*ebiten.Shader{r.fireflyShader, r.weaponRibbonShader, r.impactMaterialShader, r.weaponOrbShader, r.spellBodyShader, r.zonePlumeShader, r.bubbleShader, r.weaponBodyShader, r.spellBoltShader} {
 		if shader == r.zonePlumeShader {
@@ -275,6 +262,10 @@ func (r *Renderer) drawWeaponMaterialWarm(dst *ebiten.Image) {
 		}
 		r.weaponMaterialOpts.Images[0] = nil
 	}
+	// The charged Sun Crucible flame and every ranged depth-resolve stage
+	// (both depth targets, min/copy/clear blends) exist before the first shot.
+	r.drawRangedSunFlame(dst, 0, 0, 1, 0)
+	r.drawRangedHeldMesh(dst, size, 8, 8, 8, 0, volumeTransform{rotation: [3][3]float64{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}}, uvY: 1}, rangedDepthWarmMesh)
 	r.weaponMaterialWarmed = true
 }
 
@@ -294,7 +285,7 @@ func (r *Renderer) drawWeaponFacets(dst *ebiten.Image, verts []ebiten.Vertex, in
 		}
 		v.SrcX, v.SrcY = uv[i%3][0], uv[i%3][1]
 		v.Custom0, v.Custom1 = 0, float32(i/3)*.27
-		v.Custom2, v.Custom3 = float32(r.weaponMaterialClock()*.7)+float32(i/3), .7
+		v.Custom2, v.Custom3 = float32(r.game.worldSeconds()*.7)+float32(i/3), .7
 	}
 	r.weaponMaterialOpts.Blend = ebiten.BlendSourceOver
 	worldDrawTrianglesShader(dst, verts, indices, r.impactMaterialShader, &r.weaponMaterialOpts)
@@ -310,7 +301,7 @@ func (r *Renderer) drawBulletTracer(dst *ebiten.Image, x, y, size float64, view 
 		return
 	}
 	previous := r.weaponMaterialState
-	r.weaponMaterialState = weaponMaterialState{material: weaponEnergy, phase: r.weaponMaterialClock(), seed: id}
+	r.weaponMaterialState = weaponMaterialState{material: weaponEnergy, phase: r.game.worldSeconds(), seed: id}
 	defer func() { r.weaponMaterialState = previous }()
 	length := size * 3.6 * crit
 	r.weaponFxSegment(dst, x-dx*length*.75, y, x+dx*length*.25, y, size*.45, col, .85, additiveGlowBlend)

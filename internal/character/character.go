@@ -8,14 +8,15 @@ import (
 	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/items"
 	"ugataima/internal/spells"
+	"ugataima/internal/stats"
 	"ugataima/internal/status"
 )
 
 // Mana regeneration tunables. SP regenerates by (1 + Personality/divisor +
-// the Meditation bonus) every ManaRegenIntervalFrames ticks. Kept in this package
-// because game's balance.go can't be imported from internal/character (circular).
+// the Meditation bonus) every regeneration period (TickRegen). Kept in
+// this package because game's balance.go can't be imported from
+// internal/character (circular).
 const (
-	ManaRegenIntervalFrames     = config.RegenerationIntervalFrames // ~5s at 120 TPS
 	ManaRegenPersonalityDivisor = 10
 	MaxSPPersonalityDivisor     = 3
 	// MeditationRegenPerTier: extra SP restored per regen tick per Meditation
@@ -64,9 +65,22 @@ func (c *MMCharacter) ArmsMasterTier() int { return c.SkillTier(SkillArmsMaster)
 func (c *MMCharacter) DisarmTrapTier() int { return c.SkillTier(SkillDisarmTrap) }
 func (c *MMCharacter) MerchantTier() int   { return c.SkillTier(SkillMerchant) }
 
-// QuickSlotCount is the number of per-character quick slots (matches the 5-cell
-// quick-bar frame art).
-const QuickSlotCount = 5
+// QuickSlotsPerRow is one quick-slot bar (the 5-cell frame art); a hero has
+// QuickSlotRows of them, the second shown only with QuickSecondRow.
+const (
+	QuickSlotsPerRow = 5
+	QuickSlotRows    = 2
+	QuickSlotCount   = QuickSlotsPerRow * QuickSlotRows
+)
+
+// QuickRows is how many quick-slot rows the hero shows: 1, or 2 with the
+// second row on.
+func (c *MMCharacter) QuickRows() int {
+	if c != nil && c.QuickSecondRow {
+		return QuickSlotRows
+	}
+	return 1
+}
 
 // AdventureExperience follows the hero through roster swaps and saves.
 type AdventureExperience struct {
@@ -75,10 +89,15 @@ type AdventureExperience struct {
 }
 
 type MMCharacter struct {
+	// ActorID is the hero's stable identity for marks it leaves on monsters
+	// (Catalysis): assigned on first use, saved.
+	ActorID        uint64
 	ReactiveCombat ReactiveCombatState
+	Clockwork      ClockworkGearState
 	AdventureXP    map[string]AdventureExperience
 	Inventory      []items.Item // Personal bag; travels with this hero through roster changes.
 	RareClass      RareClassState
+	SpellState     SpellState
 	Name           string
 	Class          CharacterClass
 	Promotion      Promotion // elite status (Archmage/Lich); PromotionNone by default
@@ -105,6 +124,8 @@ type MMCharacter struct {
 	// BonusMaxHP is a flat MaxHP addition from an external source (the Jungle
 	// Idol Card), pushed the same way as BuffBonuses. Runtime-only.
 	BonusMaxHP int
+	// BonusWeaponBaseDamage is the active party card bonus, rebuilt on load.
+	BonusWeaponBaseDamage int
 
 	// Primary attributes
 	Might       int // Physical strength and melee damage
@@ -130,15 +151,21 @@ type MMCharacter struct {
 	// inventory and lives in the slot (nil = empty). Physical slot items still
 	// count as carried stock for quests, crafting and exchanges. Spells hold a temporary
 	// spell item (spellbook-owned; never returned to inventory). Independent of
-	// the Space/SmartAttack quick-spell (Equipment[SlotSpell]).
-	QuickSlots [QuickSlotCount]*items.Item
+	// the F/Space quick action (Equipment[SlotQuickAction]). Row I is
+	// QuickSlots[:QuickSlotsPerRow]; row II, the rest, holds items only while
+	// QuickSecondRow is on.
+	QuickSlots     [QuickSlotCount]*items.Item
+	QuickSecondRow bool
 
 	// Status effects
 	Conditions []Condition
-	// Consumable and target-mark timers use simulation frames in both RT and TB.
-	AutoDrinkCooldown  int
+	// Consumable and target-mark cooldowns on the one RT/TB clock.
+	AutoDrinkCD        status.DualClock
 	DesignatedTargetID string
-	DesignationFrames  int
+	Designation        status.DualClock
+	// AutocastCD is the hero's one autocast budget, shared by spellbook and
+	// technique autocasts.
+	AutocastCD status.DualClock
 
 	// Poison status timer and tick accumulator (frames).
 	PoisonFramesRemaining int
@@ -146,26 +173,28 @@ type MMCharacter struct {
 	// Ignite (burn): a separate DoT 3x as strong as poison that STACKS with it.
 	BurnFramesRemaining int
 	burnTickTimer       int
-	// Stun: skips the character's actions. RT counts frames, TB counts turns.
-	StunFramesRemaining int
-	StunTurnsRemaining  int
-	StunRate            int // persisted frames-per-turn rate keeping mode switches proportional
+	// Stun: skips the character's actions.
+	Stun status.DualClock
+	// ArmorMelt: a melting monster's hit leaves the hero's armor blunting a
+	// physical hit only as far as an elemental one (ArmorMelted).
+	ArmorMelt status.DualClock
 	// Stun diminishing returns (status.StunDRChain): chain step plus the
-	// stun-free TB turns / RT frames left before the chain resets.
-	StunDRStacks       int
-	StunDRMemoryTurns  int
-	StunDRMemoryFrames int
+	// stun-free time left before the chain resets.
+	StunDRStacks int
+	StunDRMemory status.DualClock
 	// ScaleStacks: equipped scale-growth armor accumulated this combat.
 	// Runtime-only - stacks shed the moment combat ends (never saved).
 	ScaleStacks int
 
-	// Regeneration timer - counts frames until next spell point regeneration
-	spellRegenTimer int
+	// SPRegen and HPRegen run to the next regeneration payouts (TickRegen);
+	// SPRegenFight is the SP period's kind, the fight one or the calm one.
+	SPRegen      status.DualClock
+	HPRegen      status.DualClock
+	SPRegenFight bool
 
-	// BonusRegenPct is a % of max HP regenerated every ManaRegenIntervalFrames,
+	// BonusRegenPct is a % of max HP regenerated every regeneration period,
 	// pushed by the game (Troll Cards) the same way as BonusMaxHP. Runtime-only.
 	BonusRegenPct int
-	hpRegenTimer  int
 	// Timed party draught bonuses are derived from active buffs, never saved here.
 	BuffHPRegenPct   int
 	BuffManaRegenPct int
@@ -245,10 +274,9 @@ func (c *MMCharacter) CanDualWield() bool {
 // IsDualWielding reports whether c has the Dual Wielding skill AND an actual
 // weapon (not a shield or nothing) in the off-hand. Dual Wielding's perks -
 // the personal extra TB action, the independent off-hand RT cooldown - only
-// kick in while both hold. The skill check is load-bearing: save restore does
-// not revalidate equipment slots, so a crafted/legacy save with an off-hand
-// weapon on a skill-less character would otherwise hand out every perk for
-// free. Without the skill the off-hand weapon simply sits inert.
+// kick in while both hold. Loading returns gear that no longer fits its slot
+// to the bag (ItemBelongsInSlot); the skill check still keeps the perks off
+// whatever else fills the slot.
 func (c *MMCharacter) IsDualWielding() bool {
 	if !c.CanDualWield() {
 		return false
@@ -293,6 +321,23 @@ func (c *MMCharacter) HasWeaponInEitherHand() bool {
 // CanAct reports whether this character is alive and conscious. It is used for
 // targeting and round bookkeeping; actor-specific gates additionally account
 // for statuses such as stun.
+// IsLiving reports a hero with HP left who is neither dead nor eradicated.
+// Allied spells and shared healing pools target living heroes.
+func (c *MMCharacter) IsLiving() bool {
+	return c != nil && c.HitPoints > 0 && !c.HasCondition(ConditionDead) && !c.HasCondition(ConditionEradicated)
+}
+
+// Revive is the one return to life: Unconscious and Dead clear (Eradicated
+// too when eradicated is set) and HP rises to hp, at least 1, never lowered.
+func (c *MMCharacter) Revive(hp int, eradicated bool) {
+	c.RemoveCondition(ConditionUnconscious)
+	c.RemoveCondition(ConditionDead)
+	if eradicated {
+		c.RemoveCondition(ConditionEradicated)
+	}
+	c.HitPoints = max(c.HitPoints, hp, 1)
+}
+
 func (c *MMCharacter) CanAct() bool {
 	if c == nil || c.HitPoints <= 0 {
 		return false
@@ -341,19 +386,46 @@ const (
 	PromotionLich
 )
 
+// promotionKeys is the authored vocabulary of promotions (a quest's
+// rewards.promotion, promoted sprite suffixes).
+var promotionKeys = map[Promotion]string{PromotionArchmage: "archmage", PromotionLich: "lich"}
+
+// PromotionByKey resolves an authored promotion key.
+func PromotionByKey(key string) (Promotion, bool) {
+	for p, k := range promotionKeys {
+		if k == key {
+			return p, true
+		}
+	}
+	return PromotionNone, false
+}
+
+// Key is the promotion's authored key, "" for none.
+func (p Promotion) Key() string { return promotionKeys[p] }
+
+// Title is the promoted class name, "" for none.
+func (p Promotion) Title() string {
+	switch p {
+	case PromotionArchmage:
+		return "Archmage"
+	case PromotionLich:
+		return "Lich"
+	}
+	return ""
+}
+
+// RejectsUndead: the Archmage's Light is refused to a party holding a lich.
+func (p Promotion) RejectsUndead() bool { return p == PromotionArchmage }
+
 // IsLich is the promotion predicate behind party traits (hates.yaml aggro).
 func (c *MMCharacter) IsLich() bool { return c.Promotion == PromotionLich }
 
 // ClassDisplayName returns the promoted title if any, else the base class name.
 func (c *MMCharacter) ClassDisplayName() string {
-	switch c.Promotion {
-	case PromotionArchmage:
-		return "Archmage"
-	case PromotionLich:
-		return "Lich"
-	default:
-		return c.Class.String()
+	if t := c.Promotion.Title(); t != "" {
+		return t
 	}
+	return c.Class.String()
 }
 
 func CreateCharacter(name string, class CharacterClass, cfg *config.Config) *MMCharacter {
@@ -385,15 +457,9 @@ func (c *MMCharacter) applyClassKit(cfg *config.Config) {
 		panic(fmt.Sprintf("class %q missing from config.yaml characters.classes", key))
 	}
 
-	c.Might = stats.Might
-	c.Intellect = stats.Intellect
-	c.Personality = stats.Personality
-	c.Endurance = stats.Endurance
-	c.Accuracy = stats.Accuracy
-	c.Speed = stats.Speed
-	c.Luck = stats.Luck
+	c.SetBaseStats(stats.Base)
 
-	c.ensureClassKitSkills(stats, key)
+	c.ensureClassKitSkills(stats, key, cfg)
 
 	for _, entry := range stats.Magic {
 		school := MagicSchoolID(entry.School)
@@ -428,19 +494,19 @@ func (c *MMCharacter) applyClassKit(cfg *config.Config) {
 		// Fail fast on a bad key, but only when traps.yaml is loaded -
 		// config-less unit tests build parties without the trap catalog.
 		if it, ok := config.TrapItem(stats.QuickTrap); ok {
-			c.Equipment[items.SlotSpell] = it
+			c.Equipment[items.SlotQuickAction] = it
 		} else if config.GlobalTrapConfig != nil {
 			panic(fmt.Sprintf("class %q: unknown quick_trap %q in config.yaml", key, stats.QuickTrap))
 		}
 	}
 	if stats.QuickSpell != "" {
 		if spellItem, err := spells.CreateSpellItem(spells.SpellID(stats.QuickSpell)); err == nil {
-			c.Equipment[items.SlotSpell] = spellItem
+			c.Equipment[items.SlotQuickAction] = spellItem
 		}
 	}
 }
 
-func (c *MMCharacter) ensureClassKitSkills(stats config.ClassStats, key string) bool {
+func (c *MMCharacter) ensureClassKitSkills(stats config.ClassStats, key string, cfg *config.Config) bool {
 	if c.Skills == nil {
 		c.Skills = make(map[SkillType]*Skill)
 	}
@@ -450,9 +516,9 @@ func (c *MMCharacter) ensureClassKitSkills(stats config.ClassStats, key string) 
 		if !ok {
 			panic(fmt.Sprintf("class %q: unknown skill key %q in config.yaml", key, sk))
 		}
-		// The half-orc Knight replaces this class skill with Orcish Fury.
+		// A race may swap this kit skill (the half-orc Knight's Orcish Fury).
 		// Do not re-add the replaced skill on every save migration.
-		if replaced, _, ok := c.racialSkillReplacement(); ok && st == replaced {
+		if replaced, _, ok := c.racialSkillReplacement(cfg); ok && st == replaced {
 			continue
 		}
 		mastery := MasteryNovice
@@ -483,7 +549,7 @@ func (c *MMCharacter) EnsureClassKitSkills(cfg *config.Config) bool {
 	if !ok {
 		panic(fmt.Sprintf("class %q missing from config.yaml characters.classes", key))
 	}
-	return c.ensureClassKitSkills(stats, key)
+	return c.ensureClassKitSkills(stats, key, cfg)
 }
 
 func isKnownMagicSchool(id MagicSchoolID) bool {
@@ -506,13 +572,9 @@ func (c *MMCharacter) ApplyRace(race string, cfg *config.Config) {
 	if !ok {
 		panic(fmt.Sprintf("race %q missing from config.yaml characters.races", race))
 	}
-	c.Might += mods.Might
-	c.Intellect += mods.Intellect
-	c.Personality += mods.Personality
-	c.Endurance += mods.Endurance
-	c.Accuracy += mods.Accuracy
-	c.Speed += mods.Speed
-	c.Luck += mods.Luck
+	for i, p := range c.baseStatFields() {
+		*p += *mods.Shifts.At(i)
+	}
 	c.Race = race
 	c.EnsureRacialTraits(cfg)
 }
@@ -556,15 +618,12 @@ func (c *MMCharacter) EnsureRacialTraits(cfg *config.Config) bool {
 			changed = true
 		}
 	}
-	switch c.Race {
-	case "celestial":
-		ensureFixed(SkillCelestialProvidence)
-	case "halfling":
-		ensureFixed(SkillHalflingGuile)
-	case "dark_elf":
-		ensureFixed(SkillDarkElfBinding)
+	if race, ok := c.raceConfig(cfg); ok && race.PassiveSkill != "" {
+		if st, ok := SkillTypeFromKey(race.PassiveSkill); ok {
+			ensureFixed(st)
+		}
 	}
-	if replaced, replacement, ok := c.racialSkillReplacement(); ok {
+	if replaced, replacement, ok := c.racialSkillReplacement(cfg); ok {
 		mastery := MasteryNovice
 		if old := c.Skills[replaced]; old != nil {
 			mastery = old.Mastery
@@ -582,13 +641,28 @@ func (c *MMCharacter) EnsureRacialTraits(cfg *config.Config) bool {
 	return changed
 }
 
+// raceConfig is the hero's race entry (cfg, else the loaded config).
+func (c *MMCharacter) raceConfig(cfg *config.Config) (config.RaceStats, bool) {
+	if cfg == nil {
+		cfg = config.GlobalConfig
+	}
+	if cfg == nil || c.Race == "" {
+		return config.RaceStats{}, false
+	}
+	race, ok := cfg.Characters.Races[c.Race]
+	return race, ok
+}
+
 // racialSkillReplacement is shared by class-kit initialization and racial
 // migration, so a replaced skill cannot be reintroduced on the next load.
-func (c *MMCharacter) racialSkillReplacement() (SkillType, SkillType, bool) {
-	if c.Race == "half_orc" && c.Class == ClassKnight {
-		return SkillImpenetrableDefense, SkillOrcishFury, true
+func (c *MMCharacter) racialSkillReplacement(cfg *config.Config) (SkillType, SkillType, bool) {
+	race, ok := c.raceConfig(cfg)
+	if !ok || race.Replaces == nil || race.Replaces.Class != c.Class.Key() {
+		return 0, 0, false
 	}
-	return 0, 0, false
+	replaced, okSkill := SkillTypeFromKey(race.Replaces.Skill)
+	with, okWith := SkillTypeFromKey(race.Replaces.With)
+	return replaced, with, okSkill && okWith
 }
 
 // derivedStatMultipliers returns the HP/SP formula multipliers, falling back to
@@ -669,47 +743,49 @@ func (c *MMCharacter) RecalculateMaxStatsGrantingGain(cfg *config.Config) {
 	}
 }
 
-// UpdateWithMode updates the character with knowledge of the current game mode
-// and reports whether an RT regeneration cadence completed this frame.
-func (c *MMCharacter) UpdateWithMode(turnBasedMode bool) bool {
-	// Turn-based mode: skip timer-based regen AND poison/burn - those advance
-	// once per party turn (TickPoisonTurn/TickBurnTurn, called from
-	// startPartyTurn) so deliberating over a move doesn't bleed real-time HP,
-	// mirroring monster poison's RT-frame-vs-TB-turn split.
-	if turnBasedMode {
-		return false
-	}
-
-	// Use normal timer-based regeneration in real-time mode
-	return c.updateRegenAndPoison()
+// PartyClock is what one party frame runs on. Turn-based rounds tick their
+// cadences in the game's endPartyTurn; real time ticks here, and a fight
+// spaces SP regen to the turn-based pace.
+type PartyClock struct {
+	TurnBased bool
+	InCombat  bool
 }
 
-// A stun carries both a RT (seconds->frames) and a TB (turns) counter; only the
-// current mode's counter is ticked. The stun ends when the ACTIVE counter
-// expires (clearing the other), so it lasts its full single-mode duration and a
-// mode switch ends it on whichever runs out first - never permanent.
+// UpdateWithMode advances the character one RT frame on the party clock.
+// Optional absorbers reduce pending DoT damage before HP is deducted.
+func (c *MMCharacter) UpdateWithMode(clock PartyClock, absorbDoT ...func(int) int) {
+	// Turn-based mode: regen and poison/burn advance once per party turn
+	// (TickRegen from endPartyTurn, TickPoisonTurn/TickBurnTurn from
+	// startPartyTurn), so deliberating over a move doesn't bleed real-time HP.
+	if clock.TurnBased {
+		return
+	}
+	c.updateRegenAndPoison(clock.InCombat, absorbDoT...)
+}
+
+// A stun is a rated status.DualClock: a mode switch keeps its spent part.
 
 // tickStunFrames counts down a real-time stun, clearing it when the timer ends.
 // Rated: the TB clock drains proportionally so toggling combat mode cannot
 // hand the stun its frozen turn count back.
 func (c *MMCharacter) tickStunFrames() {
 	if !c.IsStunned() {
-		c.StunDR().ForgetFrame()
+		c.StunDR().Forget(false)
 		return
 	}
-	if status.TickFrameRated(&c.StunFramesRemaining, &c.StunTurnsRemaining, &c.StunRate) {
+	if c.Stun.TickFrame() {
 		c.RemoveCondition(ConditionStunned)
 	}
 }
 
 // StunDR exposes this hero's diminishing-returns chain to the shared rule.
 func (c *MMCharacter) StunDR() status.StunDRChain {
-	return status.StunDRChain{Stacks: &c.StunDRStacks, MemoryTurns: &c.StunDRMemoryTurns, MemoryFrames: &c.StunDRMemoryFrames}
+	return status.StunDRChain{Stacks: &c.StunDRStacks, Memory: &c.StunDRMemory}
 }
 
 // TickStunTurn counts down a turn-based stun at the start of the party's turn.
 func (c *MMCharacter) TickStunTurn() {
-	if status.TickTurnRated(&c.StunTurnsRemaining, &c.StunFramesRemaining, &c.StunRate) {
+	if c.Stun.TickTurn() {
 		c.RemoveCondition(ConditionStunned)
 	}
 }
@@ -718,21 +794,22 @@ func (c *MMCharacter) TickStunTurn() {
 // elapsedFrames of duration and deals the damage that span is worth (one tick
 // per second, so a three-second round bites three times). Mirrors
 // monster.TickPoisonTurn; called once per party turn from startPartyTurn.
-func (c *MMCharacter) TickPoisonTurn(elapsedFrames, tps int) {
+// Optional absorbers use the same damage path as UpdateWithMode.
+func (c *MMCharacter) TickPoisonTurn(elapsedFrames, tps int, absorbDoT ...func(int) int) {
 	ticks, expired := status.TickDoT(&c.PoisonFramesRemaining, &c.poisonTickTimer, elapsedFrames, tps)
 	if expired {
 		c.RemoveCondition(ConditionPoisoned)
 	}
-	c.dotDamage(PoisonDamagePerTick * ticks)
+	c.dotDamage(c.dotTickDamage("poison", ticks), absorbDoT...)
 }
 
 // TickBurnTurn advances ignite by one TB round, mirroring TickPoisonTurn.
-func (c *MMCharacter) TickBurnTurn(elapsedFrames, tps int) {
+func (c *MMCharacter) TickBurnTurn(elapsedFrames, tps int, absorbDoT ...func(int) int) {
 	ticks, expired := status.TickDoT(&c.BurnFramesRemaining, &c.burnTickTimer, elapsedFrames, tps)
 	if expired {
 		c.RemoveCondition(ConditionBurning)
 	}
-	c.dotDamage(BurnDamagePerTick * ticks)
+	c.dotDamage(c.dotTickDamage("burn", ticks), absorbDoT...)
 }
 
 // DoTTickTimers exposes the persisted sub-second cadence phase for poison and
@@ -757,10 +834,14 @@ func (c *MMCharacter) RestoreDoTTickTimers(poison, burn int) {
 
 // dotDamage lands DoT damage on a still-standing character; Unconscious is
 // set by the game loop's knockOut sweep, not here. A zero amount (no tick this
-// call) is a no-op.
-func (c *MMCharacter) dotDamage(amount int) {
+// call) is a no-op. Optional game-owned absorbers spend shared barriers without
+// importing combat rules or retaining runtime callbacks in saved characters.
+func (c *MMCharacter) dotDamage(amount int, absorbDoT ...func(int) int) {
 	if c.HitPoints <= 0 || amount <= 0 {
 		return
+	}
+	for _, absorb := range absorbDoT {
+		amount = absorb(amount)
 	}
 	c.HitPoints -= amount
 	if c.HitPoints < 0 {
@@ -768,63 +849,74 @@ func (c *MMCharacter) dotDamage(amount int) {
 	}
 }
 
-// updateRegenAndPoison ticks poison and the SP-regen cadence (buffs flow in
-// via BuffBonuses).
-func (c *MMCharacter) updateRegenAndPoison() bool {
-	tps := config.GetTargetTPS()
-	if tps <= 0 {
-		tps = config.DefaultTPS
+// regenPeriod is a fresh regeneration period, RT seconds beside TB rounds
+// (config); SP waits the slower fight period while the party fights.
+func regenPeriod(sp, inCombat bool) status.DualClock {
+	seconds, rounds := config.RegenerationSeconds, config.RegenerationRounds
+	if sp && inCombat {
+		seconds, rounds = config.CombatSPRegenSeconds, config.CombatSPRegenRounds
 	}
-	c.updatePoison(tps)
-	c.updateBurn(tps)
-	c.tickStunFrames()
-
-	// If unconscious, skip regeneration and updates
-	if c.HasCondition(ConditionUnconscious) {
-		return false
-	}
-	regenCadenceCompleted := false
-	// Regenerate spell points on a fixed cadence.
-	c.spellRegenTimer++
-	if c.spellRegenTimer >= ManaRegenIntervalFrames {
-		c.RegenerateSpellPoints()
-		c.spellRegenTimer = 0 // Reset timer
-		regenCadenceCompleted = true
-	}
-	// Cards and timed draughts share one HP regeneration cadence.
-	if c.BonusRegenPct+c.BuffHPRegenPct > 0 {
-		c.hpRegenTimer++
-		if c.hpRegenTimer >= ManaRegenIntervalFrames {
-			c.hpRegenTimer = 0
-			c.ApplyCardRegenTick()
-			regenCadenceCompleted = true
-		}
-	}
-	return regenCadenceCompleted
+	return status.PairClock(float64(seconds), rounds, config.GetTargetTPS(), 1)
 }
 
-// ResetRealtimeRegenCadence clears the RT-side progress after the TB cadence
-// pays out. Conversely, an RT payout resets the game-owned TB counter. The
-// first cadence to complete therefore owns the payout and switching modes
-// cannot award a second one immediately.
-func (c *MMCharacter) ResetRealtimeRegenCadence() {
-	if c == nil {
+// regenLeft is period with spentFrames of RT and spentTurns of TB gone, each
+// counted in its own mode as the elapsed time it is; a mode whose part is
+// spent pays on its next tick.
+func regenLeft(period status.DualClock, spentFrames, spentTurns int) status.DualClock {
+	left := period
+	left.Frames = max(1, period.Frames-max(0, spentFrames))
+	left.Turns = max(1, min(period.Turns-max(0, spentTurns), (left.Frames+left.Rate-1)/left.Rate))
+	return left
+}
+
+// TickRegen spends one tick of the running mode on both regeneration periods
+// and pays each one that lapses. When the party starts or stops fighting the
+// running SP period takes the other length, keeping the time already spent.
+// Cards, carried supplies and draughts share the HP period, including before
+// a supply is acquired. An unconscious hero's periods wait.
+func (c *MMCharacter) TickRegen(turn, inCombat bool) {
+	if c.HasCondition(ConditionUnconscious) {
 		return
 	}
-	c.spellRegenTimer = 0
-	c.hpRegenTimer = 0
+	if c.SPRegenFight != inCombat {
+		if c.SPRegen.Active() {
+			from := regenPeriod(true, c.SPRegenFight)
+			c.SPRegen = regenLeft(regenPeriod(true, inCombat), from.Frames-c.SPRegen.Frames, from.Turns-c.SPRegen.Turns)
+		}
+		c.SPRegenFight = inCombat
+	}
+	if c.SPRegen.EveryClock(func() status.DualClock { return regenPeriod(true, inCombat) }, turn) {
+		c.RegenerateSpellPoints()
+	}
+	if c.HPRegen.EveryClock(func() status.DualClock { return regenPeriod(false, false) }, turn) {
+		c.ApplyCardRegenTick()
+	}
 }
 
-// RealtimeRegenProgress exposes the cadence phase for active and reserve saves.
-func (c *MMCharacter) RealtimeRegenProgress() (spell, hp int) {
-	return c.spellRegenTimer, c.hpRegenTimer
+// RestoreLegacyRegen reads an old save's progress since the last payouts -
+// RT frames per hero, TB rounds per party, each counted in its own mode - into
+// the periods. SP progress past the calm period was made in a fight.
+func (c *MMCharacter) RestoreLegacyRegen(spellFrames, hpFrames, spellRounds, hpRounds int) {
+	calm := regenPeriod(true, false)
+	c.SPRegenFight = spellFrames >= calm.Frames || spellRounds >= calm.Turns
+	if spellFrames > 0 || spellRounds > 0 {
+		c.SPRegen = regenLeft(regenPeriod(true, c.SPRegenFight), spellFrames, spellRounds)
+	}
+	if hpFrames > 0 || hpRounds > 0 {
+		c.HPRegen = regenLeft(regenPeriod(false, false), hpFrames, hpRounds)
+	}
 }
 
-// RestoreRealtimeRegenProgress preserves valid partial progress. Missing legacy
-// fields start at zero; malformed phases cannot grant an immediate extra tick.
-func (c *MMCharacter) RestoreRealtimeRegenProgress(spell, hp int) {
-	c.spellRegenTimer = min(max(0, spell), ManaRegenIntervalFrames-1)
-	c.hpRegenTimer = min(max(0, hp), ManaRegenIntervalFrames-1)
+// updateRegenAndPoison ticks poison and the RT regen periods (buffs flow in
+// via BuffBonuses).
+func (c *MMCharacter) updateRegenAndPoison(inCombat bool, absorbDoT ...func(int) int) {
+	tps := config.GetTargetTPS()
+	c.updatePoison(tps, absorbDoT...)
+	c.updateBurn(tps, absorbDoT...)
+	c.tickStunFrames()
+	c.ArmorMelt.TickFrame()
+
+	c.TickRegen(false, inCombat)
 }
 
 // CalculateManaRegenAmount returns SP regen per tick based on effective Personality.
@@ -863,7 +955,7 @@ func (c *MMCharacter) ApplyCardRegenTick() {
 	if !c.CanAct() {
 		return
 	}
-	percent := c.BonusRegenPct + c.BuffHPRegenPct
+	percent := c.BonusRegenPct + c.BuffHPRegenPct + c.PersonalInventoryRegenPct()
 	if percent <= 0 || c.HitPoints >= c.MaxHitPoints {
 		return
 	}
@@ -896,12 +988,20 @@ func (c *MMCharacter) CurePoison() {
 	c.RemoveCondition(ConditionPoisoned)
 }
 
+// CureDamageOverTime ends poison and burning without removing other controls.
+func (c *MMCharacter) CureDamageOverTime() {
+	c.CurePoison()
+	status.Clear(&c.BurnFramesRemaining, &c.burnTickTimer)
+	c.RemoveCondition(ConditionBurning)
+}
+
 // clearAfflictionClocks stops every running affliction timer. Callers own the
 // condition tags, so a tag and its clock always change together.
 func (c *MMCharacter) clearAfflictionClocks() {
 	status.Clear(&c.PoisonFramesRemaining, &c.poisonTickTimer)
 	status.Clear(&c.BurnFramesRemaining, &c.burnTickTimer)
-	c.StunFramesRemaining, c.StunTurnsRemaining, c.StunRate = 0, 0, 0
+	c.Stun = status.DualClock{}
+	c.ArmorMelt = status.DualClock{}
 }
 
 // clearRestState drops everything a full rest (or death's end) wipes: the
@@ -924,7 +1024,7 @@ func (c *MMCharacter) CureRestConditions() {
 // Eradicate ends the hero outright: 0 HP, Eradicated as the only state, and no
 // poison, burn or stun left running to resurface after Resurrect.
 func (c *MMCharacter) Eradicate() {
-	c.ReactiveCombat = ReactiveCombatState{}
+	c.ClearReactiveCombat()
 	c.clearRestState()
 	c.HitPoints = 0
 	c.Conditions = []Condition{ConditionEradicated}
@@ -943,22 +1043,24 @@ func (c *MMCharacter) ApplyBurn(frames int) {
 	wasActive := c.BurnFramesRemaining > 0
 	if status.Refresh(&c.BurnFramesRemaining, frames) {
 		if !wasActive {
-			c.burnTickTimer = config.GetTargetTPS() / 2 // desync the first tick from poison
+			c.burnTickTimer = config.SecondsToFrames(0.5, config.GetTargetTPS()) // desync the first tick from poison
 		}
 		c.AddCondition(ConditionBurning)
 	}
 }
 
-// PoisonDamagePerTick / BurnDamagePerTick: DoT damage per tick (once per RT
-// second, with the equivalent elapsed ticks per TB round). Ignite burns 3x as hard as poison.
-const (
-	PoisonDamagePerTick = 1
-	BurnDamagePerTick   = 3
-)
+// dotTickDamage is the hero's loss for ticks once-per-second ticks of a DoT
+// status: the status table's percent of max HP per tick, at least its minimum.
+func (c *MMCharacter) dotTickDamage(key string, ticks int) int {
+	if ticks <= 0 {
+		return 0
+	}
+	return ticks * config.DoTDamage(key, c.MaxHitPoints, false)
+}
 
-func (c *MMCharacter) updateBurn(tps int) {
+func (c *MMCharacter) updateBurn(tps int, absorbDoT ...func(int) int) {
 	ticks, expired := status.TickDoT(&c.BurnFramesRemaining, &c.burnTickTimer, 1, tps)
-	c.dotDamage(BurnDamagePerTick * ticks)
+	c.dotDamage(c.dotTickDamage("burn", ticks), absorbDoT...)
 	if expired {
 		c.RemoveCondition(ConditionBurning)
 	}
@@ -967,19 +1069,25 @@ func (c *MMCharacter) updateBurn(tps int) {
 // ApplyCharStun stuns the character for the given RT frames / TB turns (max with
 // any existing stun). A stunned character takes no action until it wears off.
 func (c *MMCharacter) ApplyCharStun(frames, turns int) {
-	if status.RefreshDualRated(&c.StunFramesRemaining, &c.StunTurnsRemaining, &c.StunRate, frames, turns) {
+	if c.Stun.Refresh(frames, turns) {
 		c.AddCondition(ConditionStunned)
 	}
 }
 
+// MeltArmor refreshes the melted-armor debuff; it never stacks.
+func (c *MMCharacter) MeltArmor(frames, turns int) { c.ArmorMelt.Refresh(frames, turns) }
+
+// ArmorMelted reports armor that blunts physical hits only as far as elemental ones.
+func (c *MMCharacter) ArmorMelted() bool { return c != nil && c.ArmorMelt.Active() }
+
 // IsStunned reports whether the character currently skips actions.
 func (c *MMCharacter) IsStunned() bool {
-	return c != nil && (c.StunFramesRemaining > 0 || c.StunTurnsRemaining > 0)
+	return c != nil && (c.Stun.Active())
 }
 
-func (c *MMCharacter) updatePoison(tps int) {
+func (c *MMCharacter) updatePoison(tps int, absorbDoT ...func(int) int) {
 	ticks, expired := status.TickDoT(&c.PoisonFramesRemaining, &c.poisonTickTimer, 1, tps)
-	c.dotDamage(PoisonDamagePerTick * ticks)
+	c.dotDamage(c.dotTickDamage("poison", ticks), absorbDoT...)
 	if expired {
 		c.RemoveCondition(ConditionPoisoned)
 	}
@@ -1217,18 +1325,26 @@ func (c *MMCharacter) GetSpellsForSchool(school MagicSchoolID) []spells.SpellID 
 	return []spells.SpellID{}
 }
 
-// CanEquipWeapon checks if this character class can equip a specific weapon by name
-func (c *MMCharacter) CanEquipWeaponByName(weaponName string) bool {
-	// Get weapon key and definition from YAML
-	weaponKey := items.GetWeaponKeyByName(weaponName)
+// CanEquipWeapon checks if this character class can wield a weapon.
+func (c *MMCharacter) CanEquipWeapon(weapon items.Item) bool {
+	return c.canWieldWeapon(weapon, true)
+}
+
+// canWieldWeapon is the weapon gate. statGates false skips stat thresholds
+// (equip_personality_min), which are checked when a weapon is put on only.
+func (c *MMCharacter) canWieldWeapon(weapon items.Item, statGates bool) bool {
+	_, weaponKey, ok := config.WeaponDefOf(weapon)
+	if !ok {
+		return false // Unknown weapon cannot be equipped
+	}
 	weaponDef, exists := getWeaponDefinitionFromGlobal(weaponKey)
 	if !exists {
-		return false // Unknown weapon cannot be equipped
+		return false
 	}
 
 	// Personality-gated weapons (Lanista's Scepter): force of presence replaces
 	// weapon training entirely.
-	if weaponDef.EquipPersonalityMin > 0 && c.GetEffectivePersonality() >= weaponDef.EquipPersonalityMin {
+	if weaponDef.EquipPersonalityMin > 0 && (!statGates || c.GetEffectivePersonality() >= weaponDef.EquipPersonalityMin) {
 		return true
 	}
 	// Firearms need no training to point and shoot: anyone with real weapon
@@ -1289,7 +1405,7 @@ func (c *MMCharacter) EquipDestination(item items.Item) (items.EquipSlot, bool) 
 			}
 		}
 	case items.ItemBattleSpell, items.ItemUtilitySpell, items.ItemTechnique, items.ItemThrowable:
-		slot = items.SlotSpell
+		slot = items.SlotQuickAction
 	case items.ItemArmor:
 		slot = item.PreferredSlot(items.SlotArmor)
 	case items.ItemAccessory:
@@ -1322,7 +1438,7 @@ func (c *MMCharacter) EquipItem(item items.Item) (items.Item, bool, bool) {
 }
 
 func (c *MMCharacter) itemClassAllowed(item items.Item) bool {
-	if def, _, ok := config.GetItemDefinitionByName(item.Name); ok && len(def.AllowedClasses) > 0 {
+	if def, _, ok := config.ItemDefOf(item); ok && len(def.AllowedClasses) > 0 {
 		allowed := false
 		for _, key := range def.AllowedClasses {
 			if key == c.Class.Key() {
@@ -1342,13 +1458,23 @@ func (c *MMCharacter) itemClassAllowed(item items.Item) bool {
 // the type->slot mapping plus the class/armor gates. Single source of truth for
 // the model equip paths and the UI drag highlight / drop validation.
 func (c *MMCharacter) ItemFitsSlot(item items.Item, slot items.EquipSlot) bool {
+	return c.itemFitsSlot(item, slot, true)
+}
+
+// ItemBelongsInSlot is ItemFitsSlot without stat thresholds: worn gear a buff
+// once allowed stays worn, as in play. A loaded save revalidates with it.
+func (c *MMCharacter) ItemBelongsInSlot(item items.Item, slot items.EquipSlot) bool {
+	return c.itemFitsSlot(item, slot, false)
+}
+
+func (c *MMCharacter) itemFitsSlot(item items.Item, slot items.EquipSlot, statGates bool) bool {
 	if !c.itemClassAllowed(item) {
 		return false
 	}
 
 	switch item.Type {
 	case items.ItemWeapon:
-		if !c.CanEquipWeaponByName(item.Name) {
+		if !c.canWieldWeapon(item, statGates) {
 			return false
 		}
 		if slot == items.SlotMainHand {
@@ -1357,12 +1483,12 @@ func (c *MMCharacter) ItemFitsSlot(item items.Item, slot items.EquipSlot) bool {
 		// A second weapon only fits the off-hand with Dual Wielding.
 		return slot == items.SlotOffHand && c.CanDualWield()
 	case items.ItemTechnique:
-		d := config.Technique(string(item.SpellEffect))
-		return slot == items.SlotSpell && c.Class == ClassWayfarer && d != nil && c.Level >= d.Level
+		d := config.Technique(item.Technique)
+		return slot == items.SlotQuickAction && c.Class == ClassWayfarer && d != nil && c.Level >= d.Level
 	case items.ItemThrowable:
-		return slot == items.SlotSpell && c.HasSkill(SkillBombThrowing)
+		return slot == items.SlotQuickAction && c.CanThrowFlask(item.Flask)
 	case items.ItemBattleSpell, items.ItemUtilitySpell:
-		return slot == items.SlotSpell
+		return slot == items.SlotQuickAction
 	case items.ItemArmor:
 		return slot == item.PreferredSlot(items.SlotArmor) && c.CanEquipArmor(item)
 	case items.ItemAccessory:
@@ -1454,62 +1580,57 @@ func (c *MMCharacter) UnequipItem(slot items.EquipSlot) (items.Item, bool) {
 	return items.Item{}, false
 }
 
+// baseStatFields are the hero's base stat fields in stats.Names order: the
+// one place the character's fields meet the canonical list.
+func (c *MMCharacter) baseStatFields() []*int {
+	return []*int{&c.Might, &c.Intellect, &c.Personality, &c.Endurance, &c.Accuracy, &c.Speed, &c.Luck}
+}
+
+// BaseStats is the hero's unmodified stats as one value.
+func (c *MMCharacter) BaseStats() StatBonuses {
+	var b StatBonuses
+	for i, p := range c.baseStatFields() {
+		*b.At(i) = *p
+	}
+	return b
+}
+
+// SetBaseStats overwrites the hero's base stats.
+func (c *MMCharacter) SetBaseStats(b StatBonuses) {
+	for i, p := range c.baseStatFields() {
+		*p = *b.At(i)
+	}
+}
+
+// BaseStatField points at a base stat by canonical name, nil when unknown.
+func (c *MMCharacter) BaseStatField(name string) *int {
+	for i, n := range stats.Names {
+		if n == name {
+			return c.baseStatFields()[i]
+		}
+	}
+	return nil
+}
+
+// EffectiveStatBlock is the one effective-stat sum: base, buffs, permanent
+// gains and equipment.
+func (c *MMCharacter) EffectiveStatBlock() StatBonuses {
+	return c.BaseStats().Add(c.BuffBonuses).Add(c.PermanentBonuses).Add(c.calculateEquipmentBonuses())
+}
+
 // GetEffectiveStats returns character stats with any active bonuses applied (spells + equipment)
 func (c *MMCharacter) GetEffectiveStats() (might, intellect, personality, endurance, accuracy, speed, luck int) {
-	// Calculate equipment bonuses (YAML-driven); buffs come from BuffBonuses
-	// (pushed by the game when spells like Bless apply/expire).
-	eqMight, eqIntellect, eqPersonality, eqEndurance, eqAccuracy, eqSpeed, eqLuck := c.calculateEquipmentBonuses()
-
-	return c.Might + c.BuffBonuses.Might + c.PermanentBonuses.Might + eqMight,
-		c.Intellect + c.BuffBonuses.Intellect + c.PermanentBonuses.Intellect + eqIntellect,
-		c.Personality + c.BuffBonuses.Personality + c.PermanentBonuses.Personality + eqPersonality,
-		c.Endurance + c.BuffBonuses.Endurance + c.PermanentBonuses.Endurance + eqEndurance,
-		c.Accuracy + c.BuffBonuses.Accuracy + c.PermanentBonuses.Accuracy + eqAccuracy,
-		c.Speed + c.BuffBonuses.Speed + c.PermanentBonuses.Speed + eqSpeed,
-		c.Luck + c.BuffBonuses.Luck + c.PermanentBonuses.Luck + eqLuck
+	b := c.EffectiveStatBlock()
+	return b.Might, b.Intellect, b.Personality, b.Endurance, b.Accuracy, b.Speed, b.Luck
 }
 
-// GetEffectiveMight returns effective Might with bonuses applied
-func (c *MMCharacter) GetEffectiveMight() int {
-	eqBonus, _, _, _, _, _, _ := c.calculateEquipmentBonuses()
-	return c.Might + c.BuffBonuses.Might + c.PermanentBonuses.Might + eqBonus
-}
-
-// GetEffectiveIntellect returns effective Intellect with bonuses applied
-func (c *MMCharacter) GetEffectiveIntellect() int {
-	_, eqBonus, _, _, _, _, _ := c.calculateEquipmentBonuses()
-	return c.Intellect + c.BuffBonuses.Intellect + c.PermanentBonuses.Intellect + eqBonus
-}
-
-// GetEffectivePersonality returns effective Personality with bonuses applied
-func (c *MMCharacter) GetEffectivePersonality() int {
-	_, _, eqBonus, _, _, _, _ := c.calculateEquipmentBonuses()
-	return c.Personality + c.BuffBonuses.Personality + c.PermanentBonuses.Personality + eqBonus
-}
-
-// GetEffectiveEndurance returns effective Endurance with bonuses applied
-func (c *MMCharacter) GetEffectiveEndurance() int {
-	_, _, _, eqBonus, _, _, _ := c.calculateEquipmentBonuses()
-	return c.Endurance + c.BuffBonuses.Endurance + c.PermanentBonuses.Endurance + eqBonus
-}
-
-// GetEffectiveAccuracy returns effective Accuracy with bonuses applied
-func (c *MMCharacter) GetEffectiveAccuracy() int {
-	_, _, _, _, eqBonus, _, _ := c.calculateEquipmentBonuses()
-	return c.Accuracy + c.BuffBonuses.Accuracy + c.PermanentBonuses.Accuracy + eqBonus
-}
-
-// GetEffectiveSpeed returns effective Speed with bonuses applied
-func (c *MMCharacter) GetEffectiveSpeed() int {
-	_, _, _, _, _, eqBonus, _ := c.calculateEquipmentBonuses()
-	return c.Speed + c.BuffBonuses.Speed + c.PermanentBonuses.Speed + eqBonus
-}
-
-// GetEffectiveLuck returns effective Luck with bonuses applied
-func (c *MMCharacter) GetEffectiveLuck() int {
-	_, _, _, _, _, _, eqBonus := c.calculateEquipmentBonuses()
-	return c.Luck + c.BuffBonuses.Luck + c.PermanentBonuses.Luck + eqBonus
-}
+func (c *MMCharacter) GetEffectiveMight() int       { return c.EffectiveStatBlock().Might }
+func (c *MMCharacter) GetEffectiveIntellect() int   { return c.EffectiveStatBlock().Intellect }
+func (c *MMCharacter) GetEffectivePersonality() int { return c.EffectiveStatBlock().Personality }
+func (c *MMCharacter) GetEffectiveEndurance() int   { return c.EffectiveStatBlock().Endurance }
+func (c *MMCharacter) GetEffectiveAccuracy() int    { return c.EffectiveStatBlock().Accuracy }
+func (c *MMCharacter) GetEffectiveSpeed() int       { return c.EffectiveStatBlock().Speed }
+func (c *MMCharacter) GetEffectiveLuck() int        { return c.EffectiveStatBlock().Luck }
 
 // ItemAttributeScalingBonuses uses base attributes, excluding gear and buffs.
 func (c *MMCharacter) ItemAttributeScalingBonuses(item items.Item) (intellect, personality int) {
@@ -1522,51 +1643,30 @@ func (c *MMCharacter) ItemAttributeScalingBonuses(item items.Item) (intellect, p
 	return
 }
 
-// calculateEquipmentBonuses returns stat bonuses from all equipped items (YAML-driven)
-func (c *MMCharacter) calculateEquipmentBonuses() (mightBonus, intellectBonus, personalityBonus, enduranceBonus, accuracyBonus, speedBonus, luckBonus int) {
+// calculateEquipmentBonuses returns stat bonuses from all equipped items
+// (YAML-driven). Only a positive flat bonus counts.
+func (c *MMCharacter) calculateEquipmentBonuses() StatBonuses {
+	var b StatBonuses
 	for _, it := range c.Equipment {
 		intBonus, perBonus := c.ItemAttributeScalingBonuses(it)
-		intellectBonus += intBonus
-		personalityBonus += perBonus
+		b.Intellect += intBonus
+		b.Personality += perBonus
 		// endurance_scaling_divisor is deliberately NOT a stat bonus: it is the
 		// armor piece's AC formula input (AC = base + effective End / divisor,
 		// see CalculateArmorClassContribution). Feeding it back into Endurance
 		// made every armor piece inflate every other piece's AC.
-		// Flat bonuses
-		if bonus := it.Attributes["bonus_might"]; bonus > 0 {
-			mightBonus += bonus
-		}
-		if bonus := it.Attributes["bonus_intellect"]; bonus > 0 {
-			intellectBonus += bonus
-		}
-		if bonus := it.Attributes["bonus_personality"]; bonus > 0 {
-			personalityBonus += bonus
-		}
-		if bonus := it.Attributes["bonus_endurance"]; bonus > 0 {
-			enduranceBonus += bonus
-		}
-		if bonus := it.Attributes["bonus_accuracy"]; bonus > 0 {
-			accuracyBonus += bonus
-		}
-		if bonus := it.Attributes["bonus_speed"]; bonus > 0 {
-			speedBonus += bonus
-		}
-		if bonus := it.Attributes["bonus_luck"]; bonus > 0 {
-			luckBonus += bonus
+		for i, key := range items.StatBonusAttributes {
+			if v := it.Attributes[key]; v > 0 {
+				*b.At(i) += v
+			}
 		}
 	}
 	// Equipment-set bonuses: this loop is the only place that sees the whole
 	// equipped kit together, so completed sets add their bonuses here.
 	c.forEachCompletedSet(func(set *config.ItemSetConfig) {
-		mightBonus += set.BonusMight
-		intellectBonus += set.BonusIntellect
-		personalityBonus += set.BonusPersonality
-		enduranceBonus += set.BonusEndurance
-		accuracyBonus += set.BonusAccuracy
-		speedBonus += set.BonusSpeed
-		luckBonus += set.BonusLuck
+		b = b.Add(set.StatBonus.Stats())
 	})
-	return mightBonus, intellectBonus, personalityBonus, enduranceBonus, accuracyBonus, speedBonus, luckBonus
+	return b
 }
 
 // forEachCompletedSet visits every equipment set completed by the equipped
@@ -1649,31 +1749,13 @@ func (c *MMCharacter) equipmentSetPieceCount(key string, set *config.ItemSetConf
 	count = 0
 	for _, required := range set.RequiredPieces {
 		for _, equipped := range c.Equipment {
-			if equipped.Set == key && setPieceKey(equipped) == required {
+			if equipped.Set == key && config.CatalogKey(equipped) == required {
 				count++
 				break
 			}
 		}
 	}
 	return count
-}
-
-// setPieceKey resolves a saved equipped item to its data key. Exact-piece
-// sets need keys rather than names, because the YAML key is their stable
-// authored identity across item and weapon catalogs.
-func setPieceKey(item items.Item) string {
-	if item.Type == items.ItemWeapon {
-		_, key, ok := config.GetWeaponDefinitionByName(item.Name)
-		if ok {
-			return key
-		}
-		return ""
-	}
-	_, key, ok := config.GetItemDefinitionByName(item.Name)
-	if ok {
-		return key
-	}
-	return ""
 }
 
 // SetStunDurationPct sums stun-duration shifts from completed armor sets.
@@ -1716,7 +1798,7 @@ func (c *MMCharacter) forEachEquippedItemDefinition(fn func(*config.ItemDefiniti
 		return
 	}
 	for _, it := range c.Equipment {
-		if def, _, ok := config.GetItemDefinitionByName(it.Name); ok && def != nil {
+		if def, _, ok := config.ItemDefOf(it); ok && def != nil {
 			fn(def)
 		}
 	}

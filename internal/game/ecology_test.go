@@ -11,6 +11,7 @@ import (
 	"ugataima/internal/collision"
 	"ugataima/internal/config"
 	"ugataima/internal/monster"
+	"ugataima/internal/status"
 	"ugataima/internal/world"
 )
 
@@ -338,12 +339,12 @@ func TestCaravanTripRewardsAndCapacity(t *testing.T) {
 	if m == nil {
 		t.Fatal("no caravan")
 	}
-	g.ecology.StopFrames = 0
+	g.ecology.Stop = status.DualClock{}
 	for i := 0; i < 4; i++ {
 		r := g.caravanRoute()
 		p := r.Points[g.ecology.Checkpoint]
 		m.X, m.Y = (float64(p.X)+.5)*tile, (float64(p.Y)+.5)*tile
-		g.ecology.StopFrames = 0
+		g.ecology.Stop = status.DualClock{}
 		g.updateEcology()
 	}
 	total := 0
@@ -429,7 +430,7 @@ func TestCaravanArrivalMatchesMovement(t *testing.T) {
 			if tc.move {
 				for tick := 0; tick < 30 && g.ecology.Checkpoint == 1; tick++ {
 					g.prepareAmbientTarget(m)
-					m.UpdateAmbient(g.collisionSystem, m.AITargetX, m.AITargetY, false)
+					m.UpdateAmbient(g.collisionSystem, m.AITargetX, m.AITargetY, false, nil)
 					g.collisionSystem.UpdateEntity(m.ID, m.X, m.Y)
 					g.updateEcology()
 				}
@@ -524,6 +525,51 @@ func TestEcologyRemoteMovementAndCombat(t *testing.T) {
 				t.Fatalf("remote caravan immune to attacks: %d -> %d, foe=%v", hp, caravan.HitPoints, enemy.AIFoe)
 			}
 		})
+	}
+}
+
+// A remote world runs the party world's turn: a raider whose caravan target
+// died earlier in the pass waits instead of walking to the corpse, and the
+// world's telegraph clocks run.
+func TestRemoteEcologyTakesTheFullTurn(t *testing.T) {
+	g, wm, tile := ecologyTestGame(t)
+	w := g.world
+	g.ecology.Unlocked = true
+	g.spawnCaravan()
+	_, caravan := g.ecologyActor()
+	caravan.PerfectDodge = 0
+	killer := monster.NewMonster3DFromConfig(caravan.X+tile, caravan.Y, "bandit", g.config)
+	walker := monster.NewMonster3DFromConfig(caravan.X+4*tile, caravan.Y, "bandit", g.config)
+	for _, m := range []*monster.Monster3D{killer, walker} {
+		m.ProjectileWeapon, m.RangedAttackRange = "", 0
+		m.DamageMin, m.DamageMax = 50, 50
+	}
+	caster := monster.NewMonster3DFromConfig(caravan.X, caravan.Y+6*tile, "solstice_kiln_automaton", g.config)
+	caster.Telegraph.Cooldown = roundClock()
+	cooldown := caster.Telegraph.Cooldown.Turns
+	w.Monsters = append(w.Monsters, killer, walker, caster)
+	g.world = newTestWorldSized(g.config, 30, 30)
+	wm.LoadedMaps["other"] = g.world
+	wm.CurrentMapKey = "other"
+	g.turnBasedMode = true
+	g.frameCount++
+	g.simulateRemoteEcology(true, true) // the shared retarget points both raiders at the caravan
+	walker.AIFoe, killer.AIFoe = caravan, caravan
+	caravan.HitPoints = 1 // the first raider's blow kills it
+	if !caravan.IsAlive() || !remoteEcologyActor(walker) {
+		t.Fatalf("fixture: caravan alive=%v, walker acts=%v before the pass", caravan.IsAlive(), remoteEcologyActor(walker))
+	}
+	x := walker.X
+	g.frameCount++
+	g.simulateRemoteEcology(true, true)
+	if caravan.IsAlive() {
+		t.Fatal("fixture: the adjacent raider did not kill the caravan")
+	}
+	if walker.X != x {
+		t.Fatalf("the raider walked toward the caravan's corpse: %.0f -> %.0f", x, walker.X)
+	}
+	if caster.Telegraph.Cooldown.Turns >= cooldown {
+		t.Fatalf("the remote telegraph cooldown did not run: %d turns left", caster.Telegraph.Cooldown.Turns)
 	}
 }
 
@@ -680,7 +726,7 @@ func TestCaravanWaitsAtBlockedMapEntrance(t *testing.T) {
 			for i := 0; i < 20; i++ {
 				g.updateEcology()
 				g.refreshMonsterAIState()
-				m.UpdateAmbient(g.collisionSystem, m.AITargetX, m.AITargetY, turn)
+				m.UpdateAmbient(g.collisionSystem, m.AITargetX, m.AITargetY, turn, nil)
 			}
 			w, _ := g.ecologyActor()
 			if w != start || m.X != x || m.Y != y {
@@ -736,7 +782,7 @@ func TestAmbientActorsAreNeutralToCampAndHostileHealing(t *testing.T) {
 				t.Fatal("neutral actor blocked camping")
 			}
 			healer := monster.NewMonster3DFromConfig(animal.X, animal.Y, "goblin", g.config)
-			healer.AllyHealRadiusPixels = 10 * tile
+			healer.Abilities.AllyHeal.RadiusTiles = 10
 			if got := g.combat.pickMonsterAllyHealTarget(healer); got != nil {
 				t.Fatal("hostile healer selected neutral actor")
 			}
@@ -780,5 +826,17 @@ func TestCaravanOffscreenProjectilesAdvanceBetweenTurns(t *testing.T) {
 	}
 	if v.gameLoop.hasActiveProjectiles() {
 		t.Fatal("off-screen TB arrow never resolved")
+	}
+}
+
+// An old save's caravan stop frames come back as the stop clock.
+func TestCaravanStopLegacySave(t *testing.T) {
+	var s EcologyState
+	if err := json.Unmarshal([]byte(`{"stop_frames":900}`), &s); err != nil {
+		t.Fatal(err)
+	}
+	s.migrateLegacy(config.DefaultTPS)
+	if s.Stop != status.FromFrames(900, config.DefaultTPS) || s.LegacyStopFrames != 0 {
+		t.Fatalf("legacy stop: %+v", s)
 	}
 }

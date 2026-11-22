@@ -7,9 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"gopkg.in/yaml.v3"
 	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestPaidServiceAuthoredResponse(t *testing.T) {

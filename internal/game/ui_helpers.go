@@ -6,6 +6,7 @@ import (
 	"image/color"
 	"log"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -36,6 +37,29 @@ func drawColoredTextSegments(screen *ebiten.Image, x, y int, segments []coloredT
 			drawUITextColored(screen, seg.text, curX, y, seg.color)
 		}
 		curX += uiTextWidth(seg.text)
+	}
+}
+
+// coloredTextWidth is the width drawColoredTextSegments draws segments in.
+func coloredTextWidth(segments []coloredTextSegment) int {
+	w := 0
+	for _, seg := range segments {
+		w += uiTextWidth(seg.text)
+	}
+	return w
+}
+
+// drawScaledTextSegments is drawColoredTextSegments in heading text at
+// scale, the pen starting at (x, y), the top of the line, on whole pixels.
+func drawScaledTextSegments(screen *ebiten.Image, segments []coloredTextSegment, x, y, scale int) {
+	ox, oy := uiLabelOrigin(activeUIFont())
+	for _, seg := range segments {
+		if strings.TrimSpace(seg.text) != "" {
+			img := outlinedLabelImage(seg.text, seg.color)
+			b := img.Bounds()
+			uiDrawImageScaled(screen, img, float64(x-ox*scale), float64(y-oy*scale), float64(b.Dx()*scale), float64(b.Dy()*scale), &ebiten.DrawImageOptions{})
+		}
+		x += uiTextWidth(seg.text) * scale
 	}
 }
 
@@ -213,10 +237,12 @@ const (
 	modalLayerPromotion
 	modalLayerRoster
 	modalLayerStash
+	modalLayerCollection
 	modalLayerStackSplit
 	modalLayerCamp
 	modalLayerCampRest
 	modalLayerLevelChoice
+	modalLayerStory
 	modalLayerCount
 )
 
@@ -247,6 +273,8 @@ func topModalLayerFor(g *MMGame, stackSplitOpen bool) modalLayerID {
 		return modalLayerNone
 	}
 	switch {
+	case g.storyScreen != nil:
+		return modalLayerStory
 	case g.currentLevelUpChoice() != nil:
 		return modalLayerLevelChoice
 	case g.campRest != nil:
@@ -257,6 +285,8 @@ func topModalLayerFor(g *MMGame, stackSplitOpen bool) modalLayerID {
 		return modalLayerStackSplit
 	case g.stashScreenOpen:
 		return modalLayerStash
+	case g.collectionScreenOpen:
+		return modalLayerCollection
 	case g.rosterScreenOpen:
 		return modalLayerRoster
 	case g.promotionPickerOpen:
@@ -388,15 +418,16 @@ func (ui *UISystem) topModalSnapshot() modalLayerSnapshot {
 		s.state[8] = g.cardCollectorInvPage
 		// The tavern embeds the stash and roster managers in its tabs; their
 		// visible sub-state must be part of the dialog's identity too.
-		s.state[9] = boolInt(g.stashShowCards)
-		s.state[10] = g.stashInvPage
-		s.state[11] = g.rosterSelectedActive
-		s.state[12] = g.merchantBuyCategory
-		s.state[13] = g.merchantSellCategory
+		s.state[9] = g.stashInvPage
+		s.state[10] = g.rosterSelectedActive
+		s.state[11] = g.merchantBuyCategory
+		s.state[12] = g.merchantSellCategory
 	case modalLayerVictory:
 		s.state[0] = boolInt(g.victoryScoreSaved)
 	case modalLayerStat:
 		s.state[0] = g.statPopupCharIdx
+	case modalLayerTownPortal:
+		s.state[0] = g.townPortalScroll // scrolling moves which row is under a click
 	case modalLayerRevival:
 		s.state[0] = g.revivalPickerItemIdx
 	case modalLayerHeal:
@@ -407,13 +438,31 @@ func (ui *UISystem) topModalSnapshot() modalLayerSnapshot {
 	case modalLayerRoster:
 		s.state[0] = g.rosterSelectedActive
 	case modalLayerStash:
-		s.state[0] = boolInt(g.stashShowCards)
-		s.state[1] = g.stashInvPage
+		s.state[0] = g.stashInvPage
+	case modalLayerCollection:
+		s.state[0] = g.collectionTab
+		s.state[1] = g.collectionScroll
+		s.state[2] = g.collectionSpread
+		s.state[3] = g.collectionBagPage
 	case modalLayerStackSplit:
 		s.state[0] = int(ui.stackSplitPicker.source)
 		s.state[1] = ui.stackSplitPicker.from
 		s.state[2] = ui.stackSplitPicker.quantity
 		s.stateID = ui.stackSplitPicker.id
+	case modalLayerStory:
+		// A press reveals the page or turns it: a click drawn before the reveal
+		// must not turn the page the reveal just showed.
+		if st := g.storyScreen; st != nil {
+			s.state[0] = st.page
+			s.state[1] = slices.IndexFunc(globalStoryEvents, func(e StoryEventDef) bool { return e.ID == st.event.ID })
+			s.state[2] = boolInt(st.textShown(g.storyTiming()))
+		}
+	case modalLayerCampRest:
+		// The same for the captain's words over the camp scene.
+		if c := g.campRest; c != nil && c.watcherLine != nil {
+			s.state[0] = boolInt(c.watcherWordsUp(g.storyTiming()))
+			s.state[1] = boolInt(c.watcherRead)
+		}
 	case modalLayerLevelChoice:
 		s.levelChoice = g.currentLevelUpChoice()
 		if s.levelChoice != nil {
@@ -483,11 +532,7 @@ func (ui *UISystem) drawInterfaceIcon(screen *ebiten.Image, name string, x, y, w
 // action. canClick=false leaves the visual present without consuming input.
 func (ui *UISystem) drawPopupCloseButton(screen *ebiten.Image, x, y, size int, canClick bool, onClick func()) {
 	ui.drawCloseButtonVisual(screen, x, y, size, size)
-	ui.onDisplayedInput(uiCommandNavigation, layoutRect{x, y, size, size}, func() {
-		if canClick && ui.game.consumeLeftClickIn(x, y, x+size, y+size) {
-			onClick()
-		}
-	})
+	ui.onClick(layoutRect{x, y, size, size}, canClick, onClick)
 }
 
 // Close buttons share ONE look: grey at rest, red under the cursor. Red at rest
@@ -691,7 +736,7 @@ func drawTooltip(screen *ebiten.Image, lines []string, colors []color.Color, tit
 
 func drawCardTooltip(screen *ebiten.Image, rows character.CardRows, colors []color.Color, titlePlate, titleText color.Color, iconName string, x, y, maxRight int, sprites *graphics.SpriteManager) {
 	hasIcon := iconName != "" && sprites != nil
-	layout := layoutCardTooltip(rows, hasIcon, maxRight-x, uiBounds(screen).Dy())
+	layout := drawnCardTooltip(rows, hasIcon, maxRight-x, uiBounds(screen).Dy())
 	drawTooltipLayout(screen, rows, colors, titlePlate, titleText, iconName, x, max(0, y), layout, sprites)
 }
 
@@ -717,43 +762,6 @@ func drawMetalPlate(screen *ebiten.Image, x, y, w, h int, base color.RGBA) {
 		}
 		drawFilledRect(screen, x, y+sy, w, sh, metalShade(base, (float64(sy)+float64(sh)/2)/float64(h)))
 	}
-}
-
-// wrapTooltipLines wraps lines that overflow the right screen edge given the
-// tooltip's x position. Returns the wrapped lines plus a parallel colors slice
-// (each wrapped fragment inherits the original line's color, or nil if no
-// colors were provided). Minimum wrap width is 16 columns so we don't produce
-// pathological single-char columns when x is very close to the right edge.
-func wrapTooltipLines(lines []string, colors []color.Color, x, screenW, textOffsetPx int) ([]string, []color.Color) {
-	availablePx := max(screenW-x-12-textOffsetPx, 16*uiTextCharWidth) // 6px padding each side
-
-	needsWrap := false
-	for _, line := range lines {
-		if uiTextWidth(line) > availablePx {
-			needsWrap = true
-			break
-		}
-	}
-	if !needsWrap {
-		return lines, colors
-	}
-
-	hasColors := len(colors) == len(lines) && len(colors) > 0
-	wrapped := make([]string, 0, len(lines))
-	var wrappedColors []color.Color
-	if hasColors {
-		wrappedColors = make([]color.Color, 0, len(lines))
-	}
-	for i, line := range lines {
-		fragments := wrapUIText(line, availablePx)
-		wrapped = append(wrapped, fragments...)
-		if hasColors {
-			for range fragments {
-				wrappedColors = append(wrappedColors, colors[i])
-			}
-		}
-	}
-	return wrapped, wrappedColors
 }
 
 func tooltipTextOffset(hasIcon bool) int {
@@ -920,17 +928,13 @@ func (ui *UISystem) itemTitleColors(item items.Item) (plate, text color.Color) {
 func itemTooltipIconName(item items.Item) string {
 	switch item.Type {
 	case items.ItemTechnique:
-		if d := config.Technique(string(item.SpellEffect)); d != nil {
+		if d := config.Technique(item.Technique); d != nil {
 			return d.Icon
 		}
 	case items.ItemThrowable:
-		return "icon_item_" + string(item.SpellEffect)
+		return "icon_item_" + item.Flask
 	case items.ItemWeapon:
-		_, key, ok := config.GetWeaponDefinitionByName(item.Name)
-		if !ok {
-			key = items.GetWeaponKeyByName(item.Name)
-		}
-		if key != "" {
+		if _, key, ok := config.WeaponDefOf(item); ok {
 			return "icon_weapon_" + key
 		}
 	case items.ItemBattleSpell, items.ItemUtilitySpell:
@@ -938,11 +942,11 @@ func itemTooltipIconName(item items.Item) string {
 			return spellTooltipIconName(spells.SpellID(item.SpellEffect))
 		}
 	case items.ItemTrap:
-		if def, ok := config.GetTrapDefinition(string(item.SpellEffect)); ok {
+		if def, ok := config.GetTrapDefinition(item.Trap); ok {
 			return def.Icon
 		}
 	}
-	_, key, ok := config.GetItemDefinitionByName(item.Name)
+	_, key, ok := config.ItemDefOf(item)
 	if ok && key != "" {
 		return "icon_item_" + key
 	}
@@ -1237,12 +1241,21 @@ func drawUITextColored(screen *ebiten.Image, text string, x, y int, col color.Co
 // drawUITextColoredIn is drawUITextColored in a given font (the font list
 // shows each name in its own).
 func drawUITextColoredIn(screen *ebiten.Image, font *uiGlyphAtlas, text string, x, y int, col color.Color) {
+	drawUITextColoredAlphaIn(screen, font, text, x, y, col, 1)
+}
+
+// drawUITextColoredAlphaIn draws a cached outlined label faded by alpha; the
+// label cache stays keyed by colour, so a fade costs no new label.
+func drawUITextColoredAlphaIn(screen *ebiten.Image, font *uiGlyphAtlas, text string, x, y int, col color.Color, alpha float64) {
 	if text == "" {
 		return
 	}
 	ox, oy := uiLabelOrigin(font)
 	opts := &ebiten.DrawImageOptions{}
 	opts.GeoM.Translate(float64(x-ox), float64(y-oy))
+	if alpha < 1 {
+		opts.ColorScale.ScaleAlpha(float32(alpha))
+	}
 	uiDrawImage(screen, outlinedLabelImageIn(font, text, col), opts)
 }
 
@@ -1335,7 +1348,7 @@ func itemRarity(item items.Item) string {
 		return item.Rarity
 	}
 	if item.Type == items.ItemWeapon {
-		if def, _, ok := config.GetWeaponDefinitionByName(item.Name); ok && def != nil && def.Rarity != "" {
+		if def, _, ok := config.WeaponDefOf(item); ok && def != nil && def.Rarity != "" {
 			return def.Rarity
 		}
 	}

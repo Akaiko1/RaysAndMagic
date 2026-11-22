@@ -25,7 +25,7 @@ func TestElementalCommitClocksAndInvalidActions(t *testing.T) {
 				m.X, m.Y = g.camera.X+g.config.GetTileSize(), g.camera.Y
 				m.AttackRadius = g.config.GetTileSize()
 				m.DamageMin, m.DamageMax = 20, 20
-				m.AttacksPerRound = 3
+				m.AttackCooldownMultiplier = 1.0 / 3 // three TB swings per action
 				m.State = monster.StateAttacking
 				m.StateTimer = 1
 				m.IsEngagingPlayer = true
@@ -35,8 +35,8 @@ func TestElementalCommitClocksAndInvalidActions(t *testing.T) {
 					m.HitPoints = 0
 				}
 				if state == "stunned" {
-					m.StunFramesRemaining = 100
-					m.StunTurnsRemaining = 2
+					m.Stun.Frames = 100
+					m.Stun.Turns = 2
 				}
 				if state == "idol" {
 					m.WarlordIdol = true
@@ -51,7 +51,7 @@ func TestElementalCommitClocksAndInvalidActions(t *testing.T) {
 				if state == "valid" {
 					want = 1
 					if cadence == monsterAttackTurn {
-						want = m.GetTurnBasedAttackCount()
+						want = 3
 					}
 				}
 				if committed != (want > 0) || rolls != want {
@@ -71,27 +71,20 @@ func TestElementalCommitClocksAndInvalidActions(t *testing.T) {
 }
 
 func TestElementalSpecialsAndChampionsStayExcluded(t *testing.T) {
-	for _, special := range []string{"breath", "fireburst", "piercing", "inferno"} {
-		t.Run(special, func(t *testing.T) {
+	for _, special := range catalogPartyAttacks(t) {
+		t.Run(special.Key, func(t *testing.T) {
 			cs := newTestCombatSystemWithConfig(t)
 			elementalTestBiome(t, cs, "earth")
 			cs.elementalAttackRoll = func() float64 { t.Fatal("special action rolled melee proc"); return 0 }
 			m := mkTestMonster("Special", 1000)
 			m.DamageMin, m.DamageMax = 10, 10
-			switch special {
-			case "breath":
-				m.DragonBreathChance = 1
-				m.DragonBreathDamageType = "fire"
+			// An attack-trigger entry rides the melee path; a nova is a boss
+			// action and is cast directly.
+			if special.Trigger == monster.PartyAttackOnAttack {
+				armTestPartyAttack(m, special, 10)
 				cs.applyMonsterMeleeDamage(m)
-			case "fireburst":
-				m.FireburstChance = 1
-				cs.applyMonsterMeleeDamage(m)
-			case "piercing":
-				m.PiercingShotChance = 1
-				cs.applyMonsterMeleeDamage(m)
-			case "inferno":
-				m.InfernoDamage = 20
-				cs.applyMonsterInferno(m)
+			} else {
+				castTestPartyAttack(cs, m, special, 20)
 			}
 			if len(cs.game.elementalAttackEffects) > 0 {
 				t.Fatal("special action acquired elemental FX")

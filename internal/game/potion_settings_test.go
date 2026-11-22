@@ -7,13 +7,15 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"ugataima/internal/status"
 
-	"github.com/hajimehoshi/ebiten/v2"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/game/keytracker"
 	"ugataima/internal/items"
 	"ugataima/internal/storage"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 func TestPotionPolicyAutomaticFamilies(t *testing.T) {
@@ -33,7 +35,7 @@ func TestPotionPolicyAutomaticFamilies(t *testing.T) {
 							t.Run(key, func(t *testing.T) {
 								ch.MaxHitPoints, ch.MaxSpellPoints = 1000, 1000
 								ch.HitPoints, ch.SpellPoints = 1, 1
-								ch.AutoDrinkCooldown = 0
+								ch.AutoDrinkCD = status.DualClock{}
 								clear(ch.QuickSlots[:])
 								g.party.Inventory = nil
 								prefs.Health.ThresholdPct, prefs.Mana.ThresholdPct = 0, 0

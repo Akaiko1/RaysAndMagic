@@ -22,15 +22,20 @@ reading the catalog.
 
 ## Stat curves
 
-Regular HP grows about 13% per level up to level 25, then about 4% per level:
+Regular HP grows about 13% per level up to level 25, about 4% per level up
+to level 45, then by a flat 139 HP per level, which holds boss HP at about
+3.6x regular HP, its level-45 ratio:
 
-    HP(L) = exp(4.181 + 0.1255 * min(L, 25) + 0.04 * max(0, L - 25))
+    HP(L) = exp(4.181 + 0.1255 * min(L, 25) + 0.04 * clamp(L - 25, 0, 20))
+            + 139 * max(0, L - 45)
 
 Damage is per hit: the average of `damage_min` and `damage_max`. It grows
-about 6% per level. A monster is ranged when it has a `projectile_spell` or
-a `projectile_weapon`:
+about 6% per level up to level 45, then by a flat 5 per level: on the real
+parties (testdata/real_parties) median hero HP grows about 9.7 per level and
+the regular hit holds about half of it. A monster is ranged when it has a
+`projectile_spell` or a `projectile_weapon`:
 
-    melee damage(L)  = exp(2.634 + 0.057 * L)
+    melee damage(L)  = exp(2.634 + 0.057 * min(L, 45)) + 5 * max(0, L - 45)
     ranged damage(L) = melee damage(L) * 1.10
 
 Boss HP grows about 10.6% per level through level 35, reaching about 7100 HP.
@@ -39,14 +44,30 @@ health does not continue growing exponentially:
 
     boss HP(L) = exp(5.333 + 0.101 * min(L, 35)) + 500 * max(0, L - 35)
 
-Dungeon scaling uses the target/base curve ratio against each monster's
-authored HP, preserving its archetype modifier. Levels through 35 retain
+Auto-level maps (every map an adventure schedule opens) scale each monster
+by the target/base curve ratio against its authored HP and damage,
+preserving its archetype modifier. A kill there is worth a percent of the XP
+a hero of the party's level needs for the next level: 24% for a regular
+monster, 109% for a boss. The visit level is the party average +
+`visit_level_bonus` (5).
+Every coefficient above, plus armor growth and chamber experience, lives in
+`config.yaml` `adventure_scaling`; tune it there. The editor's Actionables
+page (Auto-level view) shows the curves to level 100 and every auto-level
+map's monsters and hazards at a chosen visit level. Levels through 35 retain
 their existing balance. On save restoration, a scaled boss's current HP is
 capped at its recomputed maximum; damaged bosses below that cap stay damaged.
 
-Boss damage is about 0.85x the melee curve. A boss is dangerous because of
-its HP and its kit (summons, novas, enrage, blinks), not because of bigger
-hits.
+Boss damage starts lower and grows faster: authored bosses outside the
+chambers outgrow regular monsters in damage (about 6% against 3% per level
+over levels 18-35). The boss hit is 0.85x the melee curve at level 24 and
+grows 7% per level to 1.12x at level 45, then by a flat 5.6 per level,
+keeping that ratio:
+
+    boss damage(L) = exp(2.16 + 0.07 * min(L, 45)) + 5.6 * max(0, L - 45)
+
+A boss is still dangerous mainly because of its HP and its kit (summons,
+novas, enrage, blinks); chamber hazards are a percent of this hit, so they
+grow with it.
 
 | Level | Regular HP | Melee damage | Ranged damage | XP target | Boss HP | Boss damage |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -54,20 +75,29 @@ hits.
 | 5 | 123 | 19 | 20 | 133 | - | - |
 | 10 | 230 | 25 | 27 | 267 | - | - |
 | 15 | 430 | 33 | 36 | 480 | - | - |
-| 18 | 626 | 39 | 43 | 691 | 1275 | 33 |
-| 20 | 805 | 44 | 48 | 853 | 1561 | 37 |
-| 25 | 1508 | 58 | 64 | 1333 | 2586 | 49 |
-| 30 | 1842 | 77 | 85 | 1920 | 4286 | 65 |
-| 35 | 2250 | 102 | 113 | 2613 | 7101 | 87 |
-| 40 | 2748 | 136 | 150 | 3413 | 9601 | 116 |
-| 45 | 3356 | 181 | 199 | 4320 | 12101 | 154 |
-| 50 | 4099 | 241 | 265 | 5333 | 14601 | 205 |
+| 18 | 626 | 39 | 43 | 691 | 1275 | 31 |
+| 20 | 805 | 44 | 48 | 853 | 1561 | 35 |
+| 25 | 1508 | 58 | 64 | 1333 | 2586 | 50 |
+| 30 | 1842 | 77 | 85 | 1920 | 4286 | 71 |
+| 35 | 2250 | 102 | 113 | 2613 | 7101 | 100 |
+| 40 | 2748 | 136 | 150 | 3413 | 9601 | 143 |
+| 45 | 3356 | 181 | 199 | 4320 | 12101 | 202 |
+| 50 | 4051 | 206 | 227 | 5333 | 14601 | 230 |
 
 Keep `damage_min` and `damage_max` at about 0.8x and 1.2x of the average,
-as the shipped monsters do. A double striker (`attacks_per_round: 2`) keeps
-its per-hit damage on the curve, so it deals twice the curve each turn.
+as the shipped monsters do. A double striker (`attack_cooldown_multiplier:
+0.5`, two swings per turn-based action) keeps its per-hit damage on the
+curve, so it deals twice the curve each turn. Swings per action are
+`1 / attack_cooldown_multiplier`, fractional and accumulating (0.7 averages
+1.43), never below one; scale damage by that average, not by a rounded count.
 
-`enrage_at_hp` and `teleport_at_hp` are absolute HP values. When you change
+Movement follows the same rule: turn-based steps per action are
+`speed / monster_ai.turn_step_speed` (2.0), fractional and accumulating, one
+to four tiles. Speed 2.0 and below walks one tile a round, so only faster
+monsters close distance faster in turn-based combat; pick a value that shows
+its extra step within five rounds (2.4 or more).
+
+`abilities.enrage.at_hp` and `abilities.teleport.at_hp` are absolute HP values. When you change
 `max_hit_points`, scale them by the same factor so they trigger at the same
 fraction of HP.
 
@@ -161,13 +191,14 @@ ability needs both a log line and a row in `balanceAbilities`
 
 The sweep sends every [bench party](test-scenarios.md#benchmark-parties)
 (levels 15, 20, 25 and 30) against every encounter within five levels of
-its own. The fights are turn-based and run through the real combat loop:
+its own. The fights run through the real combat loop, turn-based by default:
 
     go test -tags balance ./internal/game -run TestBalanceSweep -v
 
-`BALANCE_LEVEL`, `BALANCE_PARTY` and `BALANCE_KIND` narrow the run, and
-`BALANCE_TRIALS` sets the fights per cell (default 10). `BALANCE_OUT` writes
-every cell as JSON. A full sweep takes under a minute.
+`BALANCE_MODE=rt` runs the same fights in real time. `BALANCE_LEVEL`,
+`BALANCE_PARTY` and `BALANCE_KIND` narrow the run, and `BALANCE_TRIALS` sets
+the fights per cell (default 10). `BALANCE_OUT` writes every cell as JSON. A
+full turn-based sweep takes under a minute; real time takes longer.
 
 The party plays like a sensible player:
 
@@ -175,8 +206,10 @@ The party plays like a sensible player:
   Wayfarer's autocast.
 - It smart-attacks the nearest enemy. That one action heals a wounded ally,
   casts the readied spell, throws the readied flask, arms the readied trap,
-  or strikes.
-- If most of the party fights in melee, it advances first.
+  or strikes. In real time it keeps attacking like a held key: the game
+  hands each action to whichever hero is ready.
+- If most of the party fights in melee, it advances first; in real time it
+  walks in. A party with nothing in reach steps closer.
 - It revives a fallen hero from a quick slot.
 - Heroes drink potions on their own below 35% HP (`characters.auto_drink`),
   as in the game.
@@ -202,7 +235,8 @@ The report also lists:
 
 The sweep does not cover these yet:
 
-- real-time combat, whose mechanics differ and need their own pass;
+- real-time tactics: the party never kites, retreats or splits a pack, and a
+  round in real time is three seconds of play;
 - quick-slot spells other than revives;
 - spell choice that takes resistances into account.
 
@@ -220,7 +254,9 @@ The sweep does not cover these yet:
 
 1. Pick the archetype and the level its stats should mean.
 2. Read HP, damage and experience off the curves for that archetype.
-3. Add the kit. Each ability needs its log line and its paired fields.
+3. Add the kit: each ability is one entry of its `abilities:` map (see
+   [How to add a new monster](../how_to_add_a_new_monster.md)) and needs its
+   log line.
 4. Place the monster: its pack size and its neighbours make its encounters.
 5. Run the sweep at its levels and read its cells: the holes, the biggest
    hits and its coverage line.

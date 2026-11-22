@@ -1,5 +1,10 @@
 package game
 
+import "math"
+
+// screenShakeHalfLifeSeconds: the screen shake's amplitude halves this often.
+const screenShakeHalfLifeSeconds = 0.04519
+
 // updateInterfacePresentation is the single interface tick for gameplay,
 // paused/loading frames and the FX editor. Keep every Card lifetime beside the
 // clock its drawing code reads; render-only frames never call this method.
@@ -7,6 +12,12 @@ func (g *MMGame) updateInterfacePresentation() {
 	g.uiFrameCount++
 	g.tickAlchemyBrewAnimation()
 	g.tickCampRest()
+	if g.appScreen == AppScreenInGame {
+		g.syncStoryQuestBeats() // every frame, paused or not: a claim in the open journal counts too
+	}
+	g.tickStoryEvents()
+	g.tickStoryScreen()
+	g.tickWatcher()
 	if g.gameplayPausedByOverlay() {
 		g.tickPausedAchievementBanner()
 	}
@@ -28,10 +39,11 @@ func (gl *GameLoop) updateWorldPresentation() {
 	if gl.renderer != nil {
 		gl.renderer.updateNightMotes()
 	}
+	gl.game.updateRangedHeld()
 
 	// Screen shake decays exponentially toward rest.
 	if gl.game.screenShake > 0 {
-		gl.game.screenShake *= 0.88
+		gl.game.screenShake *= math.Exp2(-1 / (float64(gl.game.tickRate()) * screenShakeHalfLifeSeconds))
 		if gl.game.screenShake < 0.05 {
 			gl.game.screenShake = 0
 		}

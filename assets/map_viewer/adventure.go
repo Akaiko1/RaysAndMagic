@@ -2,8 +2,10 @@ package main
 
 import (
 	"fmt"
-	"github.com/hajimehoshi/ebiten/v2"
 	"image/color"
+	"ugataima/internal/config"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 // The editor draws the same authored rectangles used by the live hazard system.
@@ -15,13 +17,13 @@ func drawAdventureOverlays(screen *ebiten.Image, m mapInfo, x, y, size int) {
 	for _, e := range m.Config.Adventure.Effects {
 		c := color.RGBA{230, 170, 60, 255}
 		switch e.Kind {
-		case "transfer":
+		case config.EffectTransfer:
 			c = color.RGBA{65, 190, 235, 255}
-		case "lane":
+		case config.EffectLane:
 			c = color.RGBA{235, 105, 95, 255}
 		}
 		drawRectBorder(screen, x+e.Rect[0]*size, y+e.Rect[1]*size, (e.Rect[2]-e.Rect[0]+1)*size, (e.Rect[3]-e.Rect[1]+1)*size, 1, c)
-		if e.Kind == "transfer" {
+		if e.Kind == config.EffectTransfer {
 			drawTileMarkerCircle(screen, x, y, size, e.Destination[0], e.Destination[1], c, false)
 		}
 	}
@@ -36,11 +38,18 @@ func adventureHoverLines(m mapInfo, x, y int) []string {
 		if !e.Contains(x, y) {
 			continue
 		}
-		lines = append(lines, "", e.Name, "Effect: "+e.ID+" ("+e.Kind+")")
-		if e.Kind == "transfer" {
+		lines = append(lines, "", e.Name, "Effect: "+e.ID+" ("+string(e.Kind)+")")
+		if e.Kind == config.EffectTransfer {
 			lines = append(lines, fmt.Sprintf("Receiver: %d, %d", e.Destination[0], e.Destination[1]))
+		} else if e.DamagePercent > 0 {
+			lines = append(lines, fmt.Sprintf("Damage: %d%% of boss attack, %s", e.DamagePercent, e.School))
 		} else {
 			lines = append(lines, fmt.Sprintf("Damage: %d %s", e.Damage, e.School))
+		}
+		if e.SustainPercent > 0 {
+			lines = append(lines, fmt.Sprintf("Lingering: %d%% of boss attack per second", e.SustainPercent))
+		} else if e.SustainDamage > 0 {
+			lines = append(lines, fmt.Sprintf("Lingering: %d per second", e.SustainDamage))
 		}
 		if e.WarningSeconds > 0 {
 			lines = append(lines, fmt.Sprintf("Warning: %.1fs / %d rounds", e.WarningSeconds, e.WarningRounds))

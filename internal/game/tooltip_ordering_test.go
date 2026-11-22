@@ -51,7 +51,7 @@ func TestTooltipOrderedWeaponResults(t *testing.T) {
 						if full && def.Physics != nil && !strings.Contains(card, fmt.Sprintf("Projectile Speed: %.1f tiles/s", flight)) {
 							t.Fatal(card)
 						}
-						frames := cs.WeaponCooldownFramesFor(ch, item.Name)
+						frames := cs.WeaponCooldownFramesFor(ch, testWeapon(item.Name))
 						var seconds float64
 						for _, line := range strings.Split(card, "\n") {
 							if strings.HasPrefix(line, "RT Cooldown:") {
@@ -79,13 +79,13 @@ func TestTooltipOrderedWeaponResults(t *testing.T) {
 								t.Fatalf("displayed cooldown stages do not add up: %s", card)
 							}
 						}
-						if full && def.TrueDamage > 0 {
-							source := strings.Index(card, fmt.Sprintf("Weapon: +%d True", def.TrueDamage))
+						preview := cs.calculateWeaponDamagePreview(item, ch)
+						if full && def.TrueDamagePct > 0 {
+							source := strings.Index(card, fmt.Sprintf("Weapon: +%d True", preview.AuthoredTrue))
 							if source < strings.Index(card, "Total Damage:") || source > strings.Index(card, "\nCRITICAL\n") {
 								t.Fatalf("authored damage outside breakdown: %s", card)
 							}
 						}
-						preview := cs.calculateWeaponDamagePreview(item, ch)
 						for _, want := range []string{fmt.Sprintf("Total Damage: %d", preview.Total), fmt.Sprintf("Critical Damage: %d", preview.CriticalTotal)} {
 							if !strings.Contains(card, want) {
 								t.Fatal(card)
@@ -122,8 +122,8 @@ func TestTooltipOrderedSpellResults(t *testing.T) {
 							t.Fatal(card)
 						}
 					}
-					if def.Duration > 0 {
-						want := character.SpellDurationBreakdown(def, ch).Seconds
+					if def.Mechanic == nil && len(def.DurationByMastery) > 0 {
+						want := character.SpellDurationSeconds(def, ch)
 						if !strings.Contains(card, fmt.Sprintf("Current Duration: %ds", want)) {
 							t.Fatal(card)
 						}
@@ -171,7 +171,7 @@ func TestTooltipComparisonUsesEffectiveValuesAndDirection(t *testing.T) {
 		}
 		old, _ := spells.GetSpellDefinitionByID(pair[0])
 		next, _ := spells.GetSpellDefinitionByID(pair[1])
-		want := fmt.Sprintf("Spell Points: %d -> %d", cs.effectiveSpellCost(ch, old.SpellPointsCost), cs.effectiveSpellCost(ch, next.SpellPointsCost))
+		want := fmt.Sprintf("Spell Points: %d -> %d", ch.MeditatedSPCost(old.SpellPointsCost), ch.MeditatedSPCost(next.SpellPointsCost))
 		if !strings.Contains(card, want) {
 			t.Fatal(card)
 		}
@@ -223,7 +223,7 @@ func TestTooltipItemContributionAndRecovery(t *testing.T) {
 func TestTooltipSpellComparisonDamageUnits(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	ch := gmReferenceChar(cs.game.config)
-	cs.game.combatBuffs = []TimedCombatBuff{{SpellID: "test", Frames: 600, OutBonus: 7, OutDamageType: "all"}}
+	cs.game.combatBuffs = []TimedCombatBuff{{ID: "test", Clock: framesClock(600), OutBonus: 7, OutDamageType: "all"}}
 	types := []struct {
 		id    spells.SpellID
 		label string

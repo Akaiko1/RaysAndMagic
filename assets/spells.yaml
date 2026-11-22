@@ -4,10 +4,9 @@
 # - Projectile physics (speed in tiles/sec, range in tiles)
 # - Visual appearance (colors, sizes, effects)
 #
-# DAMAGE NOTE: offensive spell damage is NOT specified here. It is derived
-# from spell_points_cost as: base = cost x spells.SpellDamagePerSP (default 3).
-# Designer-facing knob is therefore spell_points_cost - to make a spell hit
-# harder, raise its cost. Healing spells use heal_amount explicitly.
+# Damage normally derives its base from SP cost. damage_base overrides only
+# that base, retaining stat/mastery scaling; damage_source reuses a formula.
+# Exact damage_by_mastery ladders deliberately omit stat scaling.
 
 # Add new spells here without needing any code changes!
 
@@ -15,6 +14,484 @@
 # SPELL DEFINITIONS
 # =============================================================================
 spells:
+
+  # Advanced spells: the mechanic block is shared by runtime and effect summaries.
+  # Mark personal/party enchantments explicitly. category: buff has no RT
+  # recovery (omit cooldown_seconds); short or charge-spent combat_buff keeps one.
+  fire_aura:
+    category: combat_buff
+    cooldown_seconds: 2
+    name: "Fire Aura"
+    description: "Wreathes a chosen ally's attacks in stored flame."
+    school: fire
+    spell_points_cost: 8
+    is_projectile: false
+    is_utility: true
+    status_icon: fire_aura
+    graphics: {cast_overlay: fire_aura, cast_overlay_weapon: gold_sword, cast_overlay_scale: 0.5, target_cursor: cursor_fire_aura}
+    mechanic:
+      kind: "fire_aura"
+      power_by_mastery: [20, 30, 40, 50]
+      charges_by_mastery: [6, 8, 10, 12]
+      damage_school: "fire"
+      summary: "Enchants one ally's next {charges} weapon hits with extra Fire damage equal to {power}% of their damage before defenses."
+
+  haste:
+    duration_by_mastery: [12, 15, 18, 24]
+    category: combat_buff
+    cooldown_seconds: 2
+    name: "Haste"
+    description: "Hastens every ally's hands, lending speed to spell and steel."
+    school: fire
+    spell_points_cost: 12
+    is_projectile: false
+    is_utility: true
+    status_icon: haste
+    graphics: {cast_overlay: haste, cast_overlay_scale: 0.5}
+    mechanic:
+      kind: "haste"
+      autocast: true
+      power_by_mastery: [20, 25, 30, 35]
+      extra_actions_by_mastery: [1, 1, 2, 2]
+      summary: "For {duration}s the party's real-time recovery is {power}% shorter and it gains {extra_actions} bonus actions per turn-based round. Does not stack with another haste effect."
+
+  shield:
+    duration_by_mastery: [180, 240, 300, 360]
+    category: buff
+    name: "Shield"
+    description: "A wall of moving air blunts arrows and other weapon shots."
+    school: air
+    spell_points_cost: 16
+    is_projectile: false
+    is_utility: true
+    status_icon: shield
+    graphics: {cast_overlay: shield, cast_overlay_scale: 0.5}
+    mechanic:
+      kind: "shield"
+      power_by_mastery: [20, 30, 40, 50]
+      summary: "Party takes {power}% less ranged weapon damage for {duration}s; not spells or melee."
+
+  acid_burst:
+    duration_by_mastery: [6, 9, 12, 15]
+    name: "Acid Burst"
+    description: "Corrosive water eats through a foe's defenses."
+    school: water
+    spell_points_cost: 10
+    cooldown_seconds: 2
+    is_projectile: true
+    is_utility: false
+    status_icon: acid_burst
+    projectile_size: 12
+    physics: {speed_tiles: 10, range_tiles: 7, hitbox: standard}
+    graphics: {max_size: 48, min_size: 3, base_size: 12, color: [110, 235, 120], projectile_fx: acid_burst}
+    mechanic:
+      kind: "acid_burst"
+      power_by_mastery: [5, 10, 15, 20]
+      damage_school: "water"
+      summary: "Corrodes the struck foe: -{power}% armor for {duration}s."
+
+  frozen_ground:
+    duration_by_mastery: [6, 9, 12, 15]
+    name: "Frozen Ground"
+    description: "Ice roots foes ahead and lays a temporary crossing over water."
+    school: water
+    spell_points_cost: 14
+    cooldown_seconds: 2
+    is_projectile: false
+    is_utility: true
+    status_icon: frozen_ground
+    graphics: {world_fx: glacier}
+    mechanic:
+      kind: "frozen_ground"
+      water_freeze_seconds: 180
+      radius_tiles: &forward_spell_range 7
+      cone_degrees: &forward_spell_cone 60
+      summary: "Roots foes in a {cone}-degree forward cone of {radius} tiles for {duration}s. Water in the cone remains frozen for {water_freeze_seconds}s."
+
+  vvoid_beacon:
+    name: "Vvoid's Beacon"
+    description: "Sets a remembered waypoint or returns the party to one."
+    school: water
+    spell_points_cost: 20
+    cooldown_seconds: 2
+    is_projectile: false
+    is_utility: true
+    status_icon: vvoid_beacon
+    graphics: {cast_overlay: town_portal, cast_overlay_scale: 0.5}
+    mechanic:
+      kind: "vvoid_beacon"
+      charges_by_mastery: [1, 2, 3, 4]
+      summary: "Remember up to {charges} locations and return to them. Dungeon beacons expire when that dungeon resets; blocked destinations cannot be reached."
+
+  slow:
+    duration_by_mastery: [9, 18, 27, 36]
+    name: "Slow"
+    description: "Heavy earth drags at nearby enemies' feet and weapons."
+    school: earth
+    spell_points_cost: 10
+    cooldown_seconds: 2
+    is_projectile: false
+    is_utility: true
+    status_icon: slow
+    graphics: {world_fx: earth_drag}
+    mechanic:
+      kind: "slow"
+      power_by_mastery: [20, 30, 40, 50]
+      radius_tiles: 7
+      summary: "Enemies within {radius} tiles move and attack {power}% slower in real time for {duration}s."
+
+  fate:
+    category: combat_buff
+    cooldown_seconds: 2
+    name: "Fate"
+    description: "Stores fortunate moments in one ally's next attacks."
+    school: spirit
+    spell_points_cost: 8
+    is_projectile: false
+    is_utility: true
+    status_icon: fate
+    graphics: {cast_overlay: fate, cast_overlay_scale: 0.5, target_cursor: cursor_fate}
+    mechanic:
+      kind: "fate"
+      power_by_mastery: [20, 30, 40, 50]
+      charges_by_mastery: [6, 8, 10, 12]
+      summary: "One ally's next {charges} weapon hits ignore Perfect Dodge and gain +{power}% critical chance."
+
+  shared_life:
+    name: "Shared Life"
+    description: "Spreads the living party's strength between its members."
+    school: spirit
+    spell_points_cost: 12
+    cooldown_seconds: 2
+    reuse_seconds: 9   # personal lockout of the spell, as Mass Heal: 3 TB rounds
+    is_projectile: false
+    is_utility: true
+    heal_amount: 30
+    heal_party: true
+    status_icon: shared_life
+    graphics: {cast_overlay: shared_life, cast_overlay_scale: 0.5}
+    mechanic:
+      kind: "shared_life"
+      summary: "Adds healing, then redistributes the party's HP evenly among living allies, up to each one's maximum."
+
+  preservation:
+    category: combat_buff
+    cooldown_seconds: 2
+    name: "Preservation"
+    description: "Keeps the party on the threshold of death without healing its wounds."
+    school: spirit
+    spell_points_cost: 32
+    is_projectile: false
+    is_utility: true
+    status_icon: preservation
+    graphics: {cast_overlay: preservation, cast_overlay_scale: 0.5}
+    mechanic:
+      kind: "preservation"
+      charges_by_mastery: [1, 2, 3, 4]
+      summary: "Prevents a party member from dying, leaving them at 1 HP. Shares {charges} charges across the party."
+
+  turn_undead:
+    duration_by_mastery: [6, 9, 12, 15]
+    name: "Turn Undead"
+    description: "Compels the restless dead to flee the party."
+    school: spirit
+    spell_points_cost: 20
+    cooldown_seconds: 2
+    is_projectile: false
+    is_utility: true
+    status_icon: turn_undead
+    graphics: {world_fx: holy_dread}
+    mechanic:
+      kind: "turn_undead"
+      radius_tiles: 7
+      summary: "Undead within {radius} tiles flee for {duration}s. Taking damage does not break the effect."
+
+  feeblemind:
+    duration_by_mastery: [6, 9, 12, 15]
+    name: "Feeblemind"
+    description: "Silences the hostile magic gathered around the party."
+    school: mind
+    spell_points_cost: 24
+    cooldown_seconds: 2
+    is_projectile: false
+    is_utility: true
+    status_icon: feeblemind
+    graphics: {world_fx: mind_web}
+    mechanic:
+      kind: "feeblemind"
+      reapply_immunity_seconds: 6
+      radius_tiles: 7
+      summary: "Enemies within {radius} tiles cannot use spells or ranged bolts for {duration}s. Melee remains available."
+
+  berserk:
+    duration_by_mastery: [6, 9, 12, 15]
+    name: "Berserk"
+    description: "Turns a living foe's rage against whatever stands closest."
+    school: mind
+    spell_points_cost: 12
+    cooldown_seconds: 2
+    is_projectile: false
+    is_utility: true
+    status_icon: berserk
+    graphics: {world_fx: blood_frenzy}
+    mechanic:
+      kind: "berserk"
+      cone_degrees: 60
+      radius_tiles: 7
+      summary: "One living foe within {radius} tiles attacks its nearest target, including the party, for {duration}s."
+
+  mass_fear:
+    duration_by_mastery: [6, 9, 12, 15]
+    name: "Mass Fear"
+    description: "Sends the living fleeing from things only they can see."
+    school: mind
+    spell_points_cost: 24
+    cooldown_seconds: 2
+    is_projectile: false
+    is_utility: true
+    status_icon: mass_fear
+    graphics: {world_fx: dread_shroud}
+    mechanic:
+      kind: "mass_fear"
+      radius_tiles: 7
+      summary: "Living enemies within {radius} tiles flee for {duration}s. Damage does not break fear; undead are unaffected."
+
+  identify_monster:
+    name: "Identify Monster"
+    description: "Studies the exact strengths and weaknesses of a visible creature."
+    school: mind
+    spell_points_cost: 4
+    cooldown_seconds: 2
+    is_projectile: false
+    is_utility: true
+    status_icon: identify_monster
+    mechanic:
+      kind: "identify_monster"
+      radius_tiles: 12
+      summary: "Inspect a creature within {radius} tiles: vitality, defenses, attacks and abilities."
+
+  regeneration:
+    duration_by_mastery: [180, 240, 300, 360]
+    category: buff
+    name: "Regeneration"
+    description: "Encourages every living ally's wounds to knit themselves closed."
+    school: body
+    spell_points_cost: 24
+    is_projectile: false
+    is_utility: true
+    status_icon: regeneration
+    graphics: {cast_overlay: regeneration}
+    mechanic:
+      kind: "regeneration"
+      power_by_mastery: [2, 2, 2, 3]
+      summary: "Every living ally regenerates {power}% of their maximum HP for {duration}s. Does not revive fallen allies."
+
+  body_purify:
+    name: "Purify"
+    description: "Washes poison, sickness and hostile enchantments from the party."
+    school: body
+    spell_points_cost: 12
+    cooldown_seconds: 2
+    is_projectile: false
+    is_utility: true
+    status_icon: purify
+    graphics: {cast_overlay: purify, cast_overlay_scale: 0.5}
+    mechanic:
+      kind: "purify"
+      autocast: true
+      summary: "Removes every affliction except death, unconsciousness and eradication, and frees the party from root and slow."
+
+  protection_from_magic:
+    category: combat_buff
+    cooldown_seconds: 2
+    reuse_seconds: 15
+    name: "Protection from Magic"
+    description: "A shared ward turns aside hostile magical casts."
+    school: body
+    spell_points_cost: 32
+    is_projectile: false
+    is_utility: true
+    status_icon: protection_from_magic
+    graphics: {cast_overlay: protection_from_magic, cast_overlay_scale: 0.5}
+    mechanic:
+      kind: "protection_from_magic"
+      charges_by_mastery: [1, 2, 3, 4]
+      summary: "Protects all allies from {charges} enemy casts. Multiple hits from one cast spend only one charge."
+
+  flying_fist:
+    name: "Flying Fist"
+    description: "A spectral fist strikes with solid force and drives its target backward."
+    school: body
+    spell_points_cost: 10
+    cooldown_seconds: 2
+    is_projectile: true
+    is_utility: false
+    status_icon: flying_fist
+    projectile_size: 14
+    physics: {speed_tiles: 12, range_tiles: 7, hitbox: wide}
+    graphics: {max_size: 52, min_size: 4, base_size: 16, color: [100, 240, 140], projectile_fx: flying_fist}
+    mechanic:
+      kind: "flying_fist"
+      power_by_mastery: [1, 1, 1, 1]
+      damage_school: "body"
+      summary: "Deals Body damage and pushes the struck foe back {power} tile if the way is clear."
+
+  dispel_magic:
+    name: "Dispel Magic"
+    description: "Purifies allies and sweeps hostile spell shots from the air."
+    school: light
+    spell_points_cost: 16
+    cooldown_seconds: 2
+    is_projectile: false
+    is_utility: true
+    status_icon: dispel_magic
+    graphics: {cast_overlay: dispel_magic, cast_overlay_scale: 0.5}
+    mechanic:
+      kind: "dispel_magic"
+      autocast: true
+      radius_tiles: 7
+      summary: "Cleanses the party's curable afflictions and movement hindrances, and destroys enemy magical projectiles within {radius} tiles."
+
+  destroy_undead:
+    name: "Destroy Undead"
+    description: "Burns an undead creature with concentrated daylight."
+    school: light
+    spell_points_cost: 28
+    cooldown_seconds: 2
+    is_projectile: false
+    is_utility: true
+    status_icon: destroy_undead
+    graphics: {world_fx: sun_pyre}
+    damage_base: 60
+    mechanic:
+      kind: "destroy_undead"
+      cone_degrees: 60
+      radius_tiles: 7
+      damage_school: "light"
+      instant_kill_chance: 0.25
+      summary: "Has a {instant_kill_chance}% chance to instantly destroy one undead within {radius} tiles (bosses take {instakill_sear_pct}% of max HP as true damage); otherwise deals Light damage. Has no effect on living creatures."
+
+  prismatic_light:
+    name: "Prismatic Light"
+    description: "Splits a surge of radiance into a rainbow of target-seeking beams."
+    school: light
+    spell_points_cost: 20
+    cooldown_seconds: 2
+    is_projectile: false
+    is_utility: true
+    status_icon: prismatic_light
+    graphics:
+      target_flights:
+        projectile: ray_of_light
+        projectile_fx: prismatic_ray
+        duration_seconds: 0.45
+        size_scale: 2.5
+        palette: [[255, 75, 105], [75, 190, 255], [65, 235, 148], [160, 108, 255], [250, 232, 85], [255, 166, 55], [243, 108, 225]]
+    damage_source: ray_of_light
+    damage_divisor: 2
+    mechanic:
+      kind: "prismatic_light"
+      radius_tiles: 7
+      max_targets: 7
+      damage_school: "light"
+      summary: "Damages up to {max_targets} nearby visible enemies within {radius} tiles. Walls block the light."
+
+  celestial_armor:
+    duration_by_mastery: [12, 15, 18, 24]
+    category: combat_buff
+    cooldown_seconds: 2
+    name: "Celestial Armor"
+    description: "A shining barrier holds the party's next wounds at bay."
+    school: light
+    spell_points_cost: 18
+    is_projectile: false
+    is_utility: true
+    status_icon: celestial_armor
+    graphics: {cast_overlay: celestial_armor, cast_overlay_scale: 0.5}
+    mechanic:
+      kind: "celestial_armor"
+      power_by_mastery: [40, 65, 90, 120]
+      autocast: true
+      summary: "Protects the party with a shared barrier that absorbs {power} damage. Lasts {duration}s."
+
+  shrapmetal:
+    name: "Shrapmetal"
+    description: "Scatters jagged metal fragments in a cone ahead."
+    school: dark
+    spell_points_cost: 14
+    cooldown_seconds: 2
+    is_projectile: true
+    is_utility: false
+    status_icon: shrapmetal
+    projectile_size: 8
+    physics: {speed_tiles: 14, range_tiles: *forward_spell_range, hitbox: standard}
+    graphics: {max_size: 64, min_size: 3, base_size: 24, color: [197, 203, 215], projectile_fx: shrapmetal}
+    damage_base: 12
+    mechanic:
+      kind: "shrapmetal"
+      projectiles_by_mastery: [3, 4, 5, 7]
+      cone_degrees: *forward_spell_cone
+      max_hits_per_target: 3
+      damage_school: "physical"
+      summary: "Fires {projectiles} fragments through a {cone}-degree cone ahead. Each enemy can be hit by up to {max_hits_per_target} fragments."
+
+  vampiric_weapon:
+    duration_by_mastery: [180, 240, 300, 360]
+    category: buff
+    name: "Vampiric Weapon"
+    description: "Gives one ally's weapon a hunger that feeds its wielder."
+    school: dark
+    spell_points_cost: 20
+    is_projectile: false
+    is_utility: true
+    status_icon: vampiric_weapon
+    graphics: {cast_overlay: vampiric_weapon, cast_overlay_weapon: silver_sword, cast_overlay_scale: 0.5, target_cursor: cursor_vampiric_weapon}
+    mechanic:
+      kind: "vampiric_weapon"
+      power_by_mastery: [10, 15, 20, 25]
+      summary: "One ally recovers HP equal to {power}% of weapon damage dealt. Lasts {duration}s."
+
+  pain_reflection:
+    duration_by_mastery: [60, 90, 120, 180]
+    category: buff
+    name: "Pain Reflection"
+    description: "Binds the party's suffering to those who cause it."
+    school: dark
+    spell_points_cost: 28
+    is_projectile: false
+    is_utility: true
+    status_icon: pain_reflection
+    graphics: {cast_overlay: pain_reflection, cast_overlay_scale: 0.5}
+    mechanic:
+      kind: "pain_reflection"
+      power_by_mastery: [20, 30, 40, 50]
+      summary: "Returns {power}% of damage taken to the attacker for {duration}s. Environmental damage and reflected hits do not trigger it."
+
+  souldrinker:
+    name: "Souldrinker"
+    description: "Drains nearby enemies to nourish the living party."
+    school: dark
+    spell_points_cost: 24
+    cooldown_seconds: 2
+    is_projectile: false
+    is_utility: true
+    status_icon: souldrinker
+    graphics:
+      target_flights:
+        projectile: spirit_lash
+        projectile_fx: soul_wisp
+        return_to_party: true
+        size_scale: 1.4
+        palette: [[99, 232, 193], [142, 198, 245], [120, 238, 223]]
+    damage_base: 20
+    mechanic:
+      kind: "souldrinker"
+      power_by_mastery: [25, 30, 40, 50]
+      radius_tiles: 7
+      damage_school: "dark"
+      summary: "Drains visible enemies within {radius} tiles, restoring {power}% of the HP drained to living allies."
+
+
   fireball:
     # Basic spell properties
     name: "Fireball"
@@ -22,7 +499,6 @@ spells:
     school: "fire"
     spell_points_cost: 4
     cooldown_seconds: 1.5
-    duration: 0                # 0 for instant spells
     aoe_radius_tiles: 2.0      # splash damages all monsters within 2 tiles of the hit
     projectile_size: 16
     is_projectile: true
@@ -49,7 +525,6 @@ spells:
     school: "fire"
     spell_points_cost: 3
     cooldown_seconds: 0.8
-    duration: 0
     projectile_size: 10
     is_projectile: true
     is_utility: false
@@ -75,7 +550,6 @@ spells:
     school: "dark"
     spell_points_cost: 3
     cooldown_seconds: 1.0
-    duration: 0
     projectile_size: 12
     is_projectile: true
     is_utility: false
@@ -101,7 +575,6 @@ spells:
     school: "dark"
     spell_points_cost: 2
     cooldown_seconds: 0.8
-    duration: 0
     disintegrate_chance: 0.01
     projectile_size: 12
     is_projectile: true
@@ -129,7 +602,6 @@ spells:
     school: "water"
     spell_points_cost: 2
     cooldown_seconds: 0.8
-    duration: 0
     projectile_size: 12
     is_projectile: true
     is_utility: false
@@ -155,7 +627,6 @@ spells:
     school: "air"
     spell_points_cost: 8
     cooldown_seconds: 1.2
-    duration: 0
     projectile_size: 8
     is_projectile: true
     is_utility: false
@@ -163,8 +634,7 @@ spells:
     # Stun-on-hit rider (like Psychic Shock): a jolt of lightning has a chance to
     # briefly stun the struck monster. Shown in tooltips via SpellDefinition.EffectLines.
     stun_chance: 0.20           # 20% chance to stun on hit
-    stun_duration_seconds: 2
-    stun_duration_turns: 1
+    stun_duration_seconds: 3
 
     # Projectile physics (tile-based units)
     physics:
@@ -187,7 +657,6 @@ spells:
     school: "light"
     spell_points_cost: 8
     cooldown_seconds: 1.5
-    duration: 0
     projectile_size: 8
     is_projectile: true
     is_utility: false
@@ -216,14 +685,12 @@ spells:
     school: "dark"
     spell_points_cost: 20
     cooldown_seconds: 4.0
-    duration: 0
     is_projectile: false
     is_utility: true
     deals_no_damage: true
     # AoE-stun effect (no damage): stuns all monsters within the radius.
     stun_radius_tiles: 5.0
-    stun_duration_seconds: 5
-    stun_duration_turns: 3
+    stun_duration_seconds: 9
     message: "Darkness engulfs the area"
     graphics:
       cast_overlay: darkness
@@ -235,7 +702,6 @@ spells:
     school: "dark"
     spell_points_cost: 10
     cooldown_seconds: 2.5
-    duration: 0
     projectile_size: 10
     is_projectile: true
     is_utility: false
@@ -257,12 +723,12 @@ spells:
       projectile_fx: disintegrate
 
   day_of_the_gods:
+    duration_by_mastery: [300, 360, 420, 480]
     name: "Day of the Gods"
     description: "Blesses the party with resistance against every damage school"
     school: "light"
     spell_points_cost: 20
     category: buff
-    duration: 300              # 5 minutes
     is_projectile: false
     is_utility: true
     resist_buff_pct: 10
@@ -271,12 +737,12 @@ spells:
     buff_fx_sprite: "buff_fx_day_of_the_gods"
 
   hour_of_power:
+    duration_by_mastery: [600, 720, 840, 960]
     name: "Hour of Power"
-    description: "The party deals more damage and takes less from every hit"
+    description: "Grants the party bonus damage and Flat damage reduction"
     school: "light"
     spell_points_cost: 18
     category: buff
-    duration: 600              # 10 minutes
     is_projectile: false
     is_utility: true
     outgoing_damage_bonus: 5
@@ -291,7 +757,6 @@ spells:
     school: "dark"
     spell_points_cost: 8
     cooldown_seconds: 2.0
-    duration: 0
     projectile_size: 8
     is_projectile: true
     is_utility: false
@@ -319,7 +784,6 @@ spells:
     school: "light"
     spell_points_cost: 16
     cooldown_seconds: 5.0
-    duration: 0
     is_projectile: false
     is_utility: true
     revive: true
@@ -332,7 +796,6 @@ spells:
     school: "body"
     spell_points_cost: 8
     cooldown_seconds: 1.0
-    duration: 0
     heal_amount: 15
     is_projectile: false
     is_utility: true
@@ -348,7 +811,6 @@ spells:
     school: "body"
     spell_points_cost: 8
     cooldown_seconds: 1.2
-    duration: 0
     heal_amount: 20
     is_projectile: false
     is_utility: true
@@ -358,13 +820,13 @@ spells:
     # No physics or graphics needed - utility spell
 
   torch_light:
+    duration_by_mastery: [300, 360, 420, 480]
     # Basic spell properties
     name: "Torch Light"
     description: "Creates a magical light that illuminates the surroundings"
     school: "fire"
     spell_points_cost: 1
     category: buff
-    duration: 300              # 5 minutes
     is_projectile: false
     is_utility: true
     status_icon: "torch"
@@ -374,13 +836,13 @@ spells:
     # No physics or graphics needed - utility spell
 
   bless:
+    duration_by_mastery: [300, 360, 420, 480]
     # Basic spell properties
     name: "Bless"
     description: "Blesses the party with divine protection"
     school: "spirit"
     spell_points_cost: 15
     category: buff
-    duration: 300              # 5 minutes
     stat_bonus: 5
     stat_bonus_grandmaster: 10
     is_projectile: false
@@ -392,13 +854,13 @@ spells:
     # No physics or graphics needed - utility spell
 
   wizard_eye:
+    duration_by_mastery: [300, 360, 420, 480]
     # Basic spell properties
     name: "Wizard Eye"
     description: "Shows nearby monsters on the compass, even through walls"
     school: "air"
     spell_points_cost: 8
     category: buff
-    duration: 300              # 5 minutes
     radar_radius_tiles: 10
     is_projectile: false
     is_utility: true
@@ -414,7 +876,6 @@ spells:
     school: "mind"
     spell_points_cost: 4
     cooldown_seconds: 2.0
-    duration: 0
     is_projectile: false
     is_utility: true
     awaken: true
@@ -423,13 +884,13 @@ spells:
     # No physics or graphics needed - utility spell
 
   walk_on_water:
+    duration_by_mastery: [180, 216, 252, 288]
     # Basic spell properties
     name: "Walk on Water"
     description: "Allows the party to walk on water surfaces"
     school: "water"
     spell_points_cost: 6
     category: buff
-    duration: 180              # 3 minutes
     is_projectile: false
     is_utility: true
     status_icon: "water_walk"
@@ -439,13 +900,13 @@ spells:
     # No physics or graphics needed - utility spell
 
   water_breathing:
+    duration_by_mastery: [600, 720, 840, 960]
     # Basic spell properties
     name: "Water Breathing"
     description: "Allows underwater exploration by enabling breathing underwater"
     school: "water"
     spell_points_cost: 10
     category: buff
-    duration: 600              # 10 minutes
     is_projectile: false
     is_utility: true
     status_icon: "water_breathing"
@@ -464,7 +925,6 @@ spells:
     school: "air"
     spell_points_cost: 2
     cooldown_seconds: 0.8
-    duration: 0
     projectile_size: 8
     is_projectile: true
     is_utility: false
@@ -485,7 +945,6 @@ spells:
     school: "earth"
     spell_points_cost: 5
     cooldown_seconds: 1.0
-    duration: 0
     projectile_size: 12
     is_projectile: true
     is_utility: false
@@ -506,7 +965,6 @@ spells:
     school: "earth"
     spell_points_cost: 7
     cooldown_seconds: 1.5
-    duration: 0
     projectile_size: 12
     is_projectile: true
     is_utility: false
@@ -528,14 +986,12 @@ spells:
     school: "earth"
     spell_points_cost: 12
     cooldown_seconds: 3.0
-    duration: 0
     is_projectile: false
     is_utility: true
     deals_no_damage: true
     # AoE-stun effect (no damage): cheaper, smaller version of Darkness.
     stun_radius_tiles: 3.0
-    stun_duration_seconds: 4
-    stun_duration_turns: 2
+    stun_duration_seconds: 6
     message: "A stunning shockwave rips outward"
 
   harm:
@@ -544,7 +1000,6 @@ spells:
     school: "body"
     spell_points_cost: 6
     cooldown_seconds: 1.0
-    duration: 0
     projectile_size: 10
     is_projectile: true
     is_utility: false
@@ -565,7 +1020,6 @@ spells:
     school: "mind"
     spell_points_cost: 5
     cooldown_seconds: 1.0
-    duration: 0
     projectile_size: 10
     is_projectile: true
     is_utility: false
@@ -586,7 +1040,6 @@ spells:
     school: "spirit"
     spell_points_cost: 6
     cooldown_seconds: 1.0
-    duration: 0
     projectile_size: 10
     is_projectile: true
     is_utility: false
@@ -606,12 +1059,12 @@ spells:
   # ===========================================================================
 
   stone_skin:
+    duration_by_mastery: [300, 360, 420, 480]
     name: "Stone Skin"
-    description: "Hardens the party's skin to stone, reducing normal damage from each hit"
+    description: "Hardens the party's skin to stone, granting Flat damage reduction"
     school: "earth"
     spell_points_cost: 10
     category: buff
-    duration: 300              # 5 minutes
     is_projectile: false
     is_utility: true
     incoming_damage_reduction: 4
@@ -621,12 +1074,12 @@ spells:
     message: "The party's skin hardens to stone!"
 
   heroism:
+    duration_by_mastery: [300, 360, 420, 480]
     name: "Heroism"
     description: "Fills the party with valor, boosting physical attacks"
     school: "spirit"
     spell_points_cost: 12
     category: buff
-    duration: 300              # 5 minutes
     is_projectile: false
     is_utility: true
     outgoing_damage_bonus: 3
@@ -642,7 +1095,6 @@ spells:
     school: "spirit"
     spell_points_cost: 14
     cooldown_seconds: 4.0
-    duration: 0
     is_projectile: false
     is_utility: true
     revive_hp_pct: 25
@@ -654,7 +1106,7 @@ spells:
     school: "body"
     spell_points_cost: 15
     cooldown_seconds: 2.0
-    duration: 0
+    reuse_seconds: 9   # personal lockout of the spell: 3 TB rounds
     heal_amount: 10
     heal_party: true
     is_projectile: false
@@ -667,13 +1119,11 @@ spells:
     school: "mind"
     spell_points_cost: 10
     cooldown_seconds: 2.0
-    duration: 0
     projectile_size: 10
     is_projectile: true
     is_utility: false
     stun_chance: 0.10           # 10% chance to stun on hit
-    stun_duration_seconds: 2
-    stun_duration_turns: 1
+    stun_duration_seconds: 3
     physics:
       speed_tiles: 16.0
       range_tiles: 7.0
@@ -691,7 +1141,6 @@ spells:
     school: "mind"
     spell_points_cost: 10
     cooldown_seconds: 2.0
-    duration: 0
     projectile_size: 8
     is_projectile: true
     is_utility: false
@@ -716,7 +1165,6 @@ spells:
     spell_points_cost: 15       # 45 damage (cost x 3) to every monster on the map, and the party
     mastery_damage_per_tier: 15 # Novice/Expert/Master/GM: 45/60/75/90, all normal fire damage
     cooldown_seconds: 3.0
-    duration: 0
     is_projectile: false
     is_utility: true
     map_wide: true              # no radius: burns the entire current map, party included (fire resist is the answer)
@@ -728,7 +1176,6 @@ spells:
     school: "air"
     spell_points_cost: 14       # 42 damage, splashes the AoE
     cooldown_seconds: 3.0
-    duration: 0
     projectile_size: 12
     is_projectile: true
     is_utility: false
@@ -746,12 +1193,12 @@ spells:
       projectile_fx: starburst
 
   hot_steam:
+    duration_by_mastery: [120, 144, 168, 192]
     name: "Hot Steam"
     description: "Fills the area around the party with scalding steam that sears monsters over time"
     school: "water"
     spell_points_cost: 35
     cooldown_seconds: 3.0
-    duration: 120              # 2 minutes
     is_projectile: false
     is_utility: true
     zone_radius_tiles: 3.0
@@ -770,12 +1217,12 @@ spells:
   # ladder cannot be expressed by the cost formula.
 
   firewall:
+    duration_by_mastery: [30, 36, 42, 48]
     name: "Firewall"
     description: "Raises a blazing barrier across the enemy's path."
     school: "fire"
     spell_points_cost: 25
     cooldown_seconds: 3.0
-    duration: 30               # 30 seconds = 10 turns of 3 seconds
     is_projectile: false
     is_utility: true
     zone_radius_tiles: 0.55    # one tile per cell (slight overlap keeps the line solid)
@@ -795,7 +1242,6 @@ spells:
     school: "water"
     spell_points_cost: 30
     cooldown_seconds: 4.0
-    duration: 0
     is_projectile: false
     is_utility: true
     deals_no_damage: true
@@ -811,7 +1257,6 @@ spells:
     school: "air"
     spell_points_cost: 6
     cooldown_seconds: 1.5
-    duration: 0
     is_projectile: false
     is_utility: true
     deals_no_damage: true
@@ -824,7 +1269,6 @@ spells:
     school: "earth"
     spell_points_cost: 40
     cooldown_seconds: 5.0
-    duration: 0
     is_projectile: false
     is_utility: true
     party_aoe_radius_tiles: 8.0
@@ -837,12 +1281,12 @@ spells:
       nova_fx: quake             # rubble kicked off every patch of ground in reach + a moderate camera shake
 
   fly:
+    duration_by_mastery: [120, 144, 168, 192]
     name: "Fly"
     description: "The party takes wing: cross terrain and walls, but not doors or the map's edge. Only under an open sky."
     school: "air"
     spell_points_cost: 12
     category: buff
-    duration: 120              # 2 minutes
     is_projectile: false
     is_utility: true
     fly: true                  # pass through all non-edge tiles; the tile you occupy turns transparent from inside
@@ -858,7 +1302,6 @@ spells:
     schools: [earth, air]      # dual-school: lives in BOTH spellbooks, either school can learn it
     spell_points_cost: 20
     cooldown_seconds: 5.0
-    duration: 0
     is_projectile: false
     is_utility: true
     town_portal: true          # opens the visited-destination picker
@@ -867,12 +1310,12 @@ spells:
       cast_overlay: town_portal
 
   fire_shield:
+    duration_by_mastery: [300, 360, 420, 480]
     name: "Fire Shield"
     description: "Wreathes the party in tame flame: +50 Fire resistance for all"
     school: "fire"
     spell_points_cost: 10
     category: buff
-    duration: 300              # 5 minutes
     is_projectile: false
     is_utility: true
     resist_buff_school: "fire"
@@ -886,15 +1329,13 @@ spells:
     school: "earth"
     spell_points_cost: 20      # 60 damage (cost x 3) across the bloom
     cooldown_seconds: 3.0
-    duration: 0
     projectile_size: 14
     is_projectile: true
     is_utility: false
     mortar_range_tiles: 7      # ballistic: ignores everything in flight and detonates exactly here
     aoe_radius_tiles: 3.0
     stun_chance: 1.0           # the bloom stuns like Darkness does
-    stun_duration_seconds: 5
-    stun_duration_turns: 3
+    stun_duration_seconds: 9
     physics:
       speed_tiles: 9.0
       range_tiles: 7.0
@@ -924,8 +1365,9 @@ spells:
 #    - Add effect properties like heal_amount, vision_bonus, stat_bonus, etc.
 #    - Add custom message
 #    - No physics or graphics sections needed
-#    - Add category: buff for a beneficial timed effect with no personal RT
-#      cooldown (TB casts still spend an action).
+#    - Add category: buff for persistent beneficial effects, whether timed or
+#      charged and personal or party-wide. They have no personal RT recovery;
+#      mana, TB actions and any separate reuse_seconds still apply.
 # 5. Build and test: go run .
 #
 # Example new projectile spell:
@@ -934,7 +1376,7 @@ spells:
 #   description: "Launches a sharp shard of ice"
 #   school: "water"
 #   spell_points_cost: 6
-#   duration: 0
+#   # For a timed effect, author duration_by_mastery: [N, E, M, G] in seconds.
 #   projectile_size: 12
 #   is_projectile: true
 #   is_utility: false

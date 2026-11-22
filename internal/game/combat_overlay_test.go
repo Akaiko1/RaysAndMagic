@@ -6,11 +6,12 @@ import (
 	"os"
 	"testing"
 
-	"github.com/hajimehoshi/ebiten/v2"
 	"ugataima/internal/collision"
 	"ugataima/internal/game/keytracker"
 	"ugataima/internal/monster"
 	"ugataima/internal/world"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 func TestCombatOverlaySettings(t *testing.T) {
@@ -39,8 +40,8 @@ func TestCombatOverlaySettings(t *testing.T) {
 			h, _ := audioGestureHarness(t, entry, 0)
 			g, fp := h.g, installFakePointer(t)
 			g.loadCombatPreferences()
-			if g.combatPreferences.TurnBasedOverlay || g.combatPreferences.PaniniDisabled {
-				t.Fatal("missing preferences must default to aurora off and Panini on")
+			if g.combatPreferences.TurnBasedOverlay || g.combatPreferences.PaniniDisabled || g.combatPreferences.AutoTurnBased {
+				t.Fatal("missing preferences must default to aurora off, Panini on and no automatic turn-based mode")
 			}
 			layout := makeAudioSettingsPanelLayout(1024, 768, entry)
 			click := func(r layoutRect) {
@@ -71,6 +72,28 @@ func TestCombatOverlaySettings(t *testing.T) {
 			h.loop.inputHandler.keys = keytracker.NewWithSource(func(ebiten.Key) bool { return false })
 			click(combatOverlayChoiceRect(layout.px, layout.py, layout.panelW, false))
 			check(false)
+			// The automatic switch has its own Off/On pair and keyboard row, and
+			// leaves the aurora choice alone.
+			checkAuto := func(want bool) {
+				t.Helper()
+				restored := &MMGame{}
+				restored.loadCombatPreferences()
+				if g.combatPreferences.AutoTurnBased != want || restored.combatPreferences.AutoTurnBased != want ||
+					g.combatPreferences.TurnBasedOverlay || g.audioSettingsSelection != gameplayRowAutoTurnBased {
+					t.Fatalf("automatic turn-based runtime=%+v saved=%+v row=%d, want %v on its own row", g.combatPreferences, restored.combatPreferences, g.audioSettingsSelection, want)
+				}
+			}
+			click(autoTurnBasedChoiceRect(layout.px, layout.py, layout.panelW, true))
+			checkAuto(true)
+			for _, key := range []ebiten.Key{ebiten.KeyLeft, ebiten.KeyRight} {
+				presentInputScreen(h)
+				h.loop.inputHandler.keys = keytracker.NewWithSource(func(k ebiten.Key) bool { return k == key })
+				updateInputScreen(h)
+				checkAuto(key == ebiten.KeyRight)
+			}
+			h.loop.inputHandler.keys = keytracker.NewWithSource(func(ebiten.Key) bool { return false })
+			click(autoTurnBasedChoiceRect(layout.px, layout.py, layout.panelW, false))
+			checkAuto(false)
 			click(viewChoiceRect(layout.px, layout.py, layout.panelW, true))
 			restored := &MMGame{}
 			restored.loadCombatPreferences()
@@ -177,14 +200,14 @@ func TestCombatOverlayInformation(t *testing.T) {
 	if !r.combatAura.tiles[[2]int{8, 6}] {
 		t.Fatal("extra action did not extend movement to two steps")
 	}
-	m.RootTurnsRemaining = 1
+	m.Root.Turns = 1
 	collect()
 	for _, style := range r.combatAura.edges {
 		if style == combatAuraMove {
 			t.Fatal("rooted monster has a movement outline")
 		}
 	}
-	m.RootTurnsRemaining = 0
+	m.Root.Turns = 0
 	g.world.Tiles[8][9] = oldTile
 	r.precomputeFloorColorCache()
 	// Reusing the cached footprint must still observe a blocker being added,
@@ -216,7 +239,7 @@ func TestCombatOverlayInformation(t *testing.T) {
 		{SpellID: "hot_steam", X: x, Y: y, Radius: ts * .55, FramesLeft: 100},
 	}
 	g.bossFireTraps = []bossFireTrap{{TX: 5, TY: 8}}
-	g.traps = []PlacedTrap{{Key: "bear_trap", MapKey: currentMapKey(), TileX: 5, TileY: 8, FramesLeft: 100}}
+	g.traps = []PlacedTrap{{Key: "bear_trap", MapKey: currentMapKey(), TileX: 5, TileY: 8, Life: framesClock(100)}}
 	r.teleporterTiles = []teleporterTileFx{{tx: 5, ty: 8}}
 	sprites := r.collectPersistentDamageZoneEffects(nil)
 	sprites = r.collectBossFireTrapBorders(sprites)
@@ -229,7 +252,7 @@ func TestCombatOverlayInformation(t *testing.T) {
 	g.persistentDamageZones, g.bossFireTraps, g.traps = nil, nil, nil
 	r.teleporterTiles, r.zoneVisuals = nil, nil
 	// Existing warnings must replace tactical edges, not blend with them.
-	m.Telegraph = monster.TelegraphState{Warning: 1, Tiles: [][2]int{{5, 8}}}
+	m.Telegraph = monster.TelegraphState{Warning: roundClock(), Tiles: [][2]int{{5, 8}}}
 	collect()
 	for _, edge := range combatTileEdges(5, 8) {
 		if r.combatAura.priorityStrength(edge, .5) != 1 {

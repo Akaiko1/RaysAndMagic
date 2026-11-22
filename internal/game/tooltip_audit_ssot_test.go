@@ -24,7 +24,7 @@ func TestTooltip_WeaponArcAndCooldownLabels(t *testing.T) {
 	if err != nil {
 		t.Fatalf("steel_mace: %v", err)
 	}
-	def := lookupWeaponConfigByName(mace.Name)
+	def := lookupWeaponConfig(mace)
 	arc := character.MeleeSwingArcLine(def)
 	if arc == "" {
 		t.Fatal("fixture: steel_mace must be a melee weapon with a swing arc")
@@ -68,7 +68,7 @@ func TestTooltip_SpellCardRules(t *testing.T) {
 			setup: func(c *character.MMCharacter) {
 				c.Skills[character.SkillMeditation] = &character.Skill{Mastery: character.MasteryGrandMaster}
 			},
-			want: []string{"Base Cost:", fmt.Sprintf("Meditation - Grandmaster: -%d%%", MeditationGMSpellCostReductionPct)},
+			want: []string{"Base Cost:", fmt.Sprintf("Meditation - Grandmaster: -%d%%", MeditationGMSPCostReductionPct)},
 		},
 		{name: "no Meditation keeps one cost row", spell: "fireball", absent: []string{"Base Cost:", "Meditation -"}},
 	} {
@@ -280,7 +280,7 @@ func TestAllTooltipCatalogsAreClean(t *testing.T) {
 		}
 		assertCleanTooltipText(t, "compact/weapon/"+key, GetItemTooltipRows(item, char, cs, false).String())
 		assertCleanTooltipText(t, "weapon/"+key, GetItemTooltipRows(item, char, cs, true).String())
-		editor := GetItemTooltipRows(items.CreateWeaponFromYAML(items.GetWeaponKeyByName(def.Name)), nil, nil, true).String()
+		editor := GetItemTooltipRows(items.CreateWeaponFromYAML(config.CatalogKey(testWeapon(def.Name))), nil, nil, true).String()
 		assertCleanTooltipText(t, "editor/weapon/"+key, editor)
 	}
 	for key, def := range config.GlobalItems.Items {

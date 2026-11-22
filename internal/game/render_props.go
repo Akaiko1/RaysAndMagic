@@ -140,7 +140,7 @@ func (pose propPose) eachPosedFace(visit func(worldModelTriangle)) {
 			t := math.Min(1, pose.progress/.82)
 			fall := smooth((t - .25) / .75)
 			angle = fall * .78
-			dy = -.82 * smooth(t/.65)
+			dy = -propCrateFall * smooth(t/.65)
 			// Slide across the short local Y axis, then tumble around X.
 			// Both lower lids move during the same opening interval.
 			floorCenter := part.size*(.5*math.Abs(math.Cos(angle))+.43*math.Abs(math.Sin(angle))) + .018
@@ -192,6 +192,16 @@ func (pose propPose) eachPosedFace(visit func(worldModelTriangle)) {
 	}
 }
 
+// propOutsideView reports a prop none of whose points can project onto the
+// screen. x and z are its origin in camera space (cameraSpaceXY: the screen's
+// edges lie at x = -z and x = z), reach its horizontal radius in world units.
+// A point projects to x/z, with z never under the near plane's 1.
+func propOutsideView(x, z, reach, halfFovTan float64) bool {
+	far := max(z+reach, 1)
+	side := reach / halfFovTan
+	return x-side > far || x+side < -far
+}
+
 func (r *Renderer) collectPropModels() {
 	g := r.game
 	if g.world == nil {
@@ -217,9 +227,13 @@ func (r *Renderer) collectPropModels() {
 		if oz < -pose.scale*ts*1.5 {
 			continue
 		}
+		// Wholly left or right of the view: every face would be dropped after
+		// it was posed, lit and projected (projectTriangle).
+		if propOutsideView(ox, oz, pose.model.reach*pose.scale*ts, g.cameraBasis().halfFovTan) {
+			continue
+		}
 		brightness := r.calculateBrightnessWithTorchLight(npc.X, npc.Y, dist)
-		brightness = math.Max(g.config.Graphics.BrightnessMin, brightness)
-		if dist <= InteractionDistance && g.worldClickAllowed() {
+		if dist <= InteractionDistance && g.worldClickAllowed() && g.npcTakesInteraction(npc) {
 			x, y := g.worldCursorPosition()
 			if g.propModelHitTest(npc, x, y) {
 				brightness *= standeeHoverBoost
@@ -312,14 +326,8 @@ func (g *MMGame) propModelHitTest(npc *character.NPC, x, y int) bool {
 	if math.IsInf(nearest, 1) {
 		return false
 	}
-	if x < len(g.depthBuffer) && nearest*ts > g.depthBuffer[x]+.07 {
-		top := 0.0
-		if x < len(g.wallTopBuffer) {
-			top = g.wallTopBuffer[x]
-		}
-		if float64(y)+.5 >= top {
-			return false
-		}
+	if g.wallHides(x, nearest*ts, .07, float64(y)+.5) {
+		return false
 	}
 	return true
 }
@@ -367,7 +375,7 @@ func (r *Renderer) collectPropLights() {
 		if intensity <= 0 {
 			continue
 		}
-		clock := r.weaponMaterialClock() + auraHash(int(npc.X), int(npc.Y), 7, 5)*11
+		clock := r.game.worldSeconds() + auraHash(int(npc.X), int(npc.Y), 7, 5)*11
 		intensity *= .91 + .06*math.Sin(clock*4.7) + .03*math.Sin(clock*9.1)
 		r.activeLights = append(r.activeLights, LightSource{X: npc.X, Y: npc.Y, Radius: radius, Intensity: intensity})
 	}

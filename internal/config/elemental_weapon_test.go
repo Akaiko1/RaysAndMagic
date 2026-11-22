@@ -30,7 +30,7 @@ func TestElementalWeaponAuthoringRejectsIncompleteRules(t *testing.T) {
 			w.DamageType = "fire"
 			w.Melee = &MeleeAttackConfig{}
 			w.Physics = nil
-			w.ElementalAbility = &ElementalWeaponAbility{Kind: "pressure", Damage: 24, DurationSeconds: 6, Hits: 3, ScalingStat: "Speed", StatDivisor: 3}
+			w.ElementalAbility = &ElementalWeaponAbility{Kind: "pressure", StatScaledDamage: StatScaledDamage{Damage: 24, ScalingStat: "Speed", StatDivisor: 3}, DurationSeconds: 6, Hits: 3}
 			if err := w.ElementalAbility.validate(w); err != nil {
 				t.Fatal(err)
 			}
@@ -43,12 +43,12 @@ func TestElementalWeaponAuthoringRejectsIncompleteRules(t *testing.T) {
 }
 
 func TestElementalWeaponSpecializedContracts(t *testing.T) {
-	for _, kind := range []string{"backwash", "anchor", "crosswind"} {
+	for _, kind := range []ElementalAbilityKind{AbilityBackwash, AbilityAnchor, AbilityCrosswind} {
 		for _, invalid := range []string{"valid", "missing_budget", "wrong_range", "irrelevant_scaling", "wrong_duration"} {
-			t.Run(kind+"/"+invalid, func(t *testing.T) {
+			t.Run(string(kind)+"/"+invalid, func(t *testing.T) {
 				w := validMechanicTestWeapon()
 				w.Melee, w.Physics = &MeleeAttackConfig{}, nil
-				a := &ElementalWeaponAbility{Kind: kind, Damage: 12, DurationSeconds: 6}
+				a := &ElementalWeaponAbility{Kind: kind, StatScaledDamage: StatScaledDamage{Damage: 12}, DurationSeconds: 6}
 				w.ElementalAbility = a
 				switch kind {
 				case "backwash":

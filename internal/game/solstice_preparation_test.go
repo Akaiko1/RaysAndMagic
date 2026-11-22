@@ -2,6 +2,7 @@ package game
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -9,6 +10,8 @@ import (
 	"ugataima/internal/config"
 	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/items"
+	"ugataima/internal/spells"
+	"ugataima/internal/status"
 )
 
 func TestSolsticeDamageDraughts(t *testing.T) {
@@ -43,7 +46,7 @@ func TestSolsticeDamageDraughts(t *testing.T) {
 							t.Fatal("consumption/restore lost regeneration")
 						}
 					}
-					if len(g.combatBuffs) != 1 || g.combatBuffs[0].Frames != 60*g.config.GetTPS() {
+					if len(g.combatBuffs) != 1 || g.combatBuffs[0].Clock.Frames != 60*g.config.GetTPS() {
 						t.Fatal("lost clock")
 					}
 					for _, target := range []string{"fire", "water", "earth", "air", "physical"} {
@@ -76,9 +79,9 @@ func TestElementalDraughtSharedDamagePaths(t *testing.T) {
 			g := cs.game
 			g.turnBasedMode = tb
 			for _, pct := range []int{15, 30, 40} {
-				g.addCombatBuff(TimedCombatBuff{SpellID: fmt.Sprint(pct), Frames: 600, OutDamageType: "fire", OutPercent: pct})
+				g.addCombatBuff(TimedCombatBuff{ID: fmt.Sprint(pct), Clock: framesClock(600), OutDamageType: "fire", OutPercent: pct})
 			}
-			g.addCombatBuff(TimedCombatBuff{SpellID: "flat", Frames: 600, OutBonus: 10})
+			g.addCombatBuff(TimedCombatBuff{ID: "flat", Clock: framesClock(600), OutBonus: 10})
 			m, _ := partyDamageTargets(g, 64)
 			attack := cs.newPartyWeaponAttack(100, 20, "fire", nil, "test", false, false, 0)
 			if hit := cs.applyPartyMonsterAttack(m, attack); hit.Normal != 154 || hit.True != 28 {
@@ -88,11 +91,11 @@ func TestElementalDraughtSharedDamagePaths(t *testing.T) {
 			if hit := cs.applyPartyMonsterAttack(m, cs.spellProjectileAttack(mp)); hit.Normal != 154 || hit.True != 28 {
 				t.Fatalf("spell hit %+v", hit)
 			}
-			parts, _ := cs.spellPartsWithOutgoingBuff(damagecalc.Parts{Normal: 100, True: 20}, "fire")
+			parts, _, _ := cs.spellPartsWithOutgoingBuff(damagecalc.Parts{Normal: 100, True: 20}, "fire")
 			if parts.Normal != 154 || parts.True != 28 {
 				t.Fatal(parts)
 			}
-			g.combatBuffs[2].Frames = 0
+			g.combatBuffs[2].Clock = status.DualClock{}
 			if got := g.elementalDamageBuff(damagecalc.Parts{Normal: 100}, "fire").Normal; got != 130 {
 				t.Fatalf("expired strongest still applies: %d", got)
 			}
@@ -128,9 +131,8 @@ func TestSolsticeDraughtRegenerationLifecycle(t *testing.T) {
 				}
 			}
 			prime := func() {
-				g.turnBasedSpRegenCount = TurnBasedSpRegenEveryNRounds - 1
 				for _, c := range g.party.Members {
-					c.RestoreRealtimeRegenProgress(character.ManaRegenIntervalFrames-1, character.ManaRegenIntervalFrames-1)
+					c.SPRegen, c.HPRegen = lastTickClock(), lastTickClock()
 				}
 			}
 			drink("solstice_fire_ward")
@@ -149,11 +151,11 @@ func TestSolsticeDraughtRegenerationLifecycle(t *testing.T) {
 				t.Fatalf("medium regeneration HP=%d, want 530", c.HitPoints)
 			}
 			// Refreshing a potion must not reset a partially completed tick.
-			c.RestoreRealtimeRegenProgress(123, 123)
+			c.SPRegen, c.HPRegen = framesClock(123), framesClock(123)
 			drink("solstice_fire_advanced_ward")
 			drink("solstice_air_advanced_ward")
 			checkBonus(5, 5)
-			if sp, hp := c.RealtimeRegenProgress(); sp != 123 || hp != 123 {
+			if c.SPRegen != framesClock(123) || c.HPRegen != framesClock(123) {
 				t.Fatal("consuming a potion reset regeneration progress")
 			}
 			g.cardSlots[0].key = "troll_card"
@@ -168,7 +170,7 @@ func TestSolsticeDraughtRegenerationLifecycle(t *testing.T) {
 			}
 			// Thinking in TB must not advance RT clocks, or grant a second tick.
 			g.turnBasedMode = true
-			for range character.ManaRegenIntervalFrames {
+			for range config.RegenerationSeconds * config.GetTargetTPS() {
 				g.updatePartyClocks()
 			}
 			if c.HitPoints != 570 || c.SpellPoints != 550+ordinaryMana {
@@ -224,7 +226,13 @@ func TestSolsticeDraughtRegenerationLifecycle(t *testing.T) {
 			checkBonus(5, 5)
 			g.removeCombatBuff("solstice_air_advanced_ward")
 			checkBonus(3, 0)
-			g.advanceCombatBuffs(60*g.config.GetTPS(), tb)
+			if tb {
+				for range config.CombatRounds(60) {
+					g.advanceCombatBuffs(true)
+				}
+			} else {
+				spendFrames(60*g.config.GetTPS(), g.advanceCombatBuffs)
+			}
 			checkBonus(0, 0)
 			if g.party.Members[0].BonusRegenPct != 2 {
 				t.Fatal("draught expiry removed troll regeneration")
@@ -286,38 +294,33 @@ func TestAlchemyFiltersKeepRecipeIdentity(t *testing.T) {
 	}
 }
 
-func TestPreparationGoldExchange(t *testing.T) {
-	g := newTestCombatSystemWithConfig(t).game
-	c := &character.NPCDialogueChoice{Exchange: &character.NPCExchange{Gold: 900, Costs: map[string]int{"grave_orchid": 1}}}
-	g.party.Inventory = nil
-	before := g.party.Gold
-	g.exchangePreparation(c)
-	if g.party.Gold != before {
-		t.Fatal("unpaid exchange")
+// A preparation lesson names the spell it teaches, never its catalog key,
+// and charges only for a spell the hero actually learns.
+func TestPreparationLessonNamesTheSpell(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	g := cs.game
+	var hero *character.MMCharacter
+	var lesson spells.SpellID
+	for i, member := range g.party.Members {
+		for _, key := range slices.Sorted(maps.Keys(config.GlobalSpells.Spells)) {
+			if id := spells.SpellID(key); lesson == "" && member.HasSchoolOpenFor(id) && !member.KnowsSpell(id) {
+				hero, lesson, g.selectedChar = member, id, i
+			}
+		}
 	}
-	g.party.AddItem(items.CreateItemFromYAML("grave_orchid"))
-	g.exchangePreparation(c)
-	if g.party.Gold != before+900 || g.party.CountItemsByName("Grave Orchid") != 0 {
-		t.Fatal("incorrect exchange")
+	if lesson == "" {
+		t.Fatal("fixture: no hero has an open school with an unknown spell")
 	}
-	g.exchangePreparation(c)
-	if g.party.Gold != before+900 {
-		t.Fatal("duplicate payment")
+	g.party.Gold = 100
+	ih := NewInputHandler(g)
+	for range 2 { // the second lesson is already known: no charge
+		ih.teachPreparationSpell(&character.NPCDialogueChoice{Spell: string(lesson), Cost: 10})
 	}
-}
-
-func TestPreparationDawnleafExchange(t *testing.T) {
-	g := newTestCombatSystemWithConfig(t).game
-	c := &character.NPCDialogueChoice{Exchange: &character.NPCExchange{Output: "dawnleaf", Costs: map[string]int{"bitterroot": 2}}}
-	g.party.Inventory = nil
-	g.party.AddItem(items.CreateItemFromYAML("bitterroot"))
-	g.exchangePreparation(c)
-	if g.party.CountItemsByName("Bitterroot") != 1 || g.party.CountItemsByName("Dawnleaf") != 0 {
-		t.Fatal("incomplete payment consumed")
+	if !hero.KnowsSpell(lesson) || g.party.Gold != 90 {
+		t.Fatalf("knows=%v gold=%d, want the spell for 10 gold once", hero.KnowsSpell(lesson), g.party.Gold)
 	}
-	g.party.AddItem(items.CreateItemFromYAML("bitterroot"))
-	g.exchangePreparation(c)
-	if g.party.CountItemsByName("Bitterroot") != 0 || g.party.CountItemsByName("Dawnleaf") != 1 {
-		t.Fatal("incorrect herb exchange")
+	name := spellName(lesson)
+	if name == string(lesson) || countCombatLog(g, "learned "+name) != 1 || countCombatLog(g, string(lesson)) != 0 {
+		t.Fatalf("log must name %q, never the key %q: %v", name, lesson, g.combatLogHistory)
 	}
 }

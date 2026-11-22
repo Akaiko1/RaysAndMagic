@@ -8,6 +8,7 @@ import (
 	"ugataima/internal/graphics"
 
 	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/colorm"
 	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
@@ -79,6 +80,17 @@ func uiClip(dst *ebiten.Image, r image.Rectangle) *ebiten.Image {
 		uiFrameSurfaces[sub] = uiSurface{s, r}
 	}
 	return sub
+}
+
+// uiListClip is a scrolled list's surface: view grown by the one-unit rim
+// drawRectBorder puts outside each item, so edge items keep every side. in is
+// the visible part of view itself, for hits; ok is false when none is.
+func uiListClip(dst *ebiten.Image, view layoutRect) (list *ebiten.Image, in image.Rectangle, ok bool) {
+	in = image.Rect(view.x, view.y, view.right(), view.bottom()).Intersect(uiBounds(dst))
+	if in.Empty() {
+		return nil, in, false
+	}
+	return uiClip(dst, in.Inset(-1)), in, true
 }
 
 // uiSurfaceAt is dst addressed at another scale (pixels per unit) for the rest
@@ -255,6 +267,47 @@ func uiImageOptions(dstScale, srcScale float64, op *ebiten.DrawImageOptions) ebi
 	scaled.GeoM.Scale(dstScale, dstScale)
 	scaled.Filter = uiResampleFilter(scaled.Filter, dstScale/srcScale)
 	return scaled
+}
+
+// uiColorBake holds sprites recoloured once at their own size through its
+// colour matrix (set by NewUISystem), by sprite key. A plain draw of the result
+// keeps mipmaps when it is shrunk; a colour matrix at draw time (colorm, a
+// shader draw) never samples them.
+type uiColorBake struct {
+	cm     *colorm.ColorM
+	images map[string]uiBaked
+}
+
+type uiBaked struct{ src, img *ebiten.Image }
+
+// of returns the sprite src (named key) recoloured, baking it on first use and
+// again when the sprite was reloaded.
+func (b *uiColorBake) of(key string, src *ebiten.Image) *ebiten.Image {
+	if src == nil {
+		return nil
+	}
+	if baked, ok := b.images[key]; ok {
+		if baked.src == src {
+			return baked.img
+		}
+		baked.img.Deallocate()
+	}
+	bounds := src.Bounds()
+	img := ebiten.NewImage(bounds.Dx(), bounds.Dy())
+	colorm.DrawImage(img, src, *b.cm, nil)
+	if b.images == nil {
+		b.images = map[string]uiBaked{}
+	}
+	b.images[key] = uiBaked{src: src, img: img}
+	return img
+}
+
+// release frees the baked images; the cache keeps its colour matrix.
+func (b *uiColorBake) release() {
+	for _, baked := range b.images {
+		baked.img.Deallocate()
+	}
+	b.images = nil
 }
 
 // uiDrawImageScaled fits src into the UI-unit rect (x, y, w, h).

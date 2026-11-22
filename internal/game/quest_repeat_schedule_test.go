@@ -29,7 +29,7 @@ func TestRepeatQuestPhaseSchedules(t *testing.T) {
 							g.questManager.MarkCompleted("errand")
 						}
 						if state == "claimed" {
-							if !g.claimQuestReward("errand") {
+							if !g.claimQuestReward("errand", nil) {
 								t.Fatal("claim failed")
 							}
 						}
@@ -72,10 +72,10 @@ func TestRepeatQuestFullDaysSurviveSaveLoad(t *testing.T) {
 					t.Fatal(err)
 				}
 				g.questManager.MarkCompleted("toll_of_blades")
-				if !g.claimQuestReward("toll_of_blades") {
+				if !g.claimQuestReward("toll_of_blades", nil) {
 					t.Fatal("claim failed")
 				}
-				if g.claimQuestReward("toll_of_blades") {
+				if g.claimQuestReward("toll_of_blades", nil) {
 					t.Fatal("duplicate claim succeeded")
 				}
 				claim := g.questManager.GetQuest("toll_of_blades").ClaimedAtDay

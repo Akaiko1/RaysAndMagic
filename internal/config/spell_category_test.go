@@ -11,16 +11,26 @@ func TestValidateSpellAuthoring_Category(t *testing.T) {
 		category  string
 		utility   bool
 		duration  int
+		stat      int
+		resist    int
 		wantError bool
 	}{
 		{name: "default"},
-		{name: "buff", category: "buff", utility: true, duration: 1},
-		{name: "case-insensitive", category: "BuFf", utility: true, duration: 1},
-		{name: "unknown", category: "enchantment", utility: true, duration: 1, wantError: true},
+		{name: "buff", category: "buff", utility: true, duration: 3, stat: 5},
+		{name: "combat buff keeps its cooldown", category: "combat_buff", utility: true, duration: 3, stat: 5},
+		{name: "case-insensitive", category: "BuFf", utility: true, duration: 3, stat: 5},
+		{name: "unknown", category: "enchantment", utility: true, duration: 3, stat: 5, wantError: true},
 		{name: "instant utility cannot be a buff", category: "buff", utility: true, wantError: true},
+		{name: "timed effect needs a category", utility: true, duration: 3, stat: 5, wantError: true},
+		{name: "instant utility cannot carry a lifetime", utility: true, duration: 3, wantError: true},
+		{name: "combat buff alone", category: "buff", utility: true, duration: 3, resist: 10},
+		{name: "stat and combat buff at once", category: "buff", utility: true, duration: 3, stat: 5, resist: 10, wantError: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			def := &SpellDefinitionConfig{Category: tc.category, IsUtility: tc.utility, Duration: tc.duration}
+			def := &SpellDefinitionConfig{Category: tc.category, IsUtility: tc.utility, StatBonus: tc.stat, ResistBuffPct: tc.resist}
+			if tc.duration > 0 {
+				def.DurationByMastery = []int{tc.duration, tc.duration, tc.duration, tc.duration}
+			}
 			// Only non-buff spells author a cooldown, so each case must satisfy
 			// that rule to be judged on the behaviour it actually tests.
 			if !strings.EqualFold(strings.TrimSpace(tc.category), "buff") {
@@ -69,8 +79,10 @@ func TestValidateSpellAuthoring_CooldownRequiredExceptBuffs(t *testing.T) {
 		{name: "castable with cooldown", def: &SpellDefinitionConfig{CooldownSeconds: 1.5}},
 		{name: "castable without cooldown", def: &SpellDefinitionConfig{}, wantError: true},
 		{name: "castable with zero cooldown", def: &SpellDefinitionConfig{CooldownSeconds: 0}, wantError: true},
-		{name: "buff without cooldown", def: &SpellDefinitionConfig{Category: "buff", IsUtility: true, Duration: 60}},
-		{name: "buff with dead cooldown", def: &SpellDefinitionConfig{Category: "buff", IsUtility: true, Duration: 60, CooldownSeconds: 5}, wantError: true},
+		{name: "buff without cooldown", def: &SpellDefinitionConfig{Category: "buff", IsUtility: true, StatBonus: 5, DurationByMastery: []int{60, 60, 60, 60}}},
+		{name: "buff with dead cooldown", def: &SpellDefinitionConfig{Category: "buff", IsUtility: true, StatBonus: 5, DurationByMastery: []int{60, 60, 60, 60}, CooldownSeconds: 5}, wantError: true},
+		{name: "combat buff with cooldown", def: &SpellDefinitionConfig{Category: "combat_buff", IsUtility: true, StatBonus: 5, DurationByMastery: []int{12, 12, 12, 12}, CooldownSeconds: 2}},
+		{name: "combat buff without cooldown", def: &SpellDefinitionConfig{Category: "combat_buff", IsUtility: true, StatBonus: 5, DurationByMastery: []int{12, 12, 12, 12}}, wantError: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := &SpellSystemConfig{Spells: map[string]*SpellDefinitionConfig{"test": tc.def}}
@@ -82,45 +94,35 @@ func TestValidateSpellAuthoring_CooldownRequiredExceptBuffs(t *testing.T) {
 	}
 }
 
-func TestValidateSpellAuthoring_StunRequiresBothModeClocks(t *testing.T) {
+// A spell's stun lasts its seconds in RT and the same span in TB turns, so
+// the one authored duration must be whole 3 s rounds.
+func TestValidateSpellAuthoring_StunDurationIsWholeRounds(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		def     *SpellDefinitionConfig
 		wantErr bool
 	}{
 		{
-			name: "complete chance stun",
-			def: &SpellDefinitionConfig{
-				CooldownSeconds: 1, StunChance: 0.5,
-				StunDurationSeconds: 2, StunDurationTurns: 1,
-			},
+			name: "chance stun",
+			def:  &SpellDefinitionConfig{CooldownSeconds: 1, StunChance: 0.5, StunDurationSeconds: 3},
 		},
 		{
-			name: "complete radius stun",
-			def: &SpellDefinitionConfig{
-				CooldownSeconds: 1, StunRadiusTiles: 3,
-				StunDurationSeconds: 4, StunDurationTurns: 2,
-			},
+			name: "radius stun",
+			def:  &SpellDefinitionConfig{CooldownSeconds: 1, StunRadiusTiles: 3, StunDurationSeconds: 6},
 		},
 		{
-			name: "missing seconds",
-			def: &SpellDefinitionConfig{
-				CooldownSeconds: 1, StunChance: 0.5, StunDurationTurns: 1,
-			},
+			name:    "missing duration",
+			def:     &SpellDefinitionConfig{CooldownSeconds: 1, StunChance: 0.5},
 			wantErr: true,
 		},
 		{
-			name: "missing turns",
-			def: &SpellDefinitionConfig{
-				CooldownSeconds: 1, StunRadiusTiles: 3, StunDurationSeconds: 4,
-			},
+			name:    "part of a round",
+			def:     &SpellDefinitionConfig{CooldownSeconds: 1, StunRadiusTiles: 3, StunDurationSeconds: 4},
 			wantErr: true,
 		},
 		{
-			name: "orphan durations",
-			def: &SpellDefinitionConfig{
-				CooldownSeconds: 1, StunDurationSeconds: 2, StunDurationTurns: 1,
-			},
+			name:    "orphan duration",
+			def:     &SpellDefinitionConfig{CooldownSeconds: 1, StunDurationSeconds: 3},
 			wantErr: true,
 		},
 	} {

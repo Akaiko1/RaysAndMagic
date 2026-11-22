@@ -3,6 +3,7 @@ package game
 import (
 	"image/color"
 
+	"ugataima/internal/character"
 	"ugataima/internal/config"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -68,6 +69,16 @@ type styledRun[S any] struct {
 // wrapStyled wraps styled text with exactly wrapUIText's breaks: the plain
 // text is wrapped, then every byte of each line takes its piece's style.
 func wrapStyled[S any](runs []styledRun[S], maxW int) [][]styledRun[S] {
+	return styledLines(runs, func(plain string) []string { return wrapUIText(plain, maxW) })
+}
+
+// styledLines gives every byte of the lines cut cuts from the runs' text -
+// whitespace collapsed, as wrapUIText and the tooltip layout cut it - the
+// style of the run it came from.
+func styledLines[S any](runs []styledRun[S], cut func(plain string) []string) [][]styledRun[S] {
+	if len(runs) == 0 {
+		return nil
+	}
 	plain := ""
 	var owner []int // run index of each byte of plain
 	for i, r := range runs {
@@ -76,33 +87,31 @@ func wrapStyled[S any](runs []styledRun[S], maxW int) [][]styledRun[S] {
 			owner = append(owner, i)
 		}
 	}
-	if len(runs) == 0 {
-		return nil
-	}
-	space := func(b byte) bool { return b == ' ' || b == '\t' || b == '\n' || b == '\r' || b == '\v' || b == '\f' }
+	space := character.IsCardSpace
 	var out [][]styledRun[S]
 	at, last := 0, 0
-	for _, text := range wrapUIText(plain, maxW) {
+	for _, text := range cut(plain) {
 		var line []styledRun[S]
-		emit := func(b byte, run int) {
+		start := 0 // where the line's last piece begins in text
+		emit := func(k, run int) {
 			if n := len(line); n > 0 && last == run {
-				line[n-1].text += string(b)
+				line[n-1].text = text[start : k+1]
 				return
 			}
-			line = append(line, styledRun[S]{string(b), runs[run].style})
-			last = run
+			line = append(line, styledRun[S]{text[k : k+1], runs[run].style})
+			start, last = k, run
 		}
 		for k := 0; k < len(text); k++ {
 			for at < len(plain) && plain[at] != text[k] && space(plain[at]) {
 				at++
 			}
 			if at >= len(plain) || plain[at] != text[k] {
-				emit(text[k], last) // unreachable for wrapUIText output
+				emit(k, last) // unreachable for lines cut from plain
 				continue
 			}
-			emit(text[k], owner[at])
+			emit(k, owner[at])
 			at++
-			// A run of spaces wrapUIText collapsed belongs to this one.
+			// A run of spaces the cut collapsed belongs to this one.
 			for text[k] == ' ' && at < len(plain) && space(plain[at]) && (k+1 >= len(text) || text[k+1] != ' ') {
 				at++
 			}

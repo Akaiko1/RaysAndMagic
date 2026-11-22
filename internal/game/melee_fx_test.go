@@ -9,7 +9,7 @@ import (
 // TestMeleeFxKind: every weapon category maps to its own swing flavor so the FX
 // differ per type (sword vs axe vs mace vs dagger vs spear).
 func TestMeleeFxKind(t *testing.T) {
-	cases := map[string]string{
+	cases := map[string]swingKind{
 		"sword":  "slash",
 		"axe":    "chop",
 		"mace":   "smash",

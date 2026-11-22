@@ -66,18 +66,18 @@ func TestAIChampionSpellsFollowTarget(t *testing.T) {
 							}
 							switch spell {
 							case "stone_skin":
-								if m.SoakFrames <= 0 {
+								if m.Soak.Frames <= 0 {
 									t.Fatal("cast did not apply self buff")
 								}
 							case "stun":
 								if redirected {
-									if foe.StunTurnsRemaining <= 0 {
+									if foe.Stun.Turns <= 0 {
 										t.Fatal("shockwave missed summon")
 									}
 								} else {
 									stunned := false
 									for _, ch := range g.party.Members {
-										if ch.StunTurnsRemaining > 0 {
+										if ch.Stun.Turns > 0 {
 											stunned = true
 										}
 									}
@@ -92,14 +92,14 @@ func TestAIChampionSpellsFollowTarget(t *testing.T) {
 								p := &g.magicProjectiles[len(g.magicProjectiles)-1]
 								owner := ProjectileOwnerMonster
 								if redirected {
-									owner = ProjectileOwnerMonsterAtBound
+									owner = ProjectileOwnerMonsterAtActor
 								}
 								if p.Owner != owner || p.VelX <= 0 || p.VelY != 0 || p.SpellType != spell {
 									t.Fatalf("wrong projectile target/owner: %+v", p)
 								}
 								if redirected {
 									before := foe.HitPoints
-									g.combat.resolveMonsterProjectileVsMonster(p, "magic_projectile", foe, p.ID)
+									g.combat.resolveMonsterProjectileVsMonster(p, foe, p.ID)
 									if foe.HitPoints >= before {
 										t.Fatal("spell did not damage summon at impact")
 									}

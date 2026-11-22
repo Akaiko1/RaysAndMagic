@@ -247,12 +247,14 @@ func TestTwoRingsStackBonuses(t *testing.T) {
 
 	one := newMage()
 	one.EquipItem(items.CreateItemFromYAML("magic_ring"))
-	_, int1, per1, _, _, _, _ := one.calculateEquipmentBonuses()
+	b1 := one.calculateEquipmentBonuses()
+	int1, per1 := b1.Intellect, b1.Personality
 
 	two := newMage()
 	two.EquipItem(items.CreateItemFromYAML("magic_ring"))
 	two.EquipItem(items.CreateItemFromYAML("magic_ring"))
-	_, int2, per2, _, _, _, _ := two.calculateEquipmentBonuses()
+	b2 := two.calculateEquipmentBonuses()
+	int2, per2 := b2.Intellect, b2.Personality
 
 	if int1 != wantInt || per1 != wantPer {
 		t.Fatalf("single ring bonus: got int=%d per=%d, want int=%d per=%d", int1, per1, wantInt, wantPer)

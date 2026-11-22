@@ -2,7 +2,10 @@ package game
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
+	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,6 +15,9 @@ import (
 	"ugataima/internal/monster"
 	"ugataima/internal/quests"
 	"ugataima/internal/spells"
+	"ugataima/internal/stash"
+	"ugataima/internal/status"
+	"ugataima/internal/storage"
 	"ugataima/internal/world"
 )
 
@@ -85,7 +91,6 @@ func TestSaveLoad_PersistsTurnBasedAndBuffs(t *testing.T) {
 	game.turnBasedMoveCooldown = 7
 	game.turnBasedRotCooldown = 9
 	game.monsterTurnResolved = true
-	game.turnBasedSpRegenCount = 4
 	game.turnBasedExtraMonsterAction = true
 	schedulerMob := monster.NewMonster3DFromConfig(96, 96, "goblin", cfg)
 	schedulerMob.ID = "saved_scheduler_mob"
@@ -96,25 +101,25 @@ func TestSaveLoad_PersistsTurnBasedAndBuffs(t *testing.T) {
 	game.turnBasedMonsterStunned = map[*monster.Monster3D]bool{schedulerMob: true}
 
 	game.torchLightActive = true
-	game.torchLightDuration = 120
+	game.torchLightClock = framesClock(120)
 	game.torchLightRadius = 4.0
 	game.wizardEyeActive = true
-	game.wizardEyeDuration = 45
+	game.wizardEyeClock = framesClock(45)
 	game.walkOnWaterActive = true
-	game.walkOnWaterDuration = 33
+	game.walkOnWaterClock = framesClock(33)
 	game.addStatBuff(TimedStatBuff{
-		SpellID: "bless", Frames: 60,
+		SpellID: "bless", Clock: framesClock(60),
 		Bonuses: character.UniformStatBonuses(2),
 	})
 	// Providence originally granted Bless, then the player recast it. The marker
 	// stays until the phase boundary, while ownership is now ordinary.
 	game.celestialBuffSpellID = "bless"
 	game.persistentDamageZones = []PersistentDamageZone{{
-		SpellID: "hot_steam", CasterName: game.party.Members[0].Name, FieldID: 77, MapKey: "forest", FramesLeft: 42,
+		SpellID: "hot_steam", FieldID: 77, MapKey: "forest", FramesLeft: 42,
 		IntervalFrames: 360, TickDamage: 3,
 	}}
 	game.waterBreathingActive = true
-	game.waterBreathingDuration = 25
+	game.waterBreathingClock = framesClock(25)
 	game.underwaterReturnX = 96
 	game.underwaterReturnY = 128
 	game.underwaterReturnMap = "forest"
@@ -152,9 +157,6 @@ func TestSaveLoad_PersistsTurnBasedAndBuffs(t *testing.T) {
 	if loaded.monsterTurnResolved != game.monsterTurnResolved {
 		t.Fatalf("monsterTurnResolved: got %v want %v", loaded.monsterTurnResolved, game.monsterTurnResolved)
 	}
-	if loaded.turnBasedSpRegenCount != game.turnBasedSpRegenCount {
-		t.Fatalf("turnBasedSpRegenCount: got %d want %d", loaded.turnBasedSpRegenCount, game.turnBasedSpRegenCount)
-	}
 	if loaded.turnBasedExtraMonsterAction != game.turnBasedExtraMonsterAction {
 		t.Fatalf("turnBasedExtraMonsterAction: got %v want %v", loaded.turnBasedExtraMonsterAction, game.turnBasedExtraMonsterAction)
 	}
@@ -169,8 +171,8 @@ func TestSaveLoad_PersistsTurnBasedAndBuffs(t *testing.T) {
 		t.Fatalf("stunned monster was not restored into the mid-pass scheduler: monsters=%d stunned=%v", len(worldLoad.Monsters), loaded.turnBasedMonsterStunned)
 	}
 
-	if loaded.torchLightActive != game.torchLightActive || loaded.torchLightDuration != game.torchLightDuration {
-		t.Fatalf("torchLight: got %v/%d want %v/%d", loaded.torchLightActive, loaded.torchLightDuration, game.torchLightActive, game.torchLightDuration)
+	if loaded.torchLightActive != game.torchLightActive || loaded.torchLightClock.Frames != game.torchLightClock.Frames {
+		t.Fatalf("torchLight: got %v/%d want %v/%d", loaded.torchLightActive, loaded.torchLightClock.Frames, game.torchLightActive, game.torchLightClock.Frames)
 	}
 	// The radius deliberately does NOT round-trip: on load an active torch
 	// adopts the CURRENT spells.yaml light_radius_tiles, so old saves pick
@@ -182,11 +184,11 @@ func TestSaveLoad_PersistsTurnBasedAndBuffs(t *testing.T) {
 	if loaded.torchLightRadius != torchDef.LightRadiusTiles {
 		t.Fatalf("torchLightRadius: got %v want spells.yaml value %v", loaded.torchLightRadius, torchDef.LightRadiusTiles)
 	}
-	if loaded.wizardEyeActive != game.wizardEyeActive || loaded.wizardEyeDuration != game.wizardEyeDuration {
-		t.Fatalf("wizardEye: got %v/%d want %v/%d", loaded.wizardEyeActive, loaded.wizardEyeDuration, game.wizardEyeActive, game.wizardEyeDuration)
+	if loaded.wizardEyeActive != game.wizardEyeActive || loaded.wizardEyeClock.Frames != game.wizardEyeClock.Frames {
+		t.Fatalf("wizardEye: got %v/%d want %v/%d", loaded.wizardEyeActive, loaded.wizardEyeClock.Frames, game.wizardEyeActive, game.wizardEyeClock.Frames)
 	}
-	if loaded.walkOnWaterActive != game.walkOnWaterActive || loaded.walkOnWaterDuration != game.walkOnWaterDuration {
-		t.Fatalf("walkOnWater: got %v/%d want %v/%d", loaded.walkOnWaterActive, loaded.walkOnWaterDuration, game.walkOnWaterActive, game.walkOnWaterDuration)
+	if loaded.walkOnWaterActive != game.walkOnWaterActive || loaded.walkOnWaterClock.Frames != game.walkOnWaterClock.Frames {
+		t.Fatalf("walkOnWater: got %v/%d want %v/%d", loaded.walkOnWaterActive, loaded.walkOnWaterClock.Frames, game.walkOnWaterActive, game.walkOnWaterClock.Frames)
 	}
 	loadedBless, ok := loaded.statBuffByID("bless")
 	wantBless, _ := game.statBuffByID("bless")
@@ -196,8 +198,8 @@ func TestSaveLoad_PersistsTurnBasedAndBuffs(t *testing.T) {
 	if loadedBless.SourceID != "" || loaded.celestialBuffSpellID != "bless" {
 		t.Fatalf("player recast ownership changed on load: buff=%+v marker=%q", loadedBless, loaded.celestialBuffSpellID)
 	}
-	if loaded.waterBreathingActive != game.waterBreathingActive || loaded.waterBreathingDuration != game.waterBreathingDuration {
-		t.Fatalf("waterBreathing: got %v/%d want %v/%d", loaded.waterBreathingActive, loaded.waterBreathingDuration, game.waterBreathingActive, game.waterBreathingDuration)
+	if loaded.waterBreathingActive != game.waterBreathingActive || loaded.waterBreathingClock.Frames != game.waterBreathingClock.Frames {
+		t.Fatalf("waterBreathing: got %v/%d want %v/%d", loaded.waterBreathingActive, loaded.waterBreathingClock.Frames, game.waterBreathingActive, game.waterBreathingClock.Frames)
 	}
 	if loaded.underwaterReturnX != game.underwaterReturnX || loaded.underwaterReturnY != game.underwaterReturnY || loaded.underwaterReturnMap != game.underwaterReturnMap {
 		t.Fatalf("underwaterReturn: got %.0f/%.0f/%s want %.0f/%.0f/%s", loaded.underwaterReturnX, loaded.underwaterReturnY, loaded.underwaterReturnMap, game.underwaterReturnX, game.underwaterReturnY, game.underwaterReturnMap)
@@ -206,23 +208,129 @@ func TestSaveLoad_PersistsTurnBasedAndBuffs(t *testing.T) {
 		t.Fatalf("statBonuses: got %+v want %+v", loaded.statBonuses, game.statBonuses)
 	}
 
-	if loaded.utilitySpellStatuses == nil {
-		t.Fatalf("utilitySpellStatuses not initialized")
+	if loaded.buffStatuses == nil {
+		t.Fatalf("buffStatuses not initialized")
 	}
-	if status, ok := loaded.utilitySpellStatuses[spells.SpellID("torch_light")]; !ok || status.Duration != loaded.torchLightDuration {
+	if status, ok := loaded.buffStatuses["torch_light"]; !ok || status.Duration != loaded.torchLightClock.Frames {
 		t.Fatalf("utility torch_light missing or duration mismatch")
 	}
-	if status, ok := loaded.utilitySpellStatuses[spells.SpellID("bless")]; !ok || status.Duration != wantBless.Frames {
+	if status, ok := loaded.buffStatuses["bless"]; !ok || status.Duration != wantBless.Clock.Frames {
 		t.Fatalf("utility bless icon missing right after load (ok=%v)", ok)
 	}
-	if status, ok := loaded.utilitySpellStatuses[spells.SpellID("hot_steam")]; !ok || status.Duration != 42 {
+	if status, ok := loaded.buffStatuses["hot_steam"]; !ok || status.Duration != 42 {
 		t.Fatalf("utility hot_steam icon missing right after TB load (ok=%v)", ok)
 	}
-	if len(loaded.persistentDamageZones) != 1 || loaded.persistentDamageZones[0].FieldID != 77 ||
-		loaded.persistentDamageZones[0].CasterName != game.party.Members[0].Name || loaded.nextPersistentDamageZoneFieldID != 77 {
+	if len(loaded.persistentDamageZones) != 1 || loaded.persistentDamageZones[0].FieldID != 77 || loaded.nextPersistentDamageZoneFieldID != 77 {
 		t.Fatalf("steam-zone field identity was not restored: zones=%+v next=%d", loaded.persistentDamageZones, loaded.nextPersistentDamageZoneFieldID)
 	}
 
+}
+
+// A save read at another tick rate keeps every timer's seconds: decoding
+// rescales its clocks (plain, pointer, in maps, on items) and tagged frame
+// counts, and keeps turns. A save without a recorded rate was written at the
+// shipped one.
+func TestSaveLoad_TickRateChangeKeepsSeconds(t *testing.T) {
+	cfg := loadTestConfig(t) // also the loaded config: decoding reads its rate
+	wm := world.NewWorldManager(cfg)
+	w := newTestWorld(cfg)
+	wm.LoadedMaps = map[string]*world.World3D{"forest": w}
+	wm.CurrentMapKey = "forest"
+	game := newTestGame(cfg, w)
+	member := game.party.Members[0]
+	member.RTCooldown = 120
+	device := items.CreateItemFromYAML("translocator")
+	device.DeviceCooldown = items.RoundClock{Frames: 400, Turns: 2, Rate: 360}
+	member.Inventory = []items.Item{device}
+	mob := monster.NewMonster3DFromConfig(64, 64, "bandit", cfg)
+	mob.ID = "rate-mob"
+	mob.AttackCDFrames = 240
+	mob.PounceCD = status.DualClock{Frames: 361, Turns: 2, Rate: 240}
+	w.Monsters = []*monster.Monster3D{mob}
+	built := game.buildSave(wm)
+	built.CardSummonClocks = map[string]status.DualClock{"wolf": {Frames: 120, Turns: 1, Rate: 360}}
+	built.CardSummonCooldowns = map[string]int{"wolf": 120} // a legacy field, read after the rescale
+	raw, err := json.Marshal(built)
+	if err != nil {
+		t.Fatalf("marshal save: %v", err)
+	}
+	stamp := fmt.Sprintf(`"tick_rate":%d`, cfg.GetTPS())
+	if !strings.Contains(string(raw), stamp) {
+		t.Fatalf("the save does not record its rate %s", stamp)
+	}
+	for _, tc := range []struct {
+		name, stamp                   string
+		recovery, attack, card, legal int
+		device                        items.RoundClock
+		pounce                        status.DualClock
+	}{
+		{"written at twice the rate", fmt.Sprintf(`"tick_rate":%d`, 2*cfg.GetTPS()), 60, 120, 60, 60,
+			items.RoundClock{Frames: 200, Turns: 2, Rate: 180}, status.DualClock{Frames: 181, Turns: 2, Rate: 120}},
+		{"no recorded rate", `"tick_rate":0`, 120, 240, 120, 120,
+			items.RoundClock{Frames: 400, Turns: 2, Rate: 360}, status.DualClock{Frames: 361, Turns: 2, Rate: 240}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var save GameSave
+			if err := json.Unmarshal([]byte(strings.Replace(string(raw), stamp, tc.stamp, 1)), &save); err != nil {
+				t.Fatalf("unmarshal save: %v", err)
+			}
+			ch, ms := save.Party.Members[0], save.Monsters[0]
+			if ch.RTCooldown != tc.recovery || ch.Inventory[0].DeviceCooldown != tc.device {
+				t.Errorf("hero recovery %d, device %+v; want %d, %+v", ch.RTCooldown, ch.Inventory[0].DeviceCooldown, tc.recovery, tc.device)
+			}
+			if ms.AttackCDFrames != tc.attack || ms.PounceCD == nil || *ms.PounceCD != tc.pounce {
+				t.Errorf("monster attack %d, pounce %+v; want %d, %+v", ms.AttackCDFrames, ms.PounceCD, tc.attack, tc.pounce)
+			}
+			if save.CardSummonClocks["wolf"].Frames != tc.card || save.CardSummonCooldowns["wolf"] != tc.legal {
+				t.Errorf("card clock %+v, legacy %d; want %d frames each", save.CardSummonClocks["wolf"], save.CardSummonCooldowns["wolf"], tc.card)
+			}
+			if save.TickRate != cfg.GetTPS() {
+				t.Errorf("the decoded save records rate %d, want the live %d", save.TickRate, cfg.GetTPS())
+			}
+		})
+	}
+}
+
+// Every frame count a save or the stash file keeps rescales with the tick
+// rate: an integer field named like one carries `ticks:"frames"`, unless it is
+// listed here as not frames. A clock rescales by its own type
+// (status.ScalesItself); a struct embedding one still has its fields checked.
+func TestSavedFrameCountsAreTagged(t *testing.T) {
+	notFrames := map[string]string{
+		"GameSave.TickRate":                    "the rate stamp itself",
+		"MonsterLegacyClocks.TrapVolleyTurnCD": "turns",
+		"PartyHinderState.LegacyWindow":        "rounds",
+	}
+	frameName := regexp.MustCompile(`Frames|(Timer|Cooldowns?|CD|Duration|Rate|Delay|Counter|Window)$`)
+	seen := map[reflect.Type]bool{}
+	var walk func(reflect.Type)
+	walk = func(tp reflect.Type) {
+		for tp.Kind() == reflect.Pointer || tp.Kind() == reflect.Slice || tp.Kind() == reflect.Array || tp.Kind() == reflect.Map {
+			tp = tp.Elem()
+		}
+		if tp.Kind() != reflect.Struct || seen[tp] || status.ScalesItself(tp) {
+			return
+		}
+		seen[tp] = true
+		for i := 0; i < tp.NumField(); i++ {
+			field := tp.Field(i)
+			if !field.IsExported() {
+				continue
+			}
+			base := field.Type
+			for base.Kind() == reflect.Pointer || base.Kind() == reflect.Slice || base.Kind() == reflect.Map || base.Kind() == reflect.Array {
+				base = base.Elem()
+			}
+			name := tp.Name() + "." + field.Name
+			if base.Kind() >= reflect.Int && base.Kind() <= reflect.Int64 && frameName.MatchString(field.Name) &&
+				field.Tag.Get("ticks") != "frames" && notFrames[name] == "" {
+				t.Errorf("%s looks like a frame count but has no ticks:\"frames\" tag: a tick-rate change would not rescale it", name)
+			}
+			walk(field.Type)
+		}
+	}
+	walk(reflect.TypeOf(GameSave{}))
+	walk(reflect.TypeOf(stash.Stash{}))
 }
 
 func TestSaveLoad_PersistsDualClockExchangeRates(t *testing.T) {
@@ -237,30 +345,40 @@ func TestSaveLoad_PersistsDualClockExchangeRates(t *testing.T) {
 		t.Fatal("test party has no members")
 	}
 	member := game.party.Members[0]
-	member.StunFramesRemaining = 361
-	member.StunTurnsRemaining = 4
-	member.StunRate = 120
+	member.Stun.Frames = 361
+	member.Stun.Turns = 4
+	member.Stun.Rate = 120
+	member.ArmorMelt = status.DualClock{Frames: 361, Turns: 4, Rate: 120}
 
 	mob := monster.NewMonster3DFromConfig(64, 64, "bandit", cfg)
 	mob.ID = "rated-clock-mob"
-	mob.StunFramesRemaining = 361
-	mob.StunTurnsRemaining = 4
-	mob.StunRate = 120
-	mob.RootFramesRemaining = 181
-	mob.RootTurnsRemaining = 2
-	mob.RootRate = 120
+	mob.Stun.Frames = 361
+	mob.Stun.Turns = 4
+	mob.Stun.Rate = 120
+	mob.Root.Frames = 181
+	mob.Root.Turns = 2
+	mob.Root.Rate = 120
 	mob.ArmorShredPct = 20
-	mob.ArmorShredFramesRemaining = 361
-	mob.ArmorShredTurnsRemaining = 4
-	mob.ArmorShredRate = 120
-	mob.PounceCDFrames = 361
-	mob.PounceCDTurns = 2
-	mob.PounceCDRate = 240
+	mob.ArmorShred.Frames = 361
+	mob.ArmorShred.Turns = 4
+	mob.ArmorShred.Rate = 120
+	mob.ArmorMelt = status.DualClock{Frames: 361, Turns: 4, Rate: 120}
+	mob.PounceCD.Frames = 361
+	mob.PounceCD.Turns = 2
+	mob.PounceCD.Rate = 240
+	mob.PhaseShiftCD.Frames, mob.PhaseShiftCD.Turns, mob.PhaseShiftCD.Rate = 361, 2, 240
 	mob.SoakDamage = 5
-	mob.SoakFrames = 361
-	mob.SoakTurns = 4
-	mob.SoakRate = 120
-	mob.InfernoCDFrames = 240 // ranged-nova cooldown: a reload must not refresh it
+	mob.Soak.Frames = 361
+	mob.Soak.Turns = 4
+	mob.Soak.Rate = 120
+	mob.NovaRollCD = framesClock(240)                                      // ranged-nova cooldown: a reload must not refresh it
+	mob.TurnBasedSwingCarry = 0.25                                         // banked TB swing fraction: save/load per turn must not reset it
+	mob.TurnBasedStepCarry = -0.25                                         // banked TB step fraction, same contract
+	mob.Jammed = true                                                      // a jam has landed: a reload must not allow another before the delayed attack
+	mob.AttackCDFrames, mob.OffHandCDFrames = 97, 33                       // the real-time attack clocks, a jam's delay included
+	mob.HourMarks = 11                                                     // Minute Hand hits toward the hour: a reload must not reset them
+	game.openerCooldown = status.DualClock{Frames: 7, Turns: 1, Rate: 360} // a fight just ended: no opener on reload
+	game.partyMoveClock = status.DualClock{Frames: 9, Turns: 1, Rate: 360} // the party just moved: no held ground on reload
 	worldSave.Monsters = []*monster.Monster3D{mob}
 
 	raw, err := json.Marshal(game.buildSave(wmSave))
@@ -290,45 +408,63 @@ func TestSaveLoad_PersistsDualClockExchangeRates(t *testing.T) {
 	}
 
 	loadedMember := loaded.party.Members[0]
-	if loadedMember.StunRate != 120 {
-		t.Fatalf("character stun rate = %d, want 120", loadedMember.StunRate)
+	if loadedMember.Stun.Rate != 120 {
+		t.Fatalf("character stun rate = %d, want 120", loadedMember.Stun.Rate)
+	}
+	if want := (status.DualClock{Frames: 361, Turns: 4, Rate: 120}); loadedMember.ArmorMelt != want || loaded.party.Members[1].ArmorMelted() {
+		t.Fatalf("character melt after load = %+v (unmelted member melted: %v), want %+v", loadedMember.ArmorMelt, loaded.party.Members[1].ArmorMelted(), want)
 	}
 	loadedMember.TickStunTurn()
-	if loadedMember.StunFramesRemaining != 241 || loadedMember.StunTurnsRemaining != 3 {
+	if loadedMember.Stun.Frames != 241 || loadedMember.Stun.Turns != 3 {
 		t.Fatalf("character clock after load/tick = %d frames/%d turns, want 241/3",
-			loadedMember.StunFramesRemaining, loadedMember.StunTurnsRemaining)
+			loadedMember.Stun.Frames, loadedMember.Stun.Turns)
 	}
 
 	loadedMob := worldLoad.Monsters[0]
-	if loadedMob.InfernoCDFrames != 240 {
-		t.Errorf("inferno cadence = %d frames after reload, want 240 (a reload must not hand the boss a fresh nova roll)",
-			loadedMob.InfernoCDFrames)
+	if loadedMob.TurnBasedSwingCarry != 0.25 || loadedMob.TurnBasedStepCarry != -0.25 || !loadedMob.Jammed || loadedMob.HourMarks != 11 {
+		t.Errorf("TB carries = swing %v / step %v, jammed %v, hour marks %d after reload, want 0.25 / -0.25, true, 11", loadedMob.TurnBasedSwingCarry, loadedMob.TurnBasedStepCarry, loadedMob.Jammed, loadedMob.HourMarks)
 	}
-	if loadedMob.StunRate != 120 || loadedMob.RootRate != 120 ||
-		loadedMob.ArmorShredRate != 120 || loadedMob.PounceCDRate != 240 || loadedMob.SoakRate != 120 {
+	if loadedMob.AttackCDFrames != 97 || loadedMob.OffHandCDFrames != 33 {
+		t.Errorf("attack clocks after reload = %d / %d, want 97 / 33 (a reload must not reset a delayed attack)", loadedMob.AttackCDFrames, loadedMob.OffHandCDFrames)
+	}
+	if loaded.openerCooldown != game.openerCooldown || loaded.partyMoveClock != game.partyMoveClock {
+		t.Errorf("clocks after reload: opener %+v, move %+v; want %+v, %+v", loaded.openerCooldown, loaded.partyMoveClock, game.openerCooldown, game.partyMoveClock)
+	}
+	if loadedMob.NovaRollCD != framesClock(240) {
+		t.Errorf("inferno cadence = %+v after reload, want 240 frames (a reload must not hand the boss a fresh nova roll)",
+			loadedMob.NovaRollCD)
+	}
+	if loadedMob.Stun.Rate != 120 || loadedMob.Root.Rate != 120 ||
+		loadedMob.ArmorShred.Rate != 120 || loadedMob.PounceCD.Rate != 240 || loadedMob.Soak.Rate != 120 {
 		t.Fatalf("monster rates after load = stun:%d root:%d shred:%d pounce:%d soak:%d",
-			loadedMob.StunRate, loadedMob.RootRate, loadedMob.ArmorShredRate,
-			loadedMob.PounceCDRate, loadedMob.SoakRate)
+			loadedMob.Stun.Rate, loadedMob.Root.Rate, loadedMob.ArmorShred.Rate,
+			loadedMob.PounceCD.Rate, loadedMob.Soak.Rate)
+	}
+	if want := (status.DualClock{Frames: 361, Turns: 4, Rate: 120}); loadedMob.ArmorMelt != want {
+		t.Fatalf("monster melt after load = %+v, want %+v", loadedMob.ArmorMelt, want)
 	}
 	loadedMob.TickRootTurn()
-	if loadedMob.RootFramesRemaining != 61 || loadedMob.RootTurnsRemaining != 1 {
+	if loadedMob.Root.Frames != 61 || loadedMob.Root.Turns != 1 {
 		t.Fatalf("root after load/tick = %d frames/%d turns, want 61/1",
-			loadedMob.RootFramesRemaining, loadedMob.RootTurnsRemaining)
+			loadedMob.Root.Frames, loadedMob.Root.Turns)
 	}
-	loadedMob.TickPounceCooldownTurn()
-	if loadedMob.PounceCDFrames != 121 || loadedMob.PounceCDTurns != 1 {
+	loadedMob.TickAbilityClocks(true)
+	if loadedMob.PounceCD.Frames != 121 || loadedMob.PounceCD.Turns != 1 {
 		t.Fatalf("pounce after load/tick = %d frames/%d turns, want 121/1",
-			loadedMob.PounceCDFrames, loadedMob.PounceCDTurns)
+			loadedMob.PounceCD.Frames, loadedMob.PounceCD.Turns)
 	}
-	loadedMob.TickArmorShredTurn()
-	if loadedMob.ArmorShredFramesRemaining != 241 || loadedMob.ArmorShredTurnsRemaining != 3 {
+	if loadedMob.PhaseShiftCD.Frames != 121 || loadedMob.PhaseShiftCD.Turns != 1 || loadedMob.PhaseShiftCD.Rate != 240 {
+		t.Fatalf("phase shift after load/tick = %d frames/%d turns/rate %d, want 121/1/240",
+			loadedMob.PhaseShiftCD.Frames, loadedMob.PhaseShiftCD.Turns, loadedMob.PhaseShiftCD.Rate)
+	}
+	loadedMob.TickDebuffs(true)
+	if loadedMob.ArmorShred.Frames != 241 || loadedMob.ArmorShred.Turns != 3 {
 		t.Fatalf("shred after load/tick = %d frames/%d turns, want 241/3",
-			loadedMob.ArmorShredFramesRemaining, loadedMob.ArmorShredTurnsRemaining)
+			loadedMob.ArmorShred.Frames, loadedMob.ArmorShred.Turns)
 	}
-	loadedMob.TickSoakTurn()
-	if loadedMob.SoakFrames != 241 || loadedMob.SoakTurns != 3 {
+	if loadedMob.Soak.Frames != 241 || loadedMob.Soak.Turns != 3 {
 		t.Fatalf("soak after load/tick = %d frames/%d turns, want 241/3",
-			loadedMob.SoakFrames, loadedMob.SoakTurns)
+			loadedMob.Soak.Frames, loadedMob.Soak.Turns)
 	}
 }
 
@@ -607,11 +743,10 @@ func TestSpentStatueHiddenButKeptInWorld(t *testing.T) {
 	if err := qm.ActivateQuest(summon.QuestID); err != nil {
 		t.Fatal(err)
 	}
-	_, statuetteKey, ok := config.GetItemDefinitionByName(summon.Statuette)
-	if !ok {
+	if _, ok := config.GetItemDefinition(summon.Statuette); !ok {
 		t.Fatalf("statuette %q is not an item", summon.Statuette)
 	}
-	g.party.AddItem(items.CreateItemFromYAML(statuetteKey))
+	g.party.AddItem(items.CreateItemFromYAML(summon.Statuette))
 
 	g.updateFocusedNPC()
 	if g.focusedNPC != statue {
@@ -977,6 +1112,9 @@ func TestSaveLoad_PersistsSummonedByForBossAdds(t *testing.T) {
 		t.Fatal("japanese castle boss/add configs must load")
 	}
 	boss.SummonFirstDone = true
+	// The boss ability cooldowns run on, mid-span (an odd frame remainder).
+	clocks := [3]status.DualClock{{Frames: 361, Turns: 3, Rate: 120}, {Frames: 179, Turns: 2, Rate: 90}, {Frames: 59, Turns: 1, Rate: 60}}
+	boss.SummonCD, boss.PushCD, boss.LaneCD = clocks[0], clocks[1], clocks[2]
 	add.SummonedBy = boss.ID
 	add.CharmedByParty = true
 	add.IsEngagingPlayer = true
@@ -1006,6 +1144,9 @@ func TestSaveLoad_PersistsSummonedByForBossAdds(t *testing.T) {
 			foundBoss = true
 			if !m.SummonFirstDone {
 				t.Fatal("boss SummonFirstDone must survive save/load")
+			}
+			if got := [3]status.DualClock{m.SummonCD, m.PushCD, m.LaneCD}; got != clocks {
+				t.Fatalf("boss summon/push/lane cooldowns %+v after load, want %+v", got, clocks)
 			}
 		}
 		if m.Key == "ashigaru_firelock" {
@@ -1126,39 +1267,36 @@ func TestSaveLoad_PersistsMasteryScaledSummonStats(t *testing.T) {
 func TestSaveLoad_RestoresCurrentMonsterSpecialsFromYAML(t *testing.T) {
 	cfg := loadTestConfig(t)
 	type specials struct {
-		pierceChance        float64
-		pierceTargets       int
-		healChance          float64
-		healAmount          int
-		healRadius          float64
-		hasPierce, hasHeals bool
+		partyAttacks []monster.PartyAttack
+		healChance   float64
+		healAmount   int
+		healRadius   float64
 	}
 	read := func(m *monster.Monster3D) specials {
-		return specials{m.PiercingShotChance, m.PiercingShotTargets, m.AllyHealChance, m.AllyHealAmount, m.AllyHealRadiusPixels,
-			m.PiercingShotChance > 0, m.AllyHealChance > 0}
+		return specials{m.Abilities.PartyAttacks, m.Abilities.AllyHeal.Chance, m.Abilities.AllyHeal.Amount, m.AllyHealRadiusPixels()}
 	}
 	wSave := newTestWorld(cfg)
 	want := map[string]specials{}
 	pierce, heal := 0, 0
 	for _, key := range sortedMapKeys(monster.MonsterConfig.Monsters) {
 		def := monster.MonsterConfig.Monsters[key]
-		if def.PiercingShotChance <= 0 && def.AllyHealChance <= 0 {
+		if len(def.Abilities.PartyAttacks) == 0 && def.Abilities.AllyHeal.Chance <= 0 {
 			continue
 		}
 		m := monster.NewMonster3DFromConfig(64+float64(len(want))*32, 64, key, cfg)
 		want[key] = read(m)
-		if def.PiercingShotChance > 0 {
+		if len(def.Abilities.PartyAttacks) > 0 {
 			pierce++
 		}
-		if def.AllyHealChance > 0 {
+		if def.Abilities.AllyHeal.Chance > 0 {
 			heal++
 		}
-		m.PiercingShotChance, m.PiercingShotTargets = 0, 0
-		m.AllyHealChance, m.AllyHealAmount, m.AllyHealRadiusPixels = 0, 0, 0
+		m.Abilities.PartyAttacks = nil
+		m.Abilities.AllyHeal = monster.AllyHealAbility{}
 		wSave.Monsters = append(wSave.Monsters, m)
 	}
 	if pierce == 0 || heal == 0 {
-		t.Fatalf("shipped monsters carry %d piercing-shot and %d ally-heal specials, want both kinds", pierce, heal)
+		t.Fatalf("shipped monsters carry %d party-attack and %d ally-heal specials, want both kinds", pierce, heal)
 	}
 
 	wmSave := world.NewWorldManager(cfg)
@@ -1181,7 +1319,7 @@ func TestSaveLoad_RestoresCurrentMonsterSpecialsFromYAML(t *testing.T) {
 		if !ok {
 			continue
 		}
-		if got := read(m); got != w {
+		if got := read(m); !reflect.DeepEqual(got, w) {
 			t.Errorf("%s specials after load = %+v, want the YAML %+v", m.Key, got, w)
 		}
 		delete(want, m.Key)
@@ -1360,6 +1498,205 @@ func TestApplySaveEnforcesMonsterIDUniqueness(t *testing.T) {
 			// could crown a different duplicate-ID owner on every load.
 			if gLoad.loadNeedsResave != tt.wantResave {
 				t.Fatalf("loadNeedsResave = %v, want %v", gLoad.loadNeedsResave, tt.wantResave)
+			}
+		})
+	}
+}
+
+// Renames, classification and prices must reach every physical ownership path
+// without changing counts, identity, equipped slots or purchased stock.
+func TestSaveLoadItemCatalogRevisions(t *testing.T) {
+	g, _ := summonTileWorld(t)
+	cfg := g.config
+	storage.SetDataRootForTesting(t.TempDir())
+	t.Cleanup(func() { storage.SetDataRootForTesting("") })
+	w := g.world
+	wm := world.NewWorldManager(cfg)
+	wm.CurrentMapKey = "forest"
+	wm.LoadedMaps = map[string]*world.World3D{"forest": w}
+	setTestWorldManager(t, wm)
+	active := character.CreateCharacter("Active", character.ClassCleric, cfg)
+	reserve := character.CreateCharacter("Reserve", character.ClassCleric, cfg)
+	captive := character.CreateCharacter("Captive", character.ClassCleric, cfg)
+	for _, member := range []*character.MMCharacter{active, reserve, captive} {
+		member.Skills[character.SkillLeather] = &character.Skill{Mastery: character.SkillMastery(1)}
+	}
+	g.party = &character.Party{Members: []*character.MMCharacter{active}, Reserve: []*character.MMCharacter{reserve}, Captive: []*character.MMCharacter{captive}}
+	cases := []struct {
+		key, oldName        string
+		oldType             items.ItemType
+		oldCategory         string
+		oldValue, wantValue int
+		slot                items.EquipSlot
+	}{
+		{"padded_greaves", "Padded Greaves", items.ItemArmor, "leather", 240, 240, items.SlotOffHand},
+		{"solstice_heatshield_mantle", "Heatshield Mantle", items.ItemArmor, "cloth", 2200, 2200, items.SlotCloak},
+		{"wolf_pelt", "Wolf Pelt", items.ItemTrinket, "", 12, 35, items.SlotMainHand},
+	}
+	chest := &stash.Stash{}
+	bag := GroundContainer{Kind: ContainerKindLootBag, ID: "catalog-revision", MapKey: "forest", X: 96, Y: 96}
+	expected := map[uint64]items.Item{}
+	for i, tc := range cases {
+		fresh := items.CreateItemFromYAML(tc.key)
+		legacy := func() items.Item {
+			it := items.CreateItemFromYAML(tc.key)
+			it.Name, it.Type, it.ArmorCategory = tc.oldName, tc.oldType, tc.oldCategory
+			it.Attributes["value"] = tc.oldValue
+			if it.Stackable() {
+				it.Quantity = 4
+			}
+			items.EnsureInstanceID(&it)
+			want := fresh
+			want.InstanceID = it.InstanceID
+			want.Quantity = it.Quantity
+			expected[it.InstanceID] = want
+			return it
+		}
+		g.party.Inventory = append(g.party.Inventory, legacy())
+		for _, member := range []*character.MMCharacter{active, reserve, captive} {
+			member.Inventory = append(member.Inventory, legacy())
+			if fresh.Type != items.ItemTrinket {
+				member.Equipment[tc.slot] = legacy()
+			}
+		}
+		bag.Items = append(bag.Items, legacy())
+		chest.Slots[i] = legacy()
+	}
+	g.groundContainers = []GroundContainer{bag}
+	if err := stash.Save(chest); err != nil {
+		t.Fatal(err)
+	}
+	arm := items.CreateItemFromYAML("padded_greaves")
+	w.NPCs = []*character.NPC{{Name: "Merchant", X: 96, Y: 96, RenderCategory: "npc", MerchantStock: []*character.MerchantStockItem{
+		{Item: arm, Quantity: 3}, {Item: arm, Quantity: 3},
+	}}}
+	save := g.buildSave(wm)
+	save.NPCStates[0].Stock = []NPCStockSave{{Name: "Padded Greaves", Quantity: 0}, {Name: "Padded Armguard", Quantity: 1}}
+	data, err := json.Marshal(save)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded GameSave
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	g.stash = nil
+	if err := g.applySave(wm, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	check := func(where string, it items.Item) {
+		t.Helper()
+		want, ok := expected[it.InstanceID]
+		if !ok {
+			t.Fatalf("%s: lost instance identity %d", where, it.InstanceID)
+		}
+		if it.Name != want.Name || it.Type != want.Type || it.ArmorCategory != want.ArmorCategory || it.Count() != want.Count() || it.Attributes["value"] != want.Attributes["value"] {
+			t.Fatalf("%s: restored %+v, want %+v", where, it, want)
+		}
+	}
+	for i, tc := range cases {
+		if g.party.Inventory[i].Attributes["value"] != tc.wantValue {
+			t.Fatalf("%s: authored resale mismatch", tc.key)
+		}
+		check("shared", g.party.Inventory[i])
+		check("ground", g.groundContainers[0].Items[i])
+		check("stash", g.stash.Slots[i])
+		for _, member := range []*character.MMCharacter{g.party.Members[0], g.party.Reserve[0], g.party.Captive[0]} {
+			check(member.Name+" inventory", member.Inventory[i])
+			if tc.oldType == items.ItemArmor {
+				it := member.Equipment[tc.slot]
+				check(member.Name+" equipment", it)
+				if !member.ItemFitsSlot(it, tc.slot) {
+					t.Fatalf("%s no longer fits its slot", tc.key)
+				}
+			}
+		}
+	}
+	if arm.Name != "Padded Armguard" || w.NPCs[0].MerchantStock[0].Quantity != 0 || w.NPCs[0].MerchantStock[1].Quantity != 1 {
+		t.Fatal("rename lost sold-out or duplicate-name merchant stock")
+	}
+}
+
+// A renamed monster or card still loads from a save written under its former
+// key: the Medusa became the Jellyfish (legacy_keys on both definitions).
+func TestSaveLoad_RenamedKeysMigrate(t *testing.T) {
+	cfg := loadTestConfig(t)
+	wSave := newTestWorld(cfg)
+	wSave.Monsters = append(wSave.Monsters, monster.NewMonster3DFromConfig(64, 64, "jellyfish", cfg), monster.NewMonster3DFromConfig(128, 64, "jellyfish", cfg))
+	wmSave := world.NewWorldManager(cfg)
+	wmSave.LoadedMaps = map[string]*world.World3D{"forest": wSave}
+	wmSave.CurrentMapKey = "forest"
+	save := newTestGame(cfg, wSave).buildSave(wmSave)
+	// One keyed save under the old key, one name-only legacy save.
+	rename := func(list []MonsterSave) {
+		for i := range list {
+			if list[i].Key == "jellyfish" {
+				list[i].Key, list[i].Name = "medusa", "Medusa"
+				if list[i].X > 100 {
+					list[i].Key = ""
+				}
+			}
+		}
+	}
+	rename(save.Monsters)
+	for _, list := range save.MapMonsters {
+		rename(list)
+	}
+	save.Party.CardCollection = []string{"medusa_card"}
+	save.Party.CardCollectionItems = nil
+
+	wLoad := newTestWorld(cfg)
+	wmLoad := world.NewWorldManager(cfg)
+	wmLoad.LoadedMaps = map[string]*world.World3D{"forest": wLoad}
+	wmLoad.CurrentMapKey = "forest"
+	gLoad := newTestGame(cfg, wLoad)
+	if err := gLoad.applySave(wmLoad, &save); err != nil {
+		t.Fatalf("apply save: %v", err)
+	}
+	restored := 0
+	for _, m := range wLoad.Monsters {
+		if m.Key == "jellyfish" {
+			restored++
+		}
+	}
+	if restored != 2 {
+		t.Fatalf("old-key and old-name monsters restored %d times, want both as jellyfish", restored)
+	}
+	if gLoad.cardSlots[0].key != "jellyfish_card" {
+		t.Fatalf("old-key card slot = %q, want jellyfish_card", gLoad.cardSlots[0].key)
+	}
+}
+
+// A saved NPC is found again by its npcs.yaml key and spot, so renaming it in
+// content keeps its state; a save from before keys were saved still matches
+// by name; another NPC on the same spot is not taken for it.
+func TestNPCStateFollowsKeyAcrossARename(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		save      NPCSave
+		renamed   bool
+		wantState bool
+	}{
+		{"keyed save, renamed in content", NPCSave{Key: "old_well", Name: "Old Well"}, true, true},
+		{"keyed save, another key on the spot", NPCSave{Key: "other_npc", Name: "Old Well"}, false, false},
+		{"legacy save by name", NPCSave{Name: "Old Well"}, false, true},
+		{"legacy save, renamed in content", NPCSave{Name: "Old Well"}, true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := loadTestConfig(t)
+			w := newTestWorld(cfg)
+			npc := &character.NPC{Key: "old_well", Name: "Old Well", X: 96, Y: 160}
+			if tc.renamed {
+				npc.Name = "Mossy Well"
+			}
+			w.NPCs = []*character.NPC{npc}
+			g := newTestGame(cfg, w)
+			wm := &world.WorldManager{LoadedMaps: map[string]*world.World3D{"forest": w}}
+			ns := tc.save
+			ns.MapKey, ns.X, ns.Y, ns.Visited = "forest", npc.X, npc.Y, true
+			g.restoreSavedNPCs(wm, &GameSave{NPCStates: []NPCSave{ns}})
+			if npc.Visited != tc.wantState {
+				t.Fatalf("visited=%v, want %v", npc.Visited, tc.wantState)
 			}
 		})
 	}

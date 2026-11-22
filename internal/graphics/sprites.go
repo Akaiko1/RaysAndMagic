@@ -16,6 +16,7 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 
+	"ugataima/internal/config"
 	"ugataima/internal/spritecatalog"
 )
 
@@ -23,6 +24,7 @@ type SpriteManager struct {
 	iconFrames      map[string]iconFrameEntry
 	deferResource   func(SpriteResourceRequest) bool
 	failedResources map[SpriteResourceRequest]bool
+	decodeGate      *WorkerGate
 
 	imageResources       map[*ebiten.Image]SpriteResourceRequest
 	sprites              map[string]*ebiten.Image
@@ -37,6 +39,9 @@ type SpriteManager struct {
 	// Compact visible-frame geometry used by visual-size normalization. Unlike
 	// alphaMasks, each entry retains only a rectangle and frame dimensions.
 	visibleFrameBounds map[string]spriteVisibleFrameBounds
+	// iconArtBounds caches IconArtBounds per icon; an empty rectangle is a
+	// cached failure. Authored icons never change while the game runs.
+	iconArtBounds map[string]image.Rectangle
 
 	// spritePaths maps a sprite basename (no extension) to its PNG path, built
 	// once by walking the sprite roots recursively (see ensureIndex). Lets
@@ -45,20 +50,24 @@ type SpriteManager struct {
 	spritePaths   map[string]string
 	spriteDirType map[string]string
 
-	// Load-time color key (configured via SetColorKey): pixels within keyTol of the
-	// key color become transparent; with keyDespill, tinted fringe pixels have the
-	// cast subtracted instead (kept opaque).
+	// Load-time color key (set by ConfigureColorKey). Key pixels (within keyTol
+	// of the key color) joined to the background become transparent; keyFull
+	// families lose every key pixel. With keyDespill, only listed families have
+	// the magenta cast subtracted, kept opaque: keyFull everywhere, keyEdgeOnly
+	// at the rim.
 	keyEnabled bool
 	keyR       uint8
 	keyG       uint8
 	keyB       uint8
 	keyTol     int
 	keyDespill bool
-	// Sprites whose interior magenta is real art: despill only their edge fringe
-	// (within keyEdgeRadius px of a transparent pixel), not the whole body.
-	keyEdgeOnly        map[string]bool
-	keyEdgeRadius      int
-	keyDespillExcluded map[string]bool
+	// Sprite families whose rim keeps a magenta cast: despill only within
+	// keyEdgeRadius px of the background or the image border, never the body.
+	keyEdgeOnly   map[string]bool
+	keyEdgeRadius int
+	// Sprite families with key residue inside the body: key every key-close
+	// pixel and despill everywhere.
+	keyFull map[string]bool
 	// lazyResourceObserver assigns synchronous fallback loads to the renderer's
 	// current region. It also receives the created root images with their
 	// decoded CPU pixels so same-frame derived builders (standee cores, mips)
@@ -169,18 +178,20 @@ func (c *PreparedSpriteCommit) Cancel() {
 	c.done = true
 }
 
-// despillHueFloor is the magenta-excess (min(R,B)-G) below which a kept pixel is
-// left alone. Deliberately low (aggressive): project art reserves any magenta
-// hue for removable background/fringe, so even faint casts are subtracted.
+// despillHueFloor is the magenta excess (min(R,B)-G) at or below which despill
+// leaves a pixel alone. Low on purpose: inside a despill scope (the rim band of
+// an edge-only family, all of a full family) even a faint cast is residue.
+// Outside it purple and pink are art and never reach despill.
 const despillHueFloor = 8
 
-// despillEdgeRadiusDefault is the fringe band (px from a transparent edge) used
-// for edge-only despill sprites when the config leaves the radius unset.
+// despillEdgeRadiusDefault is the rim band (px from the background or the
+// image border) despilled in edge-only families when the config leaves the
+// radius unset.
 const despillEdgeRadiusDefault = 3
 
-// SetDespillEdgeOnly preserves interior purple across a whole animation family,
-// whether the configuration names its base sprite or any directional sheet.
-// Other sprite names remain exact matches. Configure before loading resources.
+// SetDespillEdgeOnly despills the rim of a whole animation family, whether the
+// configuration names its base sprite or any directional sheet. Other sprite
+// names remain exact matches. Configure before loading resources.
 func (sm *SpriteManager) SetDespillEdgeOnly(names []string, radius int) {
 	sm.keyEdgeOnly = make(map[string]bool, len(names))
 	for _, n := range names {
@@ -189,14 +200,19 @@ func (sm *SpriteManager) SetDespillEdgeOnly(names []string, radius int) {
 	sm.keyEdgeRadius = radius
 }
 
-// SetDespillExclusions preserves all non-key colours, including the edges, of
-// each named animation family. Exclusion takes precedence over edge-only cleanup.
-// Configure before loading resources.
-func (sm *SpriteManager) SetDespillExclusions(names []string) {
-	sm.keyDespillExcluded = make(map[string]bool, len(names))
-	for _, name := range names {
-		sm.keyDespillExcluded[spriteDespillFamily(name)] = true
+// SetDespillFull keys every key-close pixel of each named animation family and
+// despills it everywhere, whether the configuration names its base sprite or
+// any directional sheet. Configure before loading resources.
+func (sm *SpriteManager) SetDespillFull(names []string) {
+	sm.keyFull = make(map[string]bool, len(names))
+	for _, n := range names {
+		sm.keyFull[spriteDespillFamily(n)] = true
 	}
+}
+
+// IsEdgeOnlyDespill reports whether the named sprite's family is edge-only.
+func (sm *SpriteManager) IsEdgeOnlyDespill(name string) bool {
+	return sm.keyEdgeOnly[spriteDespillFamily(name)]
 }
 
 // Directional motion suffixes belong to one source identity. Strip only the
@@ -217,6 +233,19 @@ func spriteDespillFamily(name string) string {
 	return name
 }
 
+// ConfigureColorKey applies graphics.color_key: key colour (magenta when
+// unset), tolerance, despill and both family lists. The game, the map editor
+// and the asset tests all configure through it, so they key alike.
+func (sm *SpriteManager) ConfigureColorKey(ck config.ColorKeyConfig) {
+	r, g, b := ck.Color[0], ck.Color[1], ck.Color[2]
+	if r == 0 && g == 0 && b == 0 {
+		r, g, b = 255, 0, 255
+	}
+	sm.SetColorKey(ck.Enabled, r, g, b, ck.Tolerance, ck.Despill)
+	sm.SetDespillEdgeOnly(ck.EdgeOnlyDespill, ck.EdgeDespillRadius)
+	sm.SetDespillFull(ck.FullDespill)
+}
+
 // SetColorKey enables/configures the load-time color key (see SpriteManager).
 // Must be called before sprites are first loaded to take effect on them.
 func (sm *SpriteManager) SetColorKey(enabled bool, r, g, b, tolerance int, despill bool) {
@@ -226,62 +255,140 @@ func (sm *SpriteManager) SetColorKey(enabled bool, r, g, b, tolerance int, despi
 	sm.keyDespill = despill
 }
 
-// applyColorKey returns a copy of src with the key color removed: pixels within
-// keyTol of the key go transparent; with keyDespill, every remaining magenta-hue
-// pixel (R and B above G) has that excess subtracted and stays opaque. Despill
-// assumes a magenta-style key (high R,B / low G). No-op when the key is off.
+// isKeyColor reports whether a pixel lies within keyTol of the key per channel.
+func (sm *SpriteManager) isKeyColor(p color.NRGBA) bool {
+	return max(int(p.R)-int(sm.keyR), int(sm.keyR)-int(p.R)) <= sm.keyTol &&
+		max(int(p.G)-int(sm.keyG), int(sm.keyG)-int(p.G)) <= sm.keyTol &&
+		max(int(p.B)-int(sm.keyB), int(sm.keyB)-int(p.B)) <= sm.keyTol
+}
+
+// hasKeyPixel reports whether any visible pixel of src is a key pixel, in the
+// colour the loader's NRGBA copy would hold.
+func (sm *SpriteManager) hasKeyPixel(src image.Image) bool {
+	b := src.Bounds()
+	switch img := src.(type) {
+	case *image.NRGBA:
+		return sm.hasKeyPixelRows(img.Pix, img.Stride, img.PixOffset(b.Min.X, b.Min.Y), b.Dx(), b.Dy(), false)
+	case *image.RGBA:
+		return sm.hasKeyPixelRows(img.Pix, img.Stride, img.PixOffset(b.Min.X, b.Min.Y), b.Dx(), b.Dy(), true)
+	}
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		for x := b.Min.X; x < b.Max.X; x++ {
+			if p := color.NRGBAModel.Convert(src.At(x, y)).(color.NRGBA); p.A != 0 && sm.isKeyColor(p) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// hasKeyPixelRows walks w*h 4-byte pixels from offset, rows stride apart;
+// premultiplied pixels convert to NRGBA as the loader's copy does.
+func (sm *SpriteManager) hasKeyPixelRows(pix []byte, stride, offset, w, h int, premultiplied bool) bool {
+	for y := 0; y < h; y++ {
+		row := pix[offset+y*stride : offset+y*stride+w*4]
+		for i := 0; i < len(row); i += 4 {
+			p := color.NRGBA{row[i], row[i+1], row[i+2], row[i+3]}
+			if premultiplied && p.A != 255 && p.A != 0 {
+				p = color.NRGBAModel.Convert(color.RGBA(p)).(color.NRGBA)
+			}
+			if p.A != 0 && sm.isKeyColor(p) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// applyColorKey returns src with the key color removed: a copy, or src itself
+// when nothing can change (key off, a default sprite without key pixels).
+// Three modes by family:
+//   - default: the key erases background alone (pixels within keyTol of the key
+//     8-connected to the image border or a transparent pixel); every other
+//     pixel, key-close art inside the body included, stays as drawn.
+//   - edge-only: as default, then with keyDespill every magenta-hue pixel
+//     (R and B above G) within keyEdgeRadius px of that background or of the
+//     image border has the excess subtracted and stays opaque.
+//   - full: every key-close pixel goes transparent and despill runs everywhere.
 //
-// For names in keyEdgeOnly (intentional magenta art), despill is restricted to
-// the fringe band within keyEdgeRadius px of a transparent edge, leaving the
-// interior purple/magenta untouched. keyDespillExcluded bypasses despill entirely.
+// Despill assumes a magenta-style key (high R,B / low G).
 func (sm *SpriteManager) applyColorKey(name string, src image.Image) image.Image {
 	if !sm.keyEnabled || src == nil {
+		return src
+	}
+	family := spriteDespillFamily(name)
+	full := sm.keyFull[family]
+	edgeOnly := !full && sm.keyEdgeOnly[family]
+	// A default sprite without a key pixel has nothing to erase: skip the copy.
+	if !full && !edgeOnly && !sm.hasKeyPixel(src) {
 		return src
 	}
 	b := src.Bounds()
 	w, h := b.Dx(), b.Dy()
 	dst := image.NewNRGBA(b)
 	draw.Draw(dst, b, src, b.Min, draw.Src)
-	near := func(v, target uint8) bool {
-		d := int(v) - int(target)
-		if d < 0 {
-			d = -d
-		}
-		return d <= sm.keyTol
-	}
-	min2 := func(a, b uint8) uint8 {
-		if a < b {
-			return a
-		}
-		return b
-	}
-	isKey := func(p color.NRGBA) bool {
-		return near(p.R, sm.keyR) && near(p.G, sm.keyG) && near(p.B, sm.keyB)
-	}
-
-	family := spriteDespillFamily(name)
-	despill := sm.keyDespill && !sm.keyDespillExcluded[family]
-	edgeOnly := despill && sm.keyEdgeOnly[family]
-	// Transparency mask, needed only when despill is limited to the fringe band.
+	// Pass 1: erase the key core. Outside a full family, the outside (trans) is
+	// the transparency plus the key flooded in from it and from the image border.
 	var trans []bool
-	if edgeOnly {
+	if !full {
 		trans = make([]bool, w*h)
-	}
-
-	// Pass 1: erase the key core (and record transparency for edge-only despill).
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			p := dst.NRGBAAt(b.Min.X+x, b.Min.Y+y)
-			keyed := p.A != 0 && isKey(p)
-			if edgeOnly {
-				trans[y*w+x] = p.A == 0 || keyed
+		for y := 0; y < h; y++ {
+			row := dst.Pix[y*dst.Stride:]
+			for x := 0; x < w; x++ {
+				trans[y*w+x] = row[x*4+3] == 0
 			}
-			if keyed {
-				dst.SetNRGBA(b.Min.X+x, b.Min.Y+y, color.NRGBA{})
+		}
+		var queue []int
+		// erase clears a key pixel joined to the outside and queues it.
+		erase := func(x, y int) {
+			if trans[y*w+x] || !sm.isKeyColor(dst.NRGBAAt(b.Min.X+x, b.Min.Y+y)) {
+				return
+			}
+			trans[y*w+x] = true
+			dst.SetNRGBA(b.Min.X+x, b.Min.Y+y, color.NRGBA{})
+			queue = append(queue, y*w+x)
+		}
+		joined := func(x, y int) bool {
+			if x == 0 || y == 0 || x == w-1 || y == h-1 {
+				return true
+			}
+			for dy := -1; dy <= 1; dy++ {
+				for dx := -1; dx <= 1; dx++ {
+					if trans[(y+dy)*w+x+dx] {
+						return true
+					}
+				}
+			}
+			return false
+		}
+		for y := 0; y < h; y++ {
+			for x := 0; x < w; x++ {
+				// Most pixels are art: test the key before the neighbourhood.
+				if !trans[y*w+x] && sm.isKeyColor(dst.NRGBAAt(b.Min.X+x, b.Min.Y+y)) && joined(x, y) {
+					erase(x, y)
+				}
+			}
+		}
+		for len(queue) > 0 {
+			i := queue[len(queue)-1]
+			queue = queue[:len(queue)-1]
+			x, y := i%w, i/w
+			for ny := max(y-1, 0); ny <= min(y+1, h-1); ny++ {
+				for nx := max(x-1, 0); nx <= min(x+1, w-1); nx++ {
+					erase(nx, ny)
+				}
+			}
+		}
+	} else {
+		for y := 0; y < h; y++ {
+			for x := 0; x < w; x++ {
+				if p := dst.NRGBAAt(b.Min.X+x, b.Min.Y+y); p.A != 0 && sm.isKeyColor(p) {
+					dst.SetNRGBA(b.Min.X+x, b.Min.Y+y, color.NRGBA{})
+				}
 			}
 		}
 	}
-	if !despill {
+	if !sm.keyDespill || !full && !edgeOnly {
 		return dst
 	}
 
@@ -304,8 +411,8 @@ func (sm *SpriteManager) applyColorKey(name string, src image.Image) image.Image
 		return false
 	}
 
-	// Pass 2: despill kept pixels. Edge-only sprites despill the fringe band only,
-	// so their intentional interior magenta survives.
+	// Pass 2: despill kept pixels. Edge-only sprites despill the fringe band
+	// only, so their intentional interior magenta survives.
 	for y := 0; y < h; y++ {
 		for x := 0; x < w; x++ {
 			px, py := b.Min.X+x, b.Min.Y+y
@@ -313,7 +420,7 @@ func (sm *SpriteManager) applyColorKey(name string, src image.Image) image.Image
 			if p.A == 0 {
 				continue
 			}
-			excess := int(min2(p.R, p.B)) - int(p.G)
+			excess := int(min(p.R, p.B)) - int(p.G)
 			if excess <= despillHueFloor {
 				continue
 			}
@@ -376,16 +483,20 @@ func animationKey(name, animType string) animationCacheKey {
 	return animationCacheKey{name: name, animType: animType}
 }
 
-// PrepareResources decodes sources with a small CPU pool when a shared byte
-// budget is supplied. The one-result buffer and byte reservations bound queued
-// pixels while the game loop commits earlier work. Results retain request order.
+// PrepareResources decodes sources on background workers when a shared byte
+// budget is supplied: as many at once as the manager's decode gate admits, two
+// without a gate. Results retain request order; see PrepareOrdered.
 func (sm *SpriteManager) PrepareResources(ctx context.Context, requests []SpriteResourceRequest, budgets ...*PreparationBudget) <-chan PreparedSpriteResource {
 	return sm.prepareResources(ctx, requests, false, budgets...)
 }
 
+// SetDecodeGate bounds the decoders of every budgeted PrepareResources call.
+// Demand loads keep their own pair of decoders.
+func (sm *SpriteManager) SetDecodeGate(gate *WorkerGate) { sm.decodeGate = gate }
+
 func (sm *SpriteManager) prepareResources(ctx context.Context, requests []SpriteResourceRequest, interactive bool, budgets ...*PreparationBudget) <-chan PreparedSpriteResource {
-	results := make(chan PreparedSpriteResource, 1)
 	if sm == nil {
+		results := make(chan PreparedSpriteResource)
 		close(results)
 		return results
 	}
@@ -408,77 +519,24 @@ func (sm *SpriteManager) prepareResources(ctx context.Context, requests []Sprite
 		}
 		jobs = append(jobs, decodeJob{request: request, path: path})
 	}
-	// Decode in parallel, but reserve and publish in request order. Otherwise a
-	// cheap distant sprite can overtake the nearest source, or consume the byte
-	// reservation needed by an earlier result that the owner is waiting for.
-	workers := 1
-	if preparationBudget(budgets) != nil {
-		workers = min(2, max(1, runtime.GOMAXPROCS(0)-1))
+	budget := preparationBudget(budgets)
+	gate := sm.decodeGate
+	switch {
+	case budget == nil:
+		gate = nil
+	case gate == nil || interactive:
+		workers := min(2, max(1, runtime.GOMAXPROCS(0)-1))
+		gate = NewWorkerGate(workers, workers)
 	}
-	type queuedDecode struct {
-		job   decodeJob
-		lease *PreparationLease
-		reply chan PreparedSpriteResource
-	}
-	work := make(chan queuedDecode)
-	ordered := make(chan chan PreparedSpriteResource, workers)
-	for range min(workers, len(jobs)) {
-		go func() {
-			for next := range work {
-				if ctx.Err() != nil {
-					next.lease.Release()
-					continue
-				}
-				prepared := sm.decodePreparedResourceAtPath(next.job.request, next.job.path)
-				if interactive && prepared.Found && prepared.alpha == nil {
-					prepared.alpha = spriteAlphaMaskFromImage(prepared.Image)
-				}
-				prepared.QueueLease = next.lease
-				next.lease.ReleaseOnCancel(ctx)
-				// Each reply has one slot. A later decoder never blocks while
-				// the owner waits for an earlier request, even on cancellation.
-				next.reply <- prepared
-			}
-		}()
-	}
-	go func() {
-		defer close(work)
-		defer close(ordered)
-		for _, job := range jobs {
-			lease, ok := ReservePNGPreparation(ctx, job.path, preparationBudget(budgets))
-			if !ok {
-				return
-			}
-			reply := make(chan PreparedSpriteResource, 1)
-			select {
-			case work <- queuedDecode{job: job, lease: lease, reply: reply}:
-			case <-ctx.Done():
-				lease.Release()
-				return
-			}
-			select {
-			case ordered <- reply:
-			case <-ctx.Done():
-				return // The decoder owns the lease after dispatch.
-			}
-		}
-	}()
-	go func() {
-		defer close(results)
-		for reply := range ordered {
-			select {
-			case prepared := <-reply:
-				select {
-				case results <- prepared:
-				case <-ctx.Done():
-					return
-				}
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
-	return results
+	return PrepareOrdered(ctx, jobs, gate,
+		func(ctx context.Context, job decodeJob) (*PreparationLease, bool) {
+			return ReservePNGPreparation(ctx, job.path, budget)
+		},
+		func(job decodeJob, lease *PreparationLease) PreparedSpriteResource {
+			prepared := sm.decodePreparedWithMask(job.request, job.path, interactive)
+			prepared.QueueLease = lease
+			return prepared
+		})
 }
 
 func (sm *SpriteManager) decodePreparedResource(request SpriteResourceRequest) PreparedSpriteResource {
@@ -497,6 +555,12 @@ func (sm *SpriteManager) decodePreparedResource(request SpriteResourceRequest) P
 }
 
 func (sm *SpriteManager) decodePreparedResourceAtPath(request SpriteResourceRequest, spritePath string) PreparedSpriteResource {
+	return sm.decodePreparedWithMask(request, spritePath, false)
+}
+
+// decodePreparedWithMask also prepares the hit mask when mask is set; world
+// actors (npc_mob) always get one. Bounds and mask share one alpha plane.
+func (sm *SpriteManager) decodePreparedWithMask(request SpriteResourceRequest, spritePath string, mask bool) PreparedSpriteResource {
 	prepared := PreparedSpriteResource{Request: request}
 	if spritePath == "" {
 		return prepared
@@ -514,11 +578,13 @@ func (sm *SpriteManager) decodePreparedResourceAtPath(request SpriteResourceRequ
 	if prepared.Found {
 		prepared.CPU = rgbaFromImage(prepared.Image)
 		prepared.metadataReady = true
-		prepared.visible = spriteVisibleFrameBoundsFromImage(prepared.Image)
+		w, h := prepared.Image.Bounds().Dx(), prepared.Image.Bounds().Dy()
+		alpha := spriteAlphaPlane(prepared.Image)
+		prepared.visible = spriteVisibleFrameBoundsFromAlpha(alpha, w, h)
 		// World actors are pointer targets too. Prepare their mask with the
 		// source pixels so clicking a published frame never decodes on input.
-		if sm.spriteDirType[indexedName] == "npc_mob" {
-			prepared.alpha = spriteAlphaMaskFromImage(prepared.Image)
+		if (mask || sm.spriteDirType[indexedName] == "npc_mob") && w > 0 && h > 0 {
+			prepared.alpha = &spriteAlphaMask{width: w, height: h, alpha: alpha}
 		}
 		if request.AnimationType != "" {
 			prepared.Frames = animationCPUFrames(prepared.CPU)
@@ -868,8 +934,9 @@ func (sm *SpriteManager) GetSprite(name string) *ebiten.Image {
 	return sprite
 }
 
+// HasSprite reports whether name resolves to art; a nil manager has none.
 func (sm *SpriteManager) HasSprite(name string) bool {
-	if name == "" {
+	if sm == nil || name == "" {
 		return false
 	}
 	if _, exists := sm.sprites[name]; exists {
@@ -982,8 +1049,12 @@ func spriteVisibleFrameBoundsFromImage(img image.Image) spriteVisibleFrameBounds
 	if img == nil {
 		return spriteVisibleFrameBounds{}
 	}
-	bounds := img.Bounds()
-	width, height := bounds.Dx(), bounds.Dy()
+	return spriteVisibleFrameBoundsFromAlpha(spriteAlphaPlane(img), img.Bounds().Dx(), img.Bounds().Dy())
+}
+
+// spriteVisibleFrameBoundsFromAlpha folds a width*height alpha plane into the
+// union of its frames' visible bounds (a width == 4*height sheet has 4 frames).
+func spriteVisibleFrameBoundsFromAlpha(alpha []uint8, width, height int) spriteVisibleFrameBounds {
 	if width <= 0 || height <= 0 {
 		return spriteVisibleFrameBounds{}
 	}
@@ -992,19 +1063,24 @@ func spriteVisibleFrameBoundsFromImage(img image.Image) spriteVisibleFrameBounds
 		frameWidth = height
 	}
 	const visibleAlphaThreshold = uint8(24)
-	alphaAt := spriteAlphaReader(img)
 	minX, minY := frameWidth, height
 	maxX, maxY := -1, -1
 	for y := 0; y < height; y++ {
-		for x := 0; x < width; x++ {
-			if alphaAt(bounds.Min.X+x, bounds.Min.Y+y) < visibleAlphaThreshold {
-				continue
+		row := alpha[y*width : (y+1)*width]
+		for f := 0; f < width; f += frameWidth {
+			frame := row[f:min(f+frameWidth, width)]
+			for x, a := range frame {
+				if a >= visibleAlphaThreshold {
+					minX, minY, maxY = min(minX, x), min(minY, y), y
+					break
+				}
 			}
-			frameX := x % frameWidth
-			minX = min(minX, frameX)
-			minY = min(minY, y)
-			maxX = max(maxX, frameX)
-			maxY = max(maxY, y)
+			for x := len(frame) - 1; x > maxX; x-- {
+				if frame[x] >= visibleAlphaThreshold {
+					maxX = x
+					break
+				}
+			}
 		}
 	}
 	if maxX < minX || maxY < minY {
@@ -1034,40 +1110,49 @@ func spriteAlphaMaskFromImage(img image.Image) *spriteAlphaMask {
 	if img == nil {
 		return nil
 	}
-	bounds := img.Bounds()
-	width, height := bounds.Dx(), bounds.Dy()
+	width, height := img.Bounds().Dx(), img.Bounds().Dy()
 	if width <= 0 || height <= 0 {
 		return nil
 	}
-	mask := &spriteAlphaMask{
-		width:  width,
-		height: height,
-		alpha:  make([]uint8, width*height),
-	}
-	alphaAt := spriteAlphaReader(img)
-	for y := 0; y < height; y++ {
-		for x := 0; x < width; x++ {
-			mask.alpha[y*width+x] = alphaAt(bounds.Min.X+x, bounds.Min.Y+y)
-		}
-	}
-	return mask
+	return &spriteAlphaMask{width: width, height: height, alpha: spriteAlphaPlane(img)}
 }
 
-// Avoid boxing a color through image.Image.At for every decoded pixel. Both
-// metadata consumers share the exact alpha rule, including subimage origins
-// and row strides. Uncommon image types retain the image.Image contract.
-func spriteAlphaReader(img image.Image) func(int, int) uint8 {
+// spriteAlphaPlane copies img's alpha channel row by row (width*height bytes,
+// subimage origins and row strides honoured; nil for an empty image). Both
+// metadata consumers share this one alpha rule; uncommon image types go
+// through image.Image.At.
+func spriteAlphaPlane(img image.Image) []uint8 {
+	b := img.Bounds()
+	w, h := b.Dx(), b.Dy()
+	if w <= 0 || h <= 0 {
+		return nil
+	}
+	alpha := make([]uint8, w*h)
 	switch src := img.(type) {
 	case *image.RGBA:
-		return func(x, y int) uint8 { return src.Pix[src.PixOffset(x, y)+3] }
+		copyAlphaChannel(alpha, w, h, src.Pix[src.PixOffset(b.Min.X, b.Min.Y)+3:], src.Stride, 4)
 	case *image.NRGBA:
-		return func(x, y int) uint8 { return src.Pix[src.PixOffset(x, y)+3] }
+		copyAlphaChannel(alpha, w, h, src.Pix[src.PixOffset(b.Min.X, b.Min.Y)+3:], src.Stride, 4)
 	case *image.Alpha:
-		return func(x, y int) uint8 { return src.Pix[src.PixOffset(x, y)] }
+		copyAlphaChannel(alpha, w, h, src.Pix[src.PixOffset(b.Min.X, b.Min.Y):], src.Stride, 1)
 	default:
-		return func(x, y int) uint8 {
-			_, _, _, a := img.At(x, y).RGBA()
-			return uint8(a >> 8)
+		for y := 0; y < h; y++ {
+			for x := 0; x < w; x++ {
+				_, _, _, a := img.At(b.Min.X+x, b.Min.Y+y).RGBA()
+				alpha[y*w+x] = uint8(a >> 8)
+			}
+		}
+	}
+	return alpha
+}
+
+// copyAlphaChannel copies w*h alpha bytes into dst: src starts at the first
+// pixel's alpha byte, pixels are step bytes apart and rows stride apart.
+func copyAlphaChannel(dst []uint8, w, h int, src []byte, stride, step int) {
+	for y := 0; y < h; y++ {
+		row, out := src[y*stride:], dst[y*w:(y+1)*w]
+		for x := range out {
+			out[x] = row[x*step]
 		}
 	}
 }

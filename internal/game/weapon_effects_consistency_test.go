@@ -31,17 +31,16 @@ func TestWeaponTooltipSurfacesEveryAuthoredEffect(t *testing.T) {
 				want = append(want, lines...)
 			}
 		}
-		// Stun spells out RT seconds and TB turns; an unset stun_turns stuns one turn.
-		turns := max(1, def.StunTurns)
-		add("stun", def.StunChance > 0, fmt.Sprintf("Stun Chance: %.0f%% (%ds RT / %d turns TB)", def.StunChance*100, turns, turns))
-		add("disintegrate", def.DisintegrateChance > 0, fmt.Sprintf("Disintegrate Chance: %.0f%% (undead and dragons immune)", def.DisintegrateChance*100))
+		// Stun spells out its seconds and the same span in TB turns.
+		add("stun", def.StunChance > 0, fmt.Sprintf("Stun Chance: %.0f%% (%s)", def.StunChance*100, config.DurationText(def.StunSeconds)))
+		add("disintegrate", def.DisintegrateChance > 0, fmt.Sprintf("Disintegrate Chance: %.0f%% (undead and dragons immune; bosses take %d%% of max HP as true damage)", def.DisintegrateChance*100, config.InstakillSearMaxHPPct))
 		add("spell_cooldown", def.SpellCooldownMultiplier > 0 && def.SpellCooldownMultiplier != 1,
 			fmt.Sprintf("Spell cooldown %+.0f%%", (def.SpellCooldownMultiplier-1)*100))
 		for _, vs := range slices.Sorted(maps.Keys(def.BonusVs)) {
 			add("bonus_vs", true, fmt.Sprintf("Bonus vs %s: x%.1f", config.TitleWords(vs), def.BonusVs[vs]))
 		}
-		add("damage_type", def.DamageType != "" && def.DamageType != "physical", character.DamageTypeAoELine(def.DamageType, def.AoeRadiusTiles))
-		add("aoe", def.AoeRadiusTiles > 0, character.DamageTypeAoELine(def.DamageType, def.AoeRadiusTiles))
+		add("damage_type", def.DamageType != "" && def.DamageType != "physical", character.DamageTypeAoE(def.DamageType, def.AoeRadiusTiles).String())
+		add("aoe", def.AoeRadiusTiles > 0, character.DamageTypeAoE(def.DamageType, def.AoeRadiusTiles).String())
 		want = append(want, def.CoreEffectLines()...)
 		for _, bearer := range []*character.MMCharacter{nil, ch} {
 			for _, full := range []bool{false, true} {

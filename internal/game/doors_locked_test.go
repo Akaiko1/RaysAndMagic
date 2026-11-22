@@ -329,7 +329,7 @@ func TestDoorKeyLootAndSkeletonKeyPolicy(t *testing.T) {
 	if !bossSkeleton {
 		t.Fatalf("boss_loot = %+v, want a Skeleton Key entry", config.GlobalLoots.BossLoot)
 	}
-	for _, monsterKey := range monsterPkg.MonsterConfig.GetAllMonsterKeys() {
+	for _, monsterKey := range catalogMonsterKeys() {
 		monster := monsterPkg.NewMonster3DFromConfig(0, 0, monsterKey, g.config)
 		hasSkeletonKey := false
 		for _, entry := range cs.monsterLootEntries(monster) {

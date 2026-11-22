@@ -6,6 +6,7 @@ import (
 	"slices"
 	"testing"
 
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	damagecalc "ugataima/internal/damage"
 )
@@ -59,7 +60,7 @@ func TestBalanceHitsSeePreHitHealth(t *testing.T) {
 	defer func() { g.heroHitObserver = nil }()
 	auberon, celestine, silvelyn := g.party.Members[0], g.party.Members[2], g.party.Members[3]
 	hit := func(target *character.MMCharacter, dmg int) seen {
-		g.combat.monsterHitCharacter(foe, target, foe.Name, monsterCharacterHit{Parts: damagecalc.Parts{True: dmg}, DamageType: "physical", IgnoresDodge: true})
+		g.combat.monsterHitCharacter(foe, target, foe.Name, monsterCharacterHit{Parts: damagecalc.Parts{True: dmg}, DamageType: "physical"})
 		return hits[len(hits)-1]
 	}
 
@@ -126,13 +127,13 @@ func TestBalanceCoverageTellsMonstersApart(t *testing.T) {
 		want    map[string]map[string]tally // key -> ability -> tally
 		elem    map[string]int
 	}{
-		"shared name, both breathe": {foes: []balanceFoeRef{gold, green}, line: "Dragon breathes fire!",
+		"shared name, both breathe": {foes: []balanceFoeRef{gold, green}, line: uitext.Text("combat.party_attack.cast", "Dragon", "Dragon Breath"),
 			want: map[string]map[string]tally{"dragon_gold": {"dragon_breath": {}}, "dragon_green": {"dragon_breath": {}}}},
 		"shared name, only one stuns": {foes: []balanceFoeRef{gold, green}, line: "Mara is stunned!",
 			want: map[string]map[string]tally{"dragon_gold": {"stun": {1, 1}}, "dragon_green": {"poison": {1, 0}}}},
 		"shared name, only one poisons": {foes: []balanceFoeRef{gold, green}, line: "Mara is poisoned!",
 			want: map[string]map[string]tally{"dragon_green": {"poison": {1, 1}}, "dragon_gold": {"stun": {1, 0}}}},
-		"alone, its breath counts": {foes: []balanceFoeRef{gold}, line: "Dragon breathes fire!",
+		"alone, its breath counts": {foes: []balanceFoeRef{gold}, line: uitext.Text("combat.party_attack.cast", "Dragon", "Dragon Breath"),
 			want: map[string]map[string]tally{"dragon_gold": {"dragon_breath": {1, 1}}}},
 		"two stunners by different names": {foes: []balanceFoeRef{gold, clock}, line: "Mara is stunned!",
 			want: map[string]map[string]tally{"dragon_gold": {"stun": {}, "dragon_breath": {1, 0}}, "grandfather_clock": {"stun": {}}}},
@@ -189,29 +190,29 @@ func TestBalanceArenaStartsClean(t *testing.T) {
 	g.traps = append(g.traps, PlacedTrap{Key: "probe"})
 	g.persistentDamageZones = append(g.persistentDamageZones, PersistentDamageZone{SpellID: "probe"})
 	for _, b := range g.timedBuffs() {
-		*b.active, *b.duration = true, 99
+		*b.active, *b.clock = true, framesClock(99)
 	}
-	g.currentTurn, g.partyActionsUsed, g.partyTechniqueActionsUsed, g.monsterTurnResolved = 1, 3, 1, true
-	g.spellInputCooldown, g.viewTurnFramesLeft = 30, 10
+	g.currentTurn, g.partyActionsUsed, g.partyPenaltyFreeActionsUsed, g.monsterTurnResolved = 1, 3, 1, true
+	g.actionInputStagger, g.viewTurnFramesLeft = 30, 10
 
 	a.reset()
 	for _, b := range g.timedBuffs() {
-		if *b.active || *b.duration != 0 {
+		if *b.active || b.clock.Active() {
 			t.Errorf("a timed buff survived the reset")
 			break
 		}
 	}
-	if len(g.world.Monsters) != 0 || g.combatBuffs != nil || g.statBuffs != nil || g.spellInputCooldown != 0 || g.viewTurnFramesLeft != 0 {
+	if len(g.world.Monsters) != 0 || g.combatBuffs != nil || g.statBuffs != nil || g.actionInputStagger != 0 || g.viewTurnFramesLeft != 0 {
 		t.Errorf("reset left monsters %d, combat buffs %v, stat buffs %v, cooldowns %d/%d",
-			len(g.world.Monsters), g.combatBuffs, g.statBuffs, g.spellInputCooldown, g.viewTurnFramesLeft)
+			len(g.world.Monsters), g.combatBuffs, g.statBuffs, g.actionInputStagger, g.viewTurnFramesLeft)
 	}
 	a.stage("classic", 15, []string{"goblin"})
 	if len(g.traps) != 0 || len(g.persistentDamageZones) != 0 {
 		t.Errorf("staged fight inherits %d traps, %d damage zones", len(g.traps), len(g.persistentDamageZones))
 	}
-	if !g.turnBasedMode || g.currentTurn != 0 || g.partyActionsUsed != 0 || g.partyTechniqueActionsUsed != 0 || g.monsterTurnResolved {
+	if !g.turnBasedMode || g.currentTurn != 0 || g.partyActionsUsed != 0 || g.partyPenaltyFreeActionsUsed != 0 || g.monsterTurnResolved {
 		t.Errorf("staged fight opens turn %d with %d/%d actions used, monster turn resolved %v",
-			g.currentTurn, g.partyActionsUsed, g.partyTechniqueActionsUsed, g.monsterTurnResolved)
+			g.currentTurn, g.partyActionsUsed, g.partyPenaltyFreeActionsUsed, g.monsterTurnResolved)
 	}
 	for _, m := range g.party.Members {
 		if m.ActionsRemaining == 0 {
@@ -252,5 +253,30 @@ func TestBalanceArenaStartsClean(t *testing.T) {
 	}
 	if raised == 0 {
 		t.Fatal("no party's preparation raised its max HP; the rested-start rule checks nothing")
+	}
+}
+
+// In real time the party acts through the live path (whoever is ready) and
+// the fight never enters turn-based mode.
+func TestBalanceArenaRealTime(t *testing.T) {
+	a := newBalanceArena(t)
+	a.rt = true
+	f := a.fight("rogues", 15, []string{"goblin"})
+	if a.g.turnBasedMode {
+		t.Fatal("a real-time fight switched to turn-based mode")
+	}
+	if !f.Won {
+		t.Fatalf("real-time fight lost or stalled after %d rounds", f.Rounds)
+	}
+	acted := 0
+	for who, kinds := range f.Actions {
+		if who != "party" {
+			for _, n := range kinds {
+				acted += n
+			}
+		}
+	}
+	if acted == 0 {
+		t.Fatalf("no hero acted: %v", f.Actions)
 	}
 }

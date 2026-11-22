@@ -1,0 +1,106 @@
+# Story events: the main storyline's full-screen beats (story_events.go,
+# story_screen.go, docs/story-plan.md). Each fires once per run and waits for a
+# calm moment: no fight, no dialog or other screen open.
+#
+# trigger.on: new_game | quest_accepted | quest_completed | quest_claimed (with
+# quests: any of them) | monster_killed (monsters: keys, or boss: true for any
+# boss) | region_entered (maps: keys, any of them) | victory.
+# Events fired by the same moment queue in file order.
+#
+# art: a plate in sprites/interface/story/. pages: 1-3, MM3-5 register
+# (docs/dialogue-style.md). speaker: captain for Oruun's own words.
+# reveals_quests: hidden quests the journal shows once the event is seen.
+
+events:
+  - id: prologue
+    trigger: {on: new_game}
+    art: story_prologue
+    title: "The Empty Throne"
+    pages:
+      - "The Mage Tower in the Misty Highlands has had no Archmage since the Lich King rose. The dead walk in the highlands. Four Elder Dragons burn the caravans in the desert, and Seabright's sailors report rows of lamps on the sea floor."
+      - "The Tower is enlisting ash-walkers: fighters who carry no Light of their own. You are four of them. Its envoy, Corwin, is waiting for you at the tavern."
+
+  - id: tower
+    trigger: {on: quest_completed, quests: [main_tower_letter]}
+    art: story_tower
+    title: "The Mage Tower"
+    reveals_quests: [broodmother_nests]
+    pages:
+      - "The magister breaks the seal at the gate and reads Corwin's letter. 'Since the Lich King rose, the Tower has raised no Archmage. The Light has no master.'"
+      - "'The dragons we sealed under the desert are loose, and their brood holds the Dragon Cliffs. When the last Dragon there dies, the Brood Mother comes up in the Ember Crater. Sylwen the Pilgrim at the desert seals leads the hunt for the four Elder Dragons.'"
+      - "'Seabright's sailors report lamps on the sea floor. Go and look at them. If one of you can carry the Light, come back and we will speak of the Lich King.'"
+
+  - id: captain_first
+    trigger: {on: monster_killed, boss: true, monsters: [elder_dragon, elder_dragon_red, elder_dragon_green, elder_dragon_gold]}
+    art: story_captain
+    speaker: captain
+    title: "The Lamp-Captain"
+    pages:
+      - "I am Oruun. Your sailors call me the Lamp-Captain. I have watched you since the forest."
+      - "You kill well, ash-walkers. Keep going. The tower has something it means to give you, and I want to see it."
+
+  - id: raising
+    trigger: {on: quest_claimed, quests: [archmage_trial]}
+    art: story_raising
+    title: "The Raising"
+    pages:
+      - "The magisters lead one of you into the white chamber. The lamps in the ceiling light one by one. The Light goes into the one who kneels, and it stays there."
+      - "The Tower has an Archmage again. Far out at sea, a light blinks three times."
+
+  - id: four_seals
+    trigger: {on: quest_accepted, quests: [dragon_slayer]}
+    art: story_four_seals
+    title: "The Four Seals"
+    pages:
+      - "Sylwen raises her lantern to the black statue. Along its neck the stone splits into plates, fixed with rows of rivets."
+      - "'Four seals, four dragons. Each seal takes its own statuette from the Pyramid Sanctum. Wake all four and kill what comes out.'"
+
+  - id: dais
+    trigger: {on: quest_completed, quests: [dragon_slayer]}
+    art: story_dais
+    title: "The God of Death"
+    pages:
+      - "The fourth Elder Dragon is dead. Under the desert the Pyramid Sanctum shakes. On the dais, among the empty niches, the Ancient God of Death stands up."
+
+  - id: crater
+    trigger: {on: quest_completed, quests: [broodmother_nests]}
+    art: story_crater
+    title: "The Brood Mother"
+    reveals_quests: [broodmother_nests]
+    pages:
+      - "The last Dragon on the cliffs is dead. In the Ember Crater the Brood Mother rises over her eggs. Smoke comes from vents along her sides, not from her mouth."
+
+  - id: lamps
+    trigger: {on: region_entered, maps: [city, water]}
+    art: story_lamps
+    title: "Lamps in the Sea"
+    reveals_quests: [water_purge]
+    pages:
+      - "Fishermen on the Seabright pier point down at the water. Far below the surface, lamps burn on the sea floor in straight rows, all the way out to sea."
+      - "Brannoc of the Harbour Watch has counted them every night since they came. Three boats have sailed out over them and not come back. Kill every Alien in the Ocean Depths."
+
+  - id: enforcer
+    trigger: {on: quest_completed, quests: [water_purge]}
+    art: story_enforcer
+    title: "The Enforcer"
+    reveals_quests: [water_purge]
+    pages:
+      - "The last Alien in the Ocean Depths is dead. Something larger moves in the deeper water."
+      - "Leave the depths and dive again. The Alien Enforcer will come up to meet you."
+
+  - id: reckoning
+    trigger: {on: quest_completed, quests: [dragon_slayer, broodmother_nests, water_purge]}
+    art: story_reckoning
+    title: "The Last Reckoning"
+    reveals_quests: [endgame_triad]
+    pages:
+      - "A rider brings a map from the Mage Tower. Three places are marked in red wax: the Ember Crater, the Pyramid Sanctum and the Ocean Depths."
+      - "'The Brood Mother, the Ancient God of Death and the Alien Enforcer. One is awake. The others wake when their kin are dead. Kill all three, in any order, and the realm is safe.'"
+
+  - id: ending
+    trigger: {on: victory}
+    art: story_ending
+    title: "The Realm Is Saved"
+    pages:
+      - "The Brood Mother, the Ancient God of Death and the Alien Enforcer are dead. The Tower lights its white fires again."
+      - "Far out at sea, a light blinks three times. Then it goes out."

@@ -1,0 +1,16 @@
+// Mesh materials by name: the mesh* constants in render_melee_mesh.go;
+// TestShaderConstantsMatchGo keeps the values equal.
+const (
+	meshMetal = 0
+	meshGrip = 1
+	meshStone = 2
+	meshGlow = 3
+	meshRelicGlass = 4
+	meshRelicWater = 5
+	meshRuneInlay = 6
+	meshBookPage = 7
+	meshHeldWater = 8
+	meshHeldEmerald = 9
+	meshHeldLava = 10
+	meshHellfireMetal = 11
+)

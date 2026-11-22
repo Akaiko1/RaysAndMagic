@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"hash/fnv"
 	"os"
+	"strconv"
 	"strings"
 
 	"ugataima/internal/character"
 	"ugataima/internal/quests"
-
-	"gopkg.in/yaml.v3"
+	"ugataima/internal/strictyaml"
 )
 
 // Tavern rumors are objective story guide rails. Every tavern-capable NPC
@@ -42,6 +42,8 @@ type rumorConfig struct {
 
 var globalRumors []RumorDef
 
+const rumorMinLevelSlot = "{min_party_level}"
+
 // LoadRumorConfig loads assets/rumors.yaml and validates every quest link
 // against the same quest definitions used by gameplay.
 func LoadRumorConfig(path string, questManager *quests.QuestManager) error {
@@ -50,10 +52,11 @@ func LoadRumorConfig(path string, questManager *quests.QuestManager) error {
 		return fmt.Errorf("rumors: %w", err)
 	}
 	var cfg rumorConfig
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
+	if err := strictyaml.Decode(data, &cfg); err != nil {
 		return fmt.Errorf("rumors: %w", err)
 	}
-	for i, r := range cfg.Rumors {
+	for i := range cfg.Rumors {
+		r := &cfg.Rumors[i]
 		if r.Text == "" {
 			return fmt.Errorf("rumors: entry %d has no text", i)
 		}
@@ -74,12 +77,23 @@ func LoadRumorConfig(path string, questManager *quests.QuestManager) error {
 				return fmt.Errorf("rumors: entry %d references unknown quest spawn %q", i, r.Spawn)
 			}
 		}
-		for _, ref := range []string{r.Quest, r.After} {
-			if ref == "" {
-				continue
+		if r.Quest != "" && (questManager == nil || questManager.Definitions()[r.Quest] == nil) {
+			return fmt.Errorf("rumors: entry %d references unknown quest %q", i, r.Quest)
+		}
+		// {min_party_level} reads the rumor quest's own gate, so the tavern can
+		// never quote a stale level.
+		if strings.Contains(r.Text, rumorMinLevelSlot) {
+			if r.Quest == "" || questManager.Definitions()[r.Quest].MinPartyLevel <= 0 {
+				return fmt.Errorf("rumors: entry %d uses %s without a level-gated quest", i, rumorMinLevelSlot)
 			}
-			if questManager == nil || questManager.Definitions()[ref] == nil {
-				return fmt.Errorf("rumors: entry %d references unknown quest %q", i, ref)
+			r.Text = strings.ReplaceAll(r.Text, rumorMinLevelSlot, strconv.Itoa(questManager.Definitions()[r.Quest].MinPartyLevel))
+		}
+		if r.After != "" {
+			if questManager == nil {
+				return fmt.Errorf("rumors: entry %d references unknown quest %q", i, r.After)
+			}
+			if err := questGateError(questManager, r.After); err != nil {
+				return fmt.Errorf("rumors: entry %d after: %w", i, err)
 			}
 		}
 	}
@@ -106,21 +120,24 @@ func validRumorSpawnReference(ref string, questManager *quests.QuestManager) boo
 
 // questCompleted reports whether a quest is completed in the current run.
 func (g *MMGame) questCompleted(id string) bool {
-	// Older versions removed the trial from the journal after promotion.
-	if id == "archmage_trial" && g.party != nil {
-		for _, roster := range [][]*character.MMCharacter{g.party.Members, g.party.Reserve, g.party.Captive} {
-			for _, member := range roster {
-				if member != nil && member.Promotion == character.PromotionArchmage {
+	if g.questManager == nil {
+		return false
+	}
+	if q := g.questManager.GetQuest(id); q != nil {
+		return q.Completed
+	}
+	// Older versions dropped a promotion quest from the journal once paid: a
+	// member holding its rank still proves it done.
+	if def := g.questManager.Definitions()[id]; def != nil && g.party != nil {
+		if p := questPromotion(def.Rewards); p != character.PromotionNone {
+			for member := range g.party.Heroes() {
+				if member.Promotion == p {
 					return true
 				}
 			}
 		}
 	}
-	if g.questManager == nil {
-		return false
-	}
-	q := g.questManager.GetQuest(id)
-	return q != nil && q.Completed
+	return false
 }
 
 func (g *MMGame) rumorMonsterObjectiveComplete(r RumorDef) bool {
@@ -146,8 +163,11 @@ func (g *MMGame) rumorMonsterObjectiveComplete(r RumorDef) bool {
 }
 
 func (g *MMGame) rumorAvailable(r RumorDef) bool {
-	if r.After != "" && !g.questCompleted(r.After) {
+	if r.After != "" && (!g.questCompleted(r.After) || !g.questIDVisible(r.After)) {
 		return false
+	}
+	if r.Quest != "" && !g.questIDVisible(r.Quest) {
+		return false // a hidden quest is not gossiped about before its beat
 	}
 	if r.Quest != "" && g.questCompleted(r.Quest) {
 		return false

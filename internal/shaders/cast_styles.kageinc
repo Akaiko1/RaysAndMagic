@@ -1,0 +1,23 @@
+// Cast overlay styles and passes by name: the castStyle* and castPass*
+// constants in render_cast_overlay.go; TestShaderConstantsMatchGo keeps the
+// values equal.
+const (
+	castStyleDarkness = 0
+	castStyleTownPortal = 1
+	castStyleFireAura = 2
+	castStyleHaste = 3
+	castStyleShield = 4
+	castStyleFate = 5
+	castStyleSharedLife = 6
+	castStylePreservation = 7
+	castStyleRegeneration = 8
+	castStylePurify = 9
+	castStyleProtectionFromMagic = 10
+	castStyleDispelMagic = 11
+	castStyleCelestialArmor = 12
+	castStyleVampiricWeapon = 13
+	castStylePainReflection = 14
+	castPassBack = -1
+	castPassSingle = 0
+	castPassFront = 1
+)

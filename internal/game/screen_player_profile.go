@@ -42,11 +42,7 @@ func (ui *UISystem) profileButton(screen *ebiten.Image, label string, r layoutRe
 		drawFilledRect(screen, r.x, r.y, r.w, r.h, color.RGBA{0, 0, 0, 100})
 		return
 	}
-	ui.onDisplayedInput(uiCommandNavigation, r, func() {
-		if ui.game.consumeLeftClickIn(r.x, r.y, r.x+r.w, r.y+r.h) {
-			action()
-		}
-	})
+	ui.onClick(r, true, action)
 }
 
 func (ui *UISystem) profileIcon(screen *ebiten.Image, key, label string, x, y, size int) {
@@ -217,7 +213,7 @@ var profilePages = []profilePageSpec{
 	{"Combat", []profileCounterSpec{{"Monsters defeated", "kills", "icon_achievement_first_blood", false}, {"HP lost to attacks", "monster_damage", "icon_achievement_warlord", false}, {"Heroes knocked out", "knockouts", "icon_achievement_lich", false}}, []profileRankingSpec{{"Most hunted", "kills", "defeated", false}, {"Most dangerous", "danger", "HP lost", false}, {"Most knockouts caused", "knockouts", "knockouts", false}}},
 	{"Discoveries", []profileCounterSpec{{"Loot found", "loot", "icon_achievement_jailbreak", false}, {"Gold earned", "gold", "icon_achievement_victory", false}, {"Regions explored", "exploration", "icon_item_world_map", false}}, []profileRankingSpec{{"Most common loot", "loot", "units found", false}, {"Regions explored", "exploration", "% of all region tiles", false}, {"Most valuable finds", "valuable_loot", "highest base gold per item", false}}},
 	{"Trophies", []profileCounterSpec{{"Bosses defeated", "bosses", "icon_achievement_warlord", false}, {"Items traded", "items_traded", "icon_item_clock_hand", false}, {"Quests completed", "quest_rewards", "icon_achievement_archmage", false}}, []profileRankingSpec{{"Bosses defeated", "bosses", "kills by boss", false}, {"Trade offerings", "items_traded", "item units paid to merchants", false}, {"Quests completed", "quest_rewards", "completions by quest", false}}},
-	{"Collecting", []profileCounterSpec{{"Cards found", "cards_found", "icon_item_goblin_card", false}, {"Chest loot", "chest_loot", "chest_golden", false}, {"Legendary drops", "legendary_loot", "icon_weapon_wyrmcleaver", false}}, []profileRankingSpec{{"Cards found", "cards_found", "units found, all rarities", false}, {"Loot from chests", "chest_loot", "item units, excludes gold", false}, {"Legendary loot", "legendary_loot", "units found, excludes cards", false}}},
+	{"Collecting", []profileCounterSpec{{"Cards found", "cards_found", "icon_item_goblin_card", false}, {"Chest loot", "chest_loot", "chest_golden", false}, {"Legendary drops", "legendary_loot", "icon_weapon_wyrmcleaver", false}}, []profileRankingSpec{{"Cards found", "cards_found", "units found, all rarities", false}, {"Loot from chests", "chest_loot", "item units, excludes gold", false}, {"Legendary loot", "legendary_loot", "units found, excludes cards and quest items", false}}},
 	{"Arena", []profileCounterSpec{{"Champions defeated", "arena_wins", "icon_achievement_warlord", false}, {"Arena points earned", "arena_points", "icon_achievement_victory", false}, {"Victorious parties", "arena_parties", "icon_achievement_full_roster", false}}, []profileRankingSpec{{"Defeated champions", "arena_champions", "victories", false}, {"Difficulty tiers", "arena_tiers", "victories", false}, {"Party records", "arena_parties", "points earned", false}}},
 }
 
@@ -237,11 +233,7 @@ func profileValue(n int64, duration bool) string {
 		}
 		return fmt.Sprintf("%dh %02dm", int64(d/time.Hour), int64(d/time.Minute)%60)
 	}
-	s := fmt.Sprintf("%d", n)
-	for i := len(s) - 3; i > 0; i -= 3 {
-		s = s[:i] + "," + s[i:]
-	}
-	return s
+	return groupedInt(n)
 }
 
 const profileRankingRowH = 64
@@ -307,15 +299,7 @@ func (g *MMGame) setStatisticsTab(tab int) {
 }
 
 func profileScrollInput(offset, limit, viewport int, wheel float64, pressed func(ebiten.Key) bool) int {
-	delta := int(wheel * 48)
-	if delta == 0 && wheel != 0 {
-		if wheel > 0 {
-			delta = 1
-		} else {
-			delta = -1
-		}
-	}
-	offset -= delta
+	offset += wheelScrollPixels(wheel, 48)
 	if pressed(ebiten.KeyDown) {
 		offset += 48
 	}
@@ -527,7 +511,7 @@ func (ui *UISystem) drawProfileRanking(screen *ebiten.Image, view layoutRect, sp
 		onScreen := layoutRect{view.x + track.x, view.y + track.y, track.w, track.h}
 		strip := scrollbarGrabStrip(onScreen)
 		seen := image.Rect(strip.x, strip.y, strip.right(), strip.bottom()).Intersect(image.Rect(view.x, view.y, view.right(), view.bottom()))
-		hit := layoutRect{seen.Min.X, seen.Min.Y, seen.Dx(), seen.Dy()}
+		hit := layoutRectOf(seen)
 		g := ui.game
 		ui.scrollbarGesture("profile:ranking:"+spec.group, onScreen, hit, scroll, len(entries)*profileRankingRowH, func(v int) {
 			g.statisticsRankingScroll[spec.group] = v

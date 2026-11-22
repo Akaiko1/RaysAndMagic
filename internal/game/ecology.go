@@ -13,21 +13,23 @@ import (
 	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
+	"ugataima/internal/status"
 	"ugataima/internal/world"
 )
 
 // EcologyState belongs to the campaign, never the account-wide profile.
 type EcologyState struct {
-	PopulationPhases map[string]int `json:"population_phases,omitempty"`
-	Unlocked         bool           `json:"unlocked,omitempty"`
-	ActorID          string         `json:"actor_id,omitempty"`
-	Route            string         `json:"route,omitempty"`
-	Checkpoint       int            `json:"checkpoint,omitempty"`
-	Returning        bool           `json:"returning,omitempty"`
-	RespawnDay       int            `json:"respawn_day,omitempty"`
-	StopFrames       int            `json:"stop_frames,omitempty"`
-	Deliveries       int            `json:"deliveries,omitempty"`
-	Stock            map[string]int `json:"stock,omitempty"`
+	PopulationPhases map[string]int   `json:"population_phases,omitempty"`
+	Unlocked         bool             `json:"unlocked,omitempty"`
+	ActorID          string           `json:"actor_id,omitempty"`
+	Route            string           `json:"route,omitempty"`
+	Checkpoint       int              `json:"checkpoint,omitempty"`
+	Returning        bool             `json:"returning,omitempty"`
+	RespawnDay       int              `json:"respawn_day,omitempty"`
+	Stop             status.DualClock `json:"stop,omitzero"`
+	LegacyStopFrames int              `json:"stop_frames,omitempty" ticks:"frames"` // read into Stop
+	Deliveries       int              `json:"deliveries,omitempty"`
+	Stock            map[string]int   `json:"stock,omitempty"`
 }
 
 func ecologyWorld(key string) *world.World3D {
@@ -98,12 +100,7 @@ func (g *MMGame) ecologyCollision(w *world.World3D) *collision.CollisionSystem {
 }
 func (g *MMGame) addEcologyActor(w *world.World3D, m *monster.Monster3D) {
 	m.QuestProgressIgnored = true
-	g.stampMonsterHome(w, m)
-	if w == g.world {
-		g.registerSpawnedMonster(m)
-	} else {
-		w.Monsters = append(w.Monsters, m)
-	}
+	g.addMonsterToWorld(w, m)
 }
 
 // Replenishment is edge-triggered and persisted even when every animal dies.
@@ -144,16 +141,8 @@ func (g *MMGame) replenishWildlife() {
 		for _, npc := range w.NPCs {
 			occupied[[2]int{int(npc.X / tile), int(npc.Y / tile)}] = true
 		}
-		minX, minY, maxX, maxY := 0, 0, w.Width, w.Height
-		wm := world.GlobalWorldManager
-		if wm.IsOpenWorldRegion(p.Map) {
-			for _, r := range wm.OpenWorldRegions {
-				if r.MapKey == p.Map {
-					minX, minY, maxX, maxY = r.OffsetX, r.OffsetY, r.OffsetX+r.Width, r.OffsetY+r.Height
-					break
-				}
-			}
-		}
+		bounds := mapTileBounds(w, p.Map)
+		minX, minY, maxX, maxY := bounds.Min.X, bounds.Min.Y, bounds.Max.X, bounds.Max.Y
 		var free [][2]int
 		for y := minY; y < maxY; y++ {
 			for x := minX; x < maxX; x++ {
@@ -215,7 +204,7 @@ func (g *MMGame) prepareAmbientTarget(m *monster.Monster3D) bool {
 	}
 	if m.AmbientFlee {
 		m.RememberAmbientThreat(tx, ty)
-	} else if m.Threat.Seconds > 0 {
+	} else if m.Threat.Clock.Active() {
 		m.AmbientFlee = true
 		tx, ty = m.Threat.X, m.Threat.Y
 	}
@@ -236,6 +225,18 @@ func (g *MMGame) prepareAmbientTarget(m *monster.Monster3D) bool {
 	m.AITargetX, m.AITargetY = tx, ty
 	return true
 }
+
+// ambientStepPerception re-runs ambient perception between a fast ambient
+// monster's steps, as RT does every frame: a threat or prey that comes into
+// view mid-walk ends the walk, so the next action reacts to it.
+func (g *MMGame) ambientStepPerception(m *monster.Monster3D) func() bool {
+	return func() bool {
+		flee, foe := m.AmbientFlee, m.AIFoe
+		g.prepareAmbientTarget(m)
+		return m.AmbientFlee == flee && m.AIFoe == foe
+	}
+}
+
 func (g *MMGame) caravanFoe(m *monster.Monster3D) *monster.Monster3D {
 	if m.IsAmbient() || m.IsPartyControlled() || m.IsInertSetPiece() || m.BossEvasive {
 		return nil
@@ -286,7 +287,7 @@ func (g *MMGame) setCaravanTarget(m *monster.Monster3D) {
 	m.AITargetX, m.AITargetY = m.X, m.Y
 	r := g.caravanRoute()
 	g.normalizeCaravanCheckpoint(r)
-	if r == nil || g.ecology.StopFrames > 0 || g.ecology.Checkpoint < 0 || g.ecology.Checkpoint >= len(r.Points) {
+	if r == nil || g.ecology.Stop.Active() || g.ecology.Checkpoint < 0 || g.ecology.Checkpoint >= len(r.Points) {
 		return
 	}
 	next, x, y := ecologyPoint(r.Points[g.ecology.Checkpoint], float64(g.config.GetTileSize()))
@@ -342,8 +343,7 @@ func (g *MMGame) unlockCaravan() {
 	if c == nil || g.ecology.Unlocked || g.questManager == nil {
 		return
 	}
-	q := g.questManager.GetQuest(c.Caravan.UnlockQuest)
-	if q != nil && (q.RewardsClaimed || q.ClaimedAtDay > 0) {
+	if g.questManager.Concluded(c.Caravan.UnlockQuest) {
 		g.ecology.Unlocked = true
 		g.syncCaravanStock()
 	}
@@ -367,8 +367,8 @@ func (g *MMGame) updateEcology() {
 		}
 		return
 	}
-	if g.ecology.StopFrames > 0 {
-		g.ecology.StopFrames--
+	// The stop is spent with the party clocks (tickPartyClocks).
+	if g.ecology.Stop.Active() {
 		return
 	}
 	if g.turnBasedMode && (g.currentTurn != 1 || g.monsterTurnResolved) {
@@ -424,14 +424,14 @@ func (g *MMGame) updateEcology() {
 			g.ecology.Deliveries++
 			g.chooseCaravanRoute()
 			g.ecology.Checkpoint = 1
-			g.ecology.StopFrames = c.Caravan.StopSeconds * g.config.GetTPS()
+			g.armCaravanStop()
 		} else {
 			g.ecology.Checkpoint--
 		}
 	} else if g.ecology.Checkpoint == len(r.Points)-1 {
 		g.ecology.Returning = true
 		g.ecology.Checkpoint--
-		g.ecology.StopFrames = c.Caravan.StopSeconds * g.config.GetTPS()
+		g.armCaravanStop()
 	} else {
 		g.ecology.Checkpoint++
 	}
@@ -491,6 +491,17 @@ func (g *MMGame) syncCaravanStock() {
 	}
 }
 
+// migrateLegacy reads an old save's stop frames into the clock.
+func (s *EcologyState) migrateLegacy(tps int) {
+	status.MigrateFrames(&s.Stop, &s.LegacyStopFrames, tps)
+}
+
+// armCaravanStop starts a scheduled stop at a route end.
+func (g *MMGame) armCaravanStop() {
+	g.ecology.Stop = status.DualClock{}
+	g.ecology.Stop.Arm(config.GlobalEcology.Caravan.StopSeconds, g.config.GetTPS())
+}
+
 func cloneEcologyState(s EcologyState) EcologyState {
 	s.Stock = maps.Clone(s.Stock)
 	s.PopulationPhases = maps.Clone(s.PopulationPhases)
@@ -519,16 +530,8 @@ func (g *MMGame) setWildlifeBounds(m *monster.Monster3D) {
 		if w == nil {
 			return
 		}
-		b := [4]int{0, 0, w.Width, w.Height}
-		wm := world.GlobalWorldManager
-		if wm.IsOpenWorldRegion(p.Map) {
-			for _, r := range wm.OpenWorldRegions {
-				if r.MapKey == p.Map {
-					b = [4]int{r.OffsetX, r.OffsetY, r.OffsetX + r.Width, r.OffsetY + r.Height}
-					break
-				}
-			}
-		}
+		bounds := mapTileBounds(w, p.Map)
+		b := [4]int{bounds.Min.X, bounds.Min.Y, bounds.Max.X, bounds.Max.Y}
 		if m.AmbientBounds == nil {
 			m.AmbientBounds = new([4]int)
 		}

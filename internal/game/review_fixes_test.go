@@ -2,8 +2,10 @@ package game
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
+	"ugataima/internal/collision"
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
@@ -12,6 +14,7 @@ import (
 	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/quests"
 	"ugataima/internal/spells"
+	"ugataima/internal/status"
 	"ugataima/internal/world"
 )
 
@@ -43,7 +46,7 @@ func TestRicochetContinuationGetsFreshLifetime(t *testing.T) {
 		Owner:        ProjectileOwnerPlayer,
 	}
 	g.arrows = append(g.arrows, ar)
-	cs.applyProjectileDamage(&g.arrows[len(g.arrows)-1], "arrow", first, ar.ID)
+	cs.applyProjectileDamage(&g.arrows[len(g.arrows)-1], first, ar.ID)
 
 	var cont *Arrow
 	for i := range g.arrows {
@@ -98,6 +101,12 @@ func TestRicochetAutoTargetFollowsAutoTargetPolicy(t *testing.T) {
 	if got := cs.nearestRicochetTarget(victim, def); got != nil {
 		t.Fatalf("ricochet selected excluded actor %v", got.Name)
 	}
+	// Sight: a closed door between the victim and the enemy stops the bounce.
+	cs.game.world.Monsters = []*monsterPkg.Monster3D{victim, enemy}
+	cs.game.collisionSystem.RegisterEntity(collision.NewSightBlockingEntity("ricochet-door", 1.5*ts, enemy.Y, 16, 48, collision.CollisionTypeNPC, true))
+	if got := cs.nearestRicochetTarget(victim, def); got != nil {
+		t.Fatalf("ricochet passed a closed door to %v", got.Name)
+	}
 }
 
 func TestRicochetRequiresLandedProjectileHit(t *testing.T) {
@@ -137,7 +146,7 @@ func TestRicochetRequiresLandedProjectileHit(t *testing.T) {
 				RicochetLeft: 1, Owner: ProjectileOwnerPlayer,
 			}
 			g.arrows = append(g.arrows, ar)
-			cs.applyProjectileDamage(&g.arrows[0], "arrow", first, ar.ID)
+			cs.applyProjectileDamage(&g.arrows[0], first, ar.ID)
 
 			for i := range g.arrows {
 				if cont := &g.arrows[i]; cont.Active && cont.SkipMonster == first {
@@ -152,7 +161,7 @@ func TestWeaponKillResolverRunsClutchburstForEveryWeaponKillPath(t *testing.T) {
 	emberEgg := func(t *testing.T) *config.WeaponDefinitionConfig {
 		t.Helper()
 		def, ok := config.GetWeaponDefinition("ember_egg_mace")
-		if !ok || def == nil || def.DeathBurstDamage <= 0 {
+		if !ok || def == nil || def.DeathBurstMaxHPPct <= 0 {
 			t.Fatal("Ember Egg config missing or authors no death burst")
 		}
 		return def
@@ -166,18 +175,19 @@ func TestWeaponKillResolverRunsClutchburstForEveryWeaponKillPath(t *testing.T) {
 		attacker.Skills[character.SkillMace] = &character.Skill{Mastery: character.MasteryExpert}
 
 		primary := mkTestMonster("Dodger", MasteryWeaponTrueDamagePerTier)
+		primary.MaxHitPoints = 300 // the burst is a share of the corpse's max HP
 		primary.X, primary.Y = 10*ts, 10*ts
 		primary.PerfectDodge = 100
 		bystander := mkTestMonster("Bystander", 100)
 		bystander.X, bystander.Y = 11*ts, 10*ts
 		g.world.Monsters = []*monsterPkg.Monster3D{primary, bystander}
 
-		cs.ApplyDamageToMonster(primary, 100, weaponDef.Name, false)
+		cs.ApplyDamageToMonster(primary, 100, testWeapon(weaponDef.Name), false)
 
 		if primary.IsAlive() {
 			t.Fatal("mastery true damage did not kill the dodging target")
 		}
-		if got, want := bystander.HitPoints, 100-weaponDef.DeathBurstDamage; got != want {
+		if got, want := bystander.HitPoints, 100-300*weaponDef.DeathBurstMaxHPPct/100; got != want {
 			t.Fatalf("Clutchburst left bystander at %d HP, want %d", got, want)
 		}
 	})
@@ -190,6 +200,7 @@ func TestWeaponKillResolverRunsClutchburstForEveryWeaponKillPath(t *testing.T) {
 		center := mkTestMonster("Center", 1000)
 		center.X, center.Y = 10*ts, 10*ts
 		secondary := mkTestMonster("Secondary", 10)
+		secondary.MaxHitPoints = 120
 		secondary.X, secondary.Y = 11*ts, 10*ts
 		witness := mkTestMonster("Witness", 100)
 		witness.X, witness.Y = 12.75*ts, 10*ts
@@ -204,7 +215,7 @@ func TestWeaponKillResolverRunsClutchburstForEveryWeaponKillPath(t *testing.T) {
 		if secondary.IsAlive() {
 			t.Fatal("weapon splash did not kill secondary target")
 		}
-		if got, want := witness.HitPoints, 100-weaponDef.DeathBurstDamage; got != want {
+		if got, want := witness.HitPoints, 100-120*weaponDef.DeathBurstMaxHPPct/100; got != want {
 			t.Fatalf("secondary Clutchburst left witness at %d HP, want %d", got, want)
 		}
 	})
@@ -238,7 +249,7 @@ func TestWeakenScalesWholeOutgoingPacketOnce(t *testing.T) {
 		{name: "melee_packet", pct: 25, normal: 100, trueDmg: 40, carriesTrue: true,
 			fire: func(t *testing.T, cs *CombatSystem, m *monsterPkg.Monster3D, normal int) func() damagecalc.Parts {
 				m.DamageMin, m.DamageMax = normal, normal
-				roll := cs.monsterAttackDamage(m)
+				roll, _ := cs.monsterAttackDamage(m)
 				if roll != normal {
 					t.Fatalf("monsterAttackDamage applied weaken (%d); hitFromMonster owns it", roll)
 				}
@@ -264,17 +275,15 @@ func TestWeakenScalesWholeOutgoingPacketOnce(t *testing.T) {
 			}},
 		{name: "inferno", pct: 50, normal: 40, trueDmg: 20, carriesTrue: true, partyHP: true,
 			fire: partyHit(func(cs *CombatSystem, m *monsterPkg.Monster3D) {
-				m.InfernoDamage = 40
-				cs.applyMonsterInferno(m)
+				castTestPartyAttack(cs, m, catalogPartyAttack("inferno"), 40)
 			})},
 		{name: "fireburst", pct: 50, normal: 40, trueDmg: 20, carriesTrue: true, partyHP: true,
 			fire: partyHit(func(cs *CombatSystem, m *monsterPkg.Monster3D) {
-				m.FireburstDamageMin, m.FireburstDamageMax = 40, 40
-				cs.applyMonsterFireburst(m)
+				castTestPartyAttack(cs, m, catalogPartyAttack("fireburst"), 40)
 			})},
 		{name: "trap_field", pct: 50, normal: 40, trueDmg: 20, partyHP: true,
 			fire: partyHit(func(cs *CombatSystem, m *monsterPkg.Monster3D) {
-				m.TrapVolleyDamage = 40
+				armTestTrapVolley(m, 40)
 				cs.game.detonateBossFireTrap(m)
 			})},
 	} {
@@ -298,7 +307,7 @@ func TestWeakenScalesWholeOutgoingPacketOnce(t *testing.T) {
 				t.Fatalf("weakened packet = %+v, want %+v (once, normal and true)", got, want)
 			}
 			if tc.snapshot {
-				m.WeakenPct, m.WeakenFramesRemaining, m.WeakenTurnsRemaining = 0, 0, 0
+				m.WeakenPct, m.Weaken.Frames, m.Weaken.Turns = 0, 0, 0
 				if after := read(); after != got {
 					t.Fatalf("in-flight packet changed after Weaken expired: %+v -> %+v", got, after)
 				}
@@ -367,22 +376,24 @@ func TestWeaponDamagePreviewIncludesAuthoredTrueDamageWithoutBearer(t *testing.T
 		t.Fatal("Broodspike definition missing")
 	}
 
+	// Without a bearer the hit is the authored base; its true share is cut
+	// from it, so the total stays the base.
+	share := def.Damage * def.TrueDamagePct / 100
 	preview := cs.calculateWeaponDamagePreview(weapon, nil)
-	if preview.AuthoredTrue != def.TrueDamage || preview.True != def.TrueDamage {
-		t.Fatalf("authored true preview = %d/%d, want %d",
-			preview.AuthoredTrue, preview.True, def.TrueDamage)
+	if share <= 0 || preview.AuthoredTrue != share || preview.True != share {
+		t.Fatalf("true share preview = %d/%d, want %d of %d",
+			preview.AuthoredTrue, preview.True, share, def.Damage)
 	}
-	if preview.Total != preview.Normal+def.TrueDamage {
-		t.Fatalf("shop total = %d, want normal %d + true %d",
-			preview.Total, preview.Normal, def.TrueDamage)
+	if preview.Normal != def.Damage-share || preview.Total != def.Damage {
+		t.Fatalf("shop normal/total = %d/%d, want %d/%d", preview.Normal, preview.Total, def.Damage-share, def.Damage)
 	}
 
-	wantLine := fmt.Sprintf("Weapon: +%d True", def.TrueDamage)
+	wantLine := fmt.Sprintf("Weapon: +%d True (%d%% of the hit)", share, def.TrueDamagePct)
 	tooltip := GetItemTooltipRows(weapon, nil, cs, true).String()
 	if !strings.Contains(tooltip, wantLine) {
 		t.Fatalf("shop tooltip omits authored true damage:\n%s", tooltip)
 	}
-	editor := GetItemTooltipRows(items.CreateWeaponFromYAML(items.GetWeaponKeyByName(def.Name)), nil, nil, true).String()
+	editor := GetItemTooltipRows(items.CreateWeaponFromYAML(config.CatalogKey(testWeapon(def.Name))), nil, nil, true).String()
 	if !strings.Contains(editor, wantLine) {
 		t.Fatalf("editor card omits authored true damage:\n%s", editor)
 	}
@@ -450,11 +461,7 @@ func TestNewMechanicsAppearInSharedFormatters(t *testing.T) {
 	}
 
 	mon := monsterPkg.MonsterDefinition{
-		TrapVolleyCount:           20,
-		TrapVolleyRadiusTiles:     15,
-		TrapVolleyIntervalSeconds: 10,
-		TrapVolleyIntervalTurns:   3,
-		TrapVolleyDamage:          40,
+		Abilities: monsterPkg.Abilities{TrapVolley: monsterPkg.TrapVolleyAbility{Count: 20, RadiusTiles: 15, IntervalSeconds: 10, IntervalTurns: 3, DamagePercent: 48}},
 	}
 	var lines []string
 	for _, l := range mon.CombatEffectLines() {
@@ -485,12 +492,12 @@ func TestShippedMonsterCatalogReferencesResolve(t *testing.T) {
 		name, want string
 		breakRef   func(t *testing.T) *monsterPkg.MonsterYAMLConfig
 	}{
-		{"boss summon", "summon_monsters", func(t *testing.T) *monsterPkg.MonsterYAMLConfig {
+		{"boss summon", "abilities.summon.monsters", func(t *testing.T) *monsterPkg.MonsterYAMLConfig {
 			bad := &monsterPkg.MonsterYAMLConfig{Monsters: map[string]monsterPkg.MonsterDefinition{}}
 			for k, v := range shipped.Monsters {
 				bad.Monsters[k] = v
 			}
-			bad.Monsters["summoner"] = monsterPkg.MonsterDefinition{SummonMonsters: []string{"missing"}}
+			bad.Monsters["summoner"] = monsterPkg.MonsterDefinition{Abilities: monsterPkg.Abilities{Summon: monsterPkg.SummonAbility{Monsters: []string{"missing"}}}}
 			return bad
 		}},
 		{"summon spell", "summon_monster", func(t *testing.T) *monsterPkg.MonsterYAMLConfig {
@@ -560,8 +567,7 @@ func TestSlowAndWeakenHoldThroughFinalTBTurn(t *testing.T) {
 	m.ApplySlow(30, 0, 1)   // exactly one TB turn left
 	m.ApplyWeaken(25, 0, 1) // exactly one TB turn left
 
-	m.TickSlowTurn() // the tick that consumes the last turn...
-	m.TickWeakenTurn()
+	m.TickDebuffs(true) // the tick that consumes the last turn...
 	if got := m.ActiveSlowPct(); got != 30 {
 		t.Fatalf("final-turn slow pct = %d, want 30 (latched)", got)
 	}
@@ -569,13 +575,43 @@ func TestSlowAndWeakenHoldThroughFinalTBTurn(t *testing.T) {
 		t.Fatalf("final-turn weakened damage = %d, want 75 (latched)", got)
 	}
 
-	m.TickSlowTurn() // next turn: expired for real
-	m.TickWeakenTurn()
+	m.TickDebuffs(true) // next turn: expired for real
 	if got := m.ActiveSlowPct(); got != 0 {
 		t.Fatalf("expired slow pct = %d, want 0", got)
 	}
 	if got := m.OutgoingDamage(damagecalc.Parts{Normal: 100}).Normal; got != 100 {
 		t.Fatalf("expired weakened damage = %d, want 100", got)
+	}
+}
+
+// Stun-duration gear works in whole rounds rounded to the nearest one, never
+// below one, and the set card states the same ladder the stun lands.
+func TestStunDurationGearRoundsToNearest(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	set := config.GetItemSet("padded")
+	if set == nil || set.StunDurationPct != -50 {
+		t.Fatal("Pit Fighter's Quilt no longer halves stuns")
+	}
+	landed := make([]string, 0, 4)
+	for rounds, want := range map[int]int{1: 1, 2: 1, 3: 2, 4: 2} {
+		member := cs.game.party.Members[0]
+		member.StunDRStacks, member.StunDRMemory = 0, status.DualClock{} // a fresh chain lands 100%
+		member.Stun.Frames, member.Stun.Turns = 0, 0
+		member.Equipment = map[items.EquipSlot]items.Item{
+			items.SlotHelmet: items.CreateItemFromYAML("padded_cap"), items.SlotArmor: items.CreateItemFromYAML("padded_vest"),
+			items.SlotOffHand: items.CreateItemFromYAML("padded_greaves"), items.SlotGauntlets: items.CreateItemFromYAML("padded_gloves"),
+		}
+		cs.applyScaledCharStun(member, rounds)
+		if member.Stun.Turns != want || member.Stun.Frames != config.RoundFrames(want, cs.game.config.GetTPS()) {
+			t.Fatalf("%d-round stun under the quilt = %d turns / %d frames, want %d rounds", rounds, member.Stun.Turns, member.Stun.Frames, want)
+		}
+	}
+	for _, want := range []int{1, 1, 2, 2} {
+		landed = append(landed, strconv.Itoa(want))
+	}
+	card := strings.Join(config.EquipmentSetLines("padded"), "\n")
+	if !strings.Contains(card, "rounds 1/2/3/4 -> "+strings.Join(landed, "/")) {
+		t.Fatalf("set card does not state the landed ladder:\n%s", card)
 	}
 }
 
@@ -606,11 +642,11 @@ func TestHostileStatusDurationFloorAppliesAfterCombiningSources(t *testing.T) {
 	if got := member.SetStunDurationPct(); got != -120 {
 		t.Fatalf("set contribution was clamped before combination: %d", got)
 	}
-	cs.applyScaledCharStun(member, 100, 100)
+	cs.applyScaledCharStun(member, 100)
 	want := 100 + config.MinHostileStatusDurationPct
-	if member.StunFramesRemaining != want || member.StunTurnsRemaining != want {
+	if frames := config.RoundFrames(want, cs.game.config.GetTPS()); member.Stun.Frames != frames || member.Stun.Turns != want {
 		t.Fatalf("combined -100%% duration = %d frames/%d turns, want the %d%% floor %d/%d",
-			member.StunFramesRemaining, member.StunTurnsRemaining, config.MinHostileStatusDurationPct, want, want)
+			member.Stun.Frames, member.Stun.Turns, config.MinHostileStatusDurationPct, frames, want)
 	}
 }
 
@@ -822,8 +858,7 @@ func TestSaveLoadPreservesFinalTurnSlowAndWeakenLatches(t *testing.T) {
 	m.ID = "latched_debuff_monster"
 	m.ApplySlow(30, 0, 1)
 	m.ApplyWeaken(25, 0, 1)
-	m.TickSlowTurn()
-	m.TickWeakenTurn()
+	m.TickDebuffs(true)
 	saveWorld.Monsters = []*monsterPkg.Monster3D{m}
 
 	saveGame := newTestGame(cfg, saveWorld)
@@ -893,32 +928,35 @@ func TestBossTrapCooldownCarriesAcrossCombatModes(t *testing.T) {
 	boss.IsEngagingPlayer = true
 	g.world.Monsters = []*monsterPkg.Monster3D{boss}
 
-	g.combat.tryBossTrapVolley(boss, false)
+	g.combat.tryBossTrapVolley(boss)
 	if len(g.bossFireTraps) == 0 {
 		t.Fatal("first trap volley did not sow a field")
 	}
-	if boss.TrapVolleyCDFrames <= 0 || boss.TrapVolleyTurnCD != boss.TrapVolleyIntervalTurns ||
-		boss.TrapVolleyCDRate <= 0 {
+	if boss.TrapVolleyCD.Frames <= 0 || boss.TrapVolleyCD.Turns != boss.Abilities.TrapVolley.IntervalTurns ||
+		boss.TrapVolleyCD.Rate <= 0 {
 		t.Fatalf("initial cooldown = %d frames/%d turns at rate %d",
-			boss.TrapVolleyCDFrames, boss.TrapVolleyTurnCD, boss.TrapVolleyCDRate)
+			boss.TrapVolleyCD.Frames, boss.TrapVolleyCD.Turns, boss.TrapVolleyCD.Rate)
 	}
 
-	for i := 0; i < boss.TrapVolleyCDRate; i++ {
-		g.combat.tryBossTrapVolley(boss, false)
+	for i := 0; i < boss.TrapVolleyCD.Rate; i++ {
+		boss.TickAbilityClocks(false)
+		g.combat.tryBossTrapVolley(boss)
 	}
-	if boss.TrapVolleyTurnCD != boss.TrapVolleyIntervalTurns-1 {
+	if boss.TrapVolleyCD.Turns != boss.Abilities.TrapVolley.IntervalTurns-1 {
 		t.Fatalf("RT elapsed time left %d TB turns, want %d",
-			boss.TrapVolleyTurnCD, boss.TrapVolleyIntervalTurns-1)
+			boss.TrapVolleyCD.Turns, boss.Abilities.TrapVolley.IntervalTurns-1)
 	}
 
-	g.combat.tryBossTrapVolley(boss, true)
-	if boss.TrapVolleyTurnCD != 1 {
-		t.Fatalf("first TB pass after switch left %d turns, want 1", boss.TrapVolleyTurnCD)
+	boss.TickAbilityClocks(true)
+	g.combat.tryBossTrapVolley(boss)
+	if boss.TrapVolleyCD.Turns != 1 {
+		t.Fatalf("first TB pass after switch left %d turns, want 1", boss.TrapVolleyCD.Turns)
 	}
-	g.combat.tryBossTrapVolley(boss, true)
-	if boss.TrapVolleyTurnCD != boss.TrapVolleyIntervalTurns {
+	boss.TickAbilityClocks(true)
+	g.combat.tryBossTrapVolley(boss)
+	if boss.TrapVolleyCD.Turns != boss.Abilities.TrapVolley.IntervalTurns {
 		t.Fatalf("due TB pass did not re-arm cooldown: got %d, want %d",
-			boss.TrapVolleyTurnCD, boss.TrapVolleyIntervalTurns)
+			boss.TrapVolleyCD.Turns, boss.Abilities.TrapVolley.IntervalTurns)
 	}
 }
 
@@ -928,7 +966,7 @@ func TestSaveLoadRestoresBossTrapStateWithoutQuestManager(t *testing.T) {
 	ts := float64(cfg.GetTileSize())
 	boss := monsterPkg.NewMonster3DFromConfig(20*ts, 20*ts, "dragon_brood_mother", cfg)
 	boss.ID = "saved_brood_mother"
-	boss.ArmTrapVolleyCooldown(cfg.GetTPS())
+	boss.ArmTrapVolleyCooldown()
 	saveWorld.Monsters = []*monsterPkg.Monster3D{boss}
 
 	saveGame := newTestGame(cfg, saveWorld)
@@ -948,8 +986,8 @@ func TestSaveLoadRestoresBossTrapStateWithoutQuestManager(t *testing.T) {
 	if restored == nil {
 		t.Fatal("saved Brood Mother was not restored")
 	}
-	if restored.TrapVolleyCDRate != boss.TrapVolleyCDRate {
+	if restored.TrapVolleyCD.Rate != boss.TrapVolleyCD.Rate {
 		t.Fatalf("restored trap cooldown rate = %d, want %d",
-			restored.TrapVolleyCDRate, boss.TrapVolleyCDRate)
+			restored.TrapVolleyCD.Rate, boss.TrapVolleyCD.Rate)
 	}
 }

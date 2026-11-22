@@ -6,13 +6,12 @@ import (
 	"sort"
 
 	"ugataima/internal/items"
-
-	"gopkg.in/yaml.v3"
+	"ugataima/internal/strictyaml"
 )
 
 // TrapDefinitionConfig is one trap from assets/traps.yaml. Damage traps carry
-// damage_base (+optional AoE); control traps carry stun or root durations in
-// BOTH turn (TB) and second (RT) units - pairs are validated at load.
+// damage_base (+optional AoE); control traps carry a stun or root duration in
+// seconds (whole rounds), which Trapper mastery extends by whole rounds.
 type TrapDefinitionConfig struct {
 	Name            string  `yaml:"name"`
 	Description     string  `yaml:"description"`
@@ -20,16 +19,14 @@ type TrapDefinitionConfig struct {
 	Level           int     `yaml:"level"`              // owner level required
 	SPCost          int     `yaml:"sp_cost"`            // spell points to place
 	CooldownSeconds float64 `yaml:"cooldown_seconds"`   // RT cooldown after placing
-	LifetimeSeconds int     `yaml:"lifetime_seconds"`   // armed trap despawns after this
+	LifetimeSeconds int     `yaml:"lifetime_seconds"`   // armed trap despawns after this; Timer exception: may be a non-whole-round span, its TB rounds round up
 	Element         string  `yaml:"element"`            // gameplay damage school
 	ArmedFx         string  `yaml:"armed_fx,omitempty"` // shader model and activation style
 	DamageBase      int     `yaml:"damage_base,omitempty"`
 	AoeRadiusTiles  float64 `yaml:"aoe_radius_tiles,omitempty"`
-	StunTurns       int     `yaml:"stun_turns,omitempty"`
-	StunSeconds     int     `yaml:"stun_seconds,omitempty"`
-	RootTurns       int     `yaml:"root_turns,omitempty"`
-	RootSeconds     int     `yaml:"root_seconds,omitempty"`
-	BorderColor     [3]int  `yaml:"border_color"` // model accent / energy colour
+	StunSeconds     int     `yaml:"stun_seconds,omitempty"` // whole rounds, before the Trapper bonus
+	RootSeconds     int     `yaml:"root_seconds,omitempty"` // whole rounds, before the Trapper bonus
+	BorderColor     [3]int  `yaml:"border_color"`           // model accent / energy colour
 }
 
 // TrapSystemConfig is the full traps.yaml document.
@@ -55,7 +52,7 @@ func LoadTrapConfig(filename string) (*TrapSystemConfig, error) {
 		return nil, fmt.Errorf("read trap config: %w", err)
 	}
 	var cfg TrapSystemConfig
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
+	if err := strictyaml.Decode(data, &cfg); err != nil {
 		return nil, fmt.Errorf("parse trap config: %w", err)
 	}
 	if err := validateTrapConfig(&cfg); err != nil {
@@ -105,17 +102,16 @@ func validateTrapConfig(cfg *TrapSystemConfig) error {
 		if t.LifetimeSeconds <= 0 {
 			return fmt.Errorf("trap %q: lifetime_seconds must be positive", key)
 		}
-		// Duration pairs must be authored in both TB and RT units.
-		if (t.StunTurns > 0) != (t.StunSeconds > 0) {
-			return fmt.Errorf("trap %q: stun_turns and stun_seconds must be set together", key)
-		}
-		if (t.RootTurns > 0) != (t.RootSeconds > 0) {
-			return fmt.Errorf("trap %q: root_turns and root_seconds must be set together", key)
+		if err := validateEffectFields(
+			effectField{fmt.Sprintf("trap %q: stun_seconds", key), t.StunSeconds},
+			effectField{fmt.Sprintf("trap %q: root_seconds", key), t.RootSeconds},
+		); err != nil {
+			return err
 		}
 		if t.AoeRadiusTiles > 0 && t.DamageBase <= 0 {
 			return fmt.Errorf("trap %q: aoe_radius_tiles requires damage_base", key)
 		}
-		if t.DamageBase <= 0 && t.StunTurns <= 0 && t.RootTurns <= 0 {
+		if t.DamageBase <= 0 && t.StunSeconds <= 0 && t.RootSeconds <= 0 {
 			return fmt.Errorf("trap %q: defines no effect (damage, stun or root)", key)
 		}
 	}
@@ -123,9 +119,9 @@ func validateTrapConfig(cfg *TrapSystemConfig) error {
 }
 
 // TrapItem builds the quick-slot item form of a trap - the ONE constructor
-// (class kits, the trap book and tests all use it). It lives in the SAME
-// Equipment[SlotSpell] slot quick spells use, so the HUD, RT capability
-// checks and save round-trip work unchanged.
+// (class kits, the trap book and tests all use it). It shares the
+// Equipment[SlotQuickAction] slot with spells, techniques and flasks; its cost
+// and cooldown always come from traps.yaml.
 func TrapItem(key string) (items.Item, bool) {
 	def, ok := GetTrapDefinition(key)
 	if !ok {
@@ -135,8 +131,7 @@ func TrapItem(key string) (items.Item, bool) {
 		Name:        def.Name,
 		Type:        items.ItemTrap,
 		Description: def.Description,
-		SpellCost:   def.SPCost,
-		SpellEffect: items.SpellEffect(key),
+		Trap:        key,
 		Attributes:  make(map[string]int),
 	}, true
 }

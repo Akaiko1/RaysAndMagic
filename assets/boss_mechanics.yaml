@@ -1,0 +1,9 @@
+# Extra boss mechanics per adventure map: a stat's base percent, lowered by the
+# named switches while they stay operated (never under its floor).
+maps:
+  solstice_air:
+    # Vaelith rides the currents: each opened vane takes 15 points of dodge.
+    - id: vaelith_dodge
+      stat: perfect_dodge
+      base: 50
+      reductions: {gallery_vane: 15, hub_vane: 15}

@@ -19,6 +19,11 @@ var (
 	pointerLeftJustPressed = func() bool { return inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) }
 	pointerLeftJustRelease = func() bool { return inpututil.IsMouseButtonJustReleased(ebiten.MouseButtonLeft) }
 	pointerRightJustPress  = func() bool { return inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonRight) }
+	// Shift: at the start of a drag it carries one unit of a stack; on the
+	// HUD party strip it toggles a hero's focus.
+	shiftModifierHeld = func() bool {
+		return ebiten.IsKeyPressed(ebiten.KeyShiftLeft) || ebiten.IsKeyPressed(ebiten.KeyShiftRight)
+	}
 )
 
 // typedInputChars is the keyboard text seam for the game's text fields.

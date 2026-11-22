@@ -60,3 +60,6 @@ assets/app_icons/*.iconset/
 
 /internal/shadercache/data/*.gz
 /internal/shadercache/data/*.tmp
+
+# The promo site is its own repository.
+/sites/

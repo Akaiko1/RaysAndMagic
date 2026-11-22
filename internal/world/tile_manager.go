@@ -5,8 +5,7 @@ import (
 	"os"
 	"strings"
 	"ugataima/internal/config"
-
-	"gopkg.in/yaml.v3"
+	"ugataima/internal/strictyaml"
 )
 
 // TileManager handles tile configuration and properties
@@ -228,7 +227,7 @@ func (tm *TileManager) LoadTileConfig(filename string) error {
 	}
 
 	var tileConfig config.TileConfig
-	err = yaml.Unmarshal(data, &tileConfig)
+	err = strictyaml.Decode(data, &tileConfig)
 	if err != nil {
 		return fmt.Errorf("failed to parse tile config: %w", err)
 	}
@@ -263,7 +262,7 @@ func (tm *TileManager) LoadSpecialTileConfig(filename string) error {
 	}
 
 	var specialTileConfig config.SpecialTileConfig
-	err = yaml.Unmarshal(data, &specialTileConfig)
+	err = strictyaml.Decode(data, &specialTileConfig)
 	if err != nil {
 		return fmt.Errorf("failed to parse special tile config: %w", err)
 	}
@@ -455,6 +454,12 @@ func (tm *TileManager) BlocksPickup(tileType TileType3D, terrainPassage bool) bo
 func (tm *TileManager) CanFlyOver(tileType TileType3D) bool {
 	data := tm.GetTileData(tileType)
 	return data != nil && (data.FlyOver || (data.Solid && data.Transparent))
+}
+
+// IsWater reports authored water, including walkable streams.
+func (tm *TileManager) IsWater(tile TileType3D) bool {
+	d := tm.GetTileData(tile)
+	return d != nil && d.Type == "water"
 }
 
 // IsBareFloor reports plain ground (type floor): no vegetation, props, water

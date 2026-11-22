@@ -7,12 +7,14 @@ import (
 	"strings"
 	"testing"
 
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
 	"ugataima/internal/stash"
+	"ugataima/internal/status"
 	"ugataima/internal/world"
 )
 
@@ -100,20 +102,20 @@ func TestCardEffects_AggregateApplyAndText(t *testing.T) {
 	g := cs.game
 	ocelot, huntress, samurai := cardDef("ocelot_card"), cardDef("masked_huntress_card"), cardDef("samurai_card")
 	speed := ocelot.CardStatBonuses["speed"]
-	if speed <= 0 || huntress.CardRangedDmgPct <= 0 || samurai.CardMeleeTrueDmg <= 0 || !cardDef("medusa_card").CardWalkOnWater {
-		t.Fatal("fixture: ocelot/huntress/samurai/medusa cards lost their effect fields")
+	if speed <= 0 || huntress.CardRangedDmgPct <= 0 || samurai.CardMeleeTrueDmg <= 0 || !cardDef("jellyfish_card").CardWalkOnWater {
+		t.Fatal("fixture: ocelot/huntress/samurai/jellyfish cards lost their effect fields")
 	}
 	g.cardSlots = [MaxCardSlots]cardSlot{}
 	g.cardSlots[0].key = "ocelot_card"          // Speed
 	g.cardSlots[1].key = "masked_huntress_card" // ranged %
 	g.cardSlots[2].key = "samurai_card"         // true melee
-	g.cardSlots[3].key = "medusa_card"          // walk on water
+	g.cardSlots[3].key = "jellyfish_card"       // walk on water
 
 	if g.cardStatBonuses().Speed != speed || g.cardRangedDmgPct() != huntress.CardRangedDmgPct || g.cardMeleeTrueDmg() != samurai.CardMeleeTrueDmg {
 		t.Fatalf("aggregates: speed=%d ranged=%d true=%d", g.cardStatBonuses().Speed, g.cardRangedDmgPct(), g.cardMeleeTrueDmg())
 	}
 	if !g.hasCardWalkOnWater() {
-		t.Error("medusa card should grant walk-on-water")
+		t.Error("jellyfish card should grant walk-on-water")
 	}
 
 	// Stacking is additive.
@@ -134,7 +136,7 @@ func TestCardEffects_AggregateApplyAndText(t *testing.T) {
 	// Effect text is derived from the card's fields.
 	for key, want := range map[string]string{
 		"ocelot_card":          fmt.Sprintf("%+d Speed", speed),
-		"medusa_card":          "Walk on water",
+		"jellyfish_card":       "Walk on water",
 		"samurai_card":         fmt.Sprintf("+%d true melee damage", samurai.CardMeleeTrueDmg),
 		"masked_huntress_card": fmt.Sprintf("+%d%% ranged damage", huntress.CardRangedDmgPct),
 	} {
@@ -228,7 +230,7 @@ func TestLichCard_SavesOnAoEFireburst(t *testing.T) {
 	if pct := cardDef("lich_card").CardLethalSavePct; g.cardLethalSavePct() != pct || pct <= 0 || pct >= 100 {
 		t.Fatalf("lich save pct = %d, want the authored partial chance %d", g.cardLethalSavePct(), pct)
 	}
-	mon := &monster.Monster3D{Name: "Dragon", FireburstDamageMin: 9999, FireburstDamageMax: 9999}
+	mon := &monster.Monster3D{Name: "Dragon"}
 	member := g.party.Members[0]
 
 	saves := 0
@@ -237,7 +239,7 @@ func TestLichCard_SavesOnAoEFireburst(t *testing.T) {
 		member.HitPoints = 1 // fresh, conscious, on the brink each trial
 		member.SpellPoints = 0
 		member.Conditions = nil
-		cs.applyMonsterFireburst(mon)
+		castTestPartyAttack(cs, mon, catalogPartyAttack("fireburst"), 9999)
 		if member.HitPoints > 0 { // reviveHalf left HP up -> cheated death (direct KO would be 0)
 			saves++
 		}
@@ -268,7 +270,7 @@ func TestArchmageCard_SplashGetsFullSplit(t *testing.T) {
 
 	// Idol-Breaker: physical mace, aoe_radius_tiles 1.5. No armor/resist on targets,
 	// so the splash should land the full 100 (physical remainder + converted fire).
-	cs.ApplyDamageToMonster(primary, 100, "Idol-Breaker, the Warlord's Maul", false)
+	cs.ApplyDamageToMonster(primary, 100, testWeapon("Idol-Breaker, the Warlord's Maul"), false)
 
 	if got := 1000 - near.HitPoints; got != 100 {
 		t.Fatalf("splash dealt %d, want 100 - the fire share is dropped if this is the physical remainder", got)
@@ -419,7 +421,7 @@ func TestCardSummonSourcesContractTable(t *testing.T) {
 				wantByMonster[def.CardSummonMonster] += want
 			}
 			if tt.coolFirst {
-				g.armCardSummonCooldown(sources[0].Owner, 10)
+				g.setCardSummonCooldown(sources[0].Owner, framesClock(10))
 			}
 			if tt.capFirst {
 				source := sources[0]
@@ -459,7 +461,7 @@ func TestCardSummonSourcesContractTable(t *testing.T) {
 							t.Errorf("cooling card %s spawned %d allies", source.CardKey, gotByOwner[source.Owner])
 						}
 					}
-					if capped && g.cardSummonCooldown(source.Owner) != 0 {
+					if capped && g.cardSummonCooldown(source.Owner).Active() {
 						t.Errorf("capped card %s spent a cooldown", source.CardKey)
 					}
 					continue
@@ -467,7 +469,7 @@ func TestCardSummonSourcesContractTable(t *testing.T) {
 				if got := gotByOwner[source.Owner]; got != source.Limit {
 					t.Errorf("owner %s controls %d allies, want its own limit %d", source.Owner, got, source.Limit)
 				}
-				if g.cardSummonCooldown(source.Owner) <= 0 {
+				if !g.cardSummonCooldown(source.Owner).Active() {
 					t.Errorf("successful %s proc did not arm its cooldown", source.CardKey)
 				}
 				if !strings.Contains(logText.String(), "The "+source.CardName+" rallies") {
@@ -506,32 +508,41 @@ func TestCardSummonNoSpawnSpaceDoesNotSpendCooldown(t *testing.T) {
 	if got := cs.countLiveSummonsByOwner(source.Owner); got != 0 {
 		t.Fatalf("blocked spawn created %d allies, want 0", got)
 	}
-	if got := g.cardSummonCooldown(source.Owner); got != 0 {
-		t.Fatalf("blocked spawn spent cooldown %d, want 0", got)
+	if got := g.cardSummonCooldown(source.Owner); got.Active() {
+		t.Fatalf("blocked spawn spent cooldown %+v, want none", got)
 	}
 }
 
 func TestCardSummonCooldownsTickAndExpireIndependently(t *testing.T) {
-	g := &MMGame{cardSummonCooldowns: map[string]int{"orc": 2, "lich": 1}}
-	g.tickCardSummonCooldowns()
-	if got := g.cardSummonCooldown("orc"); got != 1 {
-		t.Errorf("orc cooldown = %d, want 1", got)
-	}
-	if got := g.cardSummonCooldown("lich"); got != 0 {
-		t.Errorf("lich cooldown = %d, want expired", got)
-	}
-	if _, exists := g.cardSummonCooldowns["lich"]; exists {
-		t.Error("expired cooldown entry was not removed")
-	}
+	for _, turn := range []bool{false, true} {
+		round := config.RoundFrames(1, config.GetTargetTPS())
+		g := &MMGame{cardSummonCooldowns: map[string]status.DualClock{"orc": framesClock(2 * round), "lich": framesClock(round)}}
+		g.tickCardSummonCooldowns(turn)
+		if !turn {
+			spendFrames(round-1, g.tickCardSummonCooldowns)
+		}
+		if got := g.cardSummonCooldown("orc"); got.Turns != 1 || got.Frames != round {
+			t.Errorf("turn=%v orc cooldown = %+v, want one round", turn, got)
+		}
+		if got := g.cardSummonCooldown("lich"); got.Active() {
+			t.Errorf("turn=%v lich cooldown = %+v, want expired", turn, got)
+		}
+		if _, exists := g.cardSummonCooldowns["lich"]; exists {
+			t.Error("expired cooldown entry was not removed")
+		}
 
-	g = &MMGame{cardSummonCooldowns: map[string]int{cardSummonOwner: 2}}
-	g.tickCardSummonCooldowns()
-	if got := g.cardSummonCooldown("late-card"); got != 1 {
-		t.Errorf("legacy shared cooldown after one tick = %d, want 1", got)
-	}
-	g.tickCardSummonCooldowns()
-	if got := g.cardSummonCooldown("late-card"); got != 0 {
-		t.Errorf("expired legacy shared cooldown = %d, want 0", got)
+		g = &MMGame{cardSummonCooldowns: map[string]status.DualClock{cardSummonOwner: framesClock(2 * round)}}
+		g.tickCardSummonCooldowns(turn)
+		if !turn {
+			spendFrames(round-1, g.tickCardSummonCooldowns)
+		}
+		if got := g.cardSummonCooldown("late-card"); got.Turns != 1 {
+			t.Errorf("turn=%v legacy shared cooldown after one round = %+v, want one round", turn, got)
+		}
+		g.tickCardSummonCooldowns(true)
+		if got := g.cardSummonCooldown("late-card"); got.Active() {
+			t.Errorf("turn=%v expired legacy shared cooldown = %+v", turn, got)
+		}
 	}
 }
 
@@ -576,11 +587,13 @@ func TestCardSummonSaveContractTable(t *testing.T) {
 	for _, tt := range []struct {
 		name           string
 		legacy         bool
+		legacyFrames   bool
 		orcCooldown    int
 		lichCooldown   int
 		legacyCooldown int
 	}{
 		{name: "per-card state", orcCooldown: 11, lichCooldown: 17},
+		{name: "per-card frames from an older save", legacyFrames: true, orcCooldown: 11, lichCooldown: 17},
 		{name: "legacy shared state migrates conservatively", legacy: true, legacyCooldown: 23},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -618,14 +631,21 @@ func TestCardSummonSaveContractTable(t *testing.T) {
 				wSave.Monsters = append(wSave.Monsters, m)
 			}
 			if !tt.legacy {
-				gSave.armCardSummonCooldown(owners["masked_huntress"], tt.orcCooldown)
-				gSave.armCardSummonCooldown(owners["revenant"], tt.lichCooldown)
+				gSave.setCardSummonCooldown(owners["masked_huntress"], framesClock(tt.orcCooldown))
+				gSave.setCardSummonCooldown(owners["revenant"], framesClock(tt.lichCooldown))
 			}
 			save := gSave.buildSave(wmSave)
 			save.MapKey = "forest"
 			if tt.legacy {
-				save.CardSummonCooldowns = nil
+				save.CardSummonClocks = nil
 				save.CardSummonCDFrames = tt.legacyCooldown
+			}
+			if tt.legacyFrames {
+				save.CardSummonCooldowns = map[string]int{}
+				for owner, clock := range save.CardSummonClocks {
+					save.CardSummonCooldowns[owner] = clock.Frames
+				}
+				save.CardSummonClocks = nil
 			}
 
 			wLoad := newTestWorld(cfg)
@@ -669,8 +689,8 @@ func TestCardSummonSaveContractTable(t *testing.T) {
 				if tt.legacy {
 					wantCooldown = tt.legacyCooldown
 				}
-				if got := gLoad.cardSummonCooldown(source.Owner); got != wantCooldown {
-					t.Errorf("%s cooldown = %d, want %d", monsterKey, got, wantCooldown)
+				if got := gLoad.cardSummonCooldown(source.Owner); got != framesClock(wantCooldown) {
+					t.Errorf("%s cooldown = %+v, want %d frames", monsterKey, got, wantCooldown)
 				}
 			}
 			if tt.legacy && !gLoad.loadNeedsResave {
@@ -693,7 +713,7 @@ func TestCardSummonCooldownFollowsRemovedCardThroughSave(t *testing.T) {
 		t.Fatal("could not slot Orc Warlord Card")
 	}
 	owner := gSave.cardSummonSources()[0].Owner
-	gSave.armCardSummonCooldown(owner, 19)
+	gSave.setCardSummonCooldown(owner, framesClock(19))
 	if !gSave.removeCardToInventory(0) {
 		t.Fatal("could not remove cooling summon card")
 	}
@@ -722,8 +742,8 @@ func TestCardSummonCooldownFollowsRemovedCardThroughSave(t *testing.T) {
 	if loadedSource.Owner != owner {
 		t.Fatalf("re-slotted card owner = %q, want stable %q", loadedSource.Owner, owner)
 	}
-	if got := gLoad.cardSummonCooldown(owner); got != 19 {
-		t.Fatalf("re-slotted card cooldown = %d, want 19", got)
+	if got := gLoad.cardSummonCooldown(owner); got != framesClock(19) {
+		t.Fatalf("re-slotted card cooldown = %+v, want 19 frames", got)
 	}
 }
 
@@ -749,8 +769,7 @@ func TestLegacyCardSummonStateMigrationByStorage(t *testing.T) {
 			if tt.inBag {
 				g.party.Inventory = append(g.party.Inventory, card)
 			} else if tt.inStash {
-				g.stash = &stash.Stash{}
-				g.stash.CardSlots[0] = card
+				g.stash = &stash.Stash{Album: map[string][]items.Item{"orc_warlord_card": {card}}}
 			} else if !g.setCardCollectionSlot(0, card) {
 				t.Fatal("could not slot summon card")
 			}
@@ -767,7 +786,7 @@ func TestLegacyCardSummonStateMigrationByStorage(t *testing.T) {
 				wmSave.CurrentMapKey = "forest"
 				save := g.buildSave(wmSave)
 				save.MapKey = "forest"
-				save.CardSummonCooldowns = nil
+				save.CardSummonClocks = nil
 				save.CardSummonCDFrames = 23
 
 				wLoad := newTestWorld(cfg)
@@ -784,14 +803,14 @@ func TestLegacyCardSummonStateMigrationByStorage(t *testing.T) {
 				}
 				ally = w.Monsters[0]
 			} else {
-				g.restoreCardSummonState(nil, 23)
+				g.restoreCardSummonState(nil, nil, 23)
 			}
 
 			if ally.SummonedBy != owner {
 				t.Fatalf("%s legacy ally owner = %q, want physical owner %q", tt.name, ally.SummonedBy, owner)
 			}
-			if got := g.cardSummonCooldown(owner); got != 23 {
-				t.Fatalf("%s migrated cooldown = %d, want 23", tt.name, got)
+			if got := g.cardSummonCooldown(owner); got != framesClock(23) {
+				t.Fatalf("%s migrated cooldown = %+v, want 23 frames", tt.name, got)
 			}
 
 			if tt.inBag {
@@ -806,7 +825,7 @@ func TestLegacyCardSummonStateMigrationByStorage(t *testing.T) {
 					t.Fatal("could not re-slot migrated inventory card")
 				}
 			} else if tt.inStash {
-				g.stash.CardSlots[0] = items.Item{}
+				g.stash.Album = nil
 				g.party.Inventory = append(g.party.Inventory, card)
 				if !g.placeCardFromInventory(len(g.party.Inventory) - 1) {
 					t.Fatal("could not re-slot migrated stash card")
@@ -831,22 +850,22 @@ func TestLegacyCardSummonStateMigrationByStorage(t *testing.T) {
 func TestLegacyCardSummonCooldownSurvivesWithoutOwnedCard(t *testing.T) {
 	cfg := loadTestConfig(t)
 	g := newTestGame(cfg, newTestWorld(cfg))
-	g.restoreCardSummonState(nil, 31)
+	g.restoreCardSummonState(nil, nil, 31)
 	saved := g.snapshotCardSummonCooldowns()
-	if saved[cardSummonOwner] != 31 {
-		t.Fatalf("legacy fallback snapshot = %d, want 31", saved[cardSummonOwner])
+	if saved[cardSummonOwner] != framesClock(31) {
+		t.Fatalf("legacy fallback snapshot = %+v, want 31 frames", saved[cardSummonOwner])
 	}
 
 	loaded := newTestGame(cfg, newTestWorld(cfg))
-	loaded.restoreCardSummonState(saved, 0)
+	loaded.restoreCardSummonState(saved, nil, 0)
 	card := items.CreateItemFromYAML("orc_warlord_card")
 	card.InstanceID = 704
 	if !loaded.setCardCollectionSlot(0, card) {
 		t.Fatal("could not activate card after legacy load")
 	}
 	source := loaded.cardSummonSources()[0]
-	if got := loaded.cardSummonCooldown(source.Owner); got != 31 {
-		t.Fatalf("late-activated card cooldown = %d, want legacy fallback 31", got)
+	if got := loaded.cardSummonCooldown(source.Owner); got != framesClock(31) {
+		t.Fatalf("late-activated card cooldown = %+v, want legacy fallback 31 frames", got)
 	}
 	def := cardDef("orc_warlord_card")
 	oldChance := def.CardSummonChance
@@ -874,7 +893,7 @@ func TestLegacyCardSummonAlliesDistributeAcrossDuplicatePhysicalCards(t *testing
 			w.Monsters = append(w.Monsters, ally)
 		}
 	}
-	g.restoreCardSummonState(nil, 0)
+	g.restoreCardSummonState(nil, nil, 0)
 
 	got := map[string]int{}
 	for _, ally := range w.Monsters {
@@ -922,7 +941,7 @@ func TestInventoryCardIndices_EnumeratesPastOnePage(t *testing.T) {
 	g := cs.game
 	g.party.Inventory = nil
 	keys := []string{
-		"medusa_card", "puma_card", "archmage_card", "lich_card", "thief_bug_card",
+		"jellyfish_card", "puma_card", "archmage_card", "lich_card", "thief_bug_card",
 		"samurai_card", "ningyo_card", "ocelot_card", "gorilla_titan_card",
 		"masked_huntress_card", "orc_warlord_card",
 	}
@@ -1008,8 +1027,7 @@ func TestSaveLoad_LegacyCardCollectionClearsStashOwnedKey(t *testing.T) {
 	owned := items.CreateItemFromYAML("puma_card")
 	owned.InstanceID = 777
 	loaded := newTestGame(cfg, w)
-	loaded.stash = &stash.Stash{}
-	loaded.stash.CardSlots[0] = owned
+	loaded.stash = &stash.Stash{Album: map[string][]items.Item{"puma_card": {owned}}}
 
 	if err := loaded.applySave(wm, &save); err != nil {
 		t.Fatalf("apply save: %v", err)
@@ -1063,7 +1081,7 @@ func TestCardOnHitProcsTriggerSometimes(t *testing.T) {
 			field: func(d *config.ItemDefinitionConfig) int { return d.CardDisintegratePct },
 			hit: func(cs *CombatSystem) bool {
 				m := mkTestMonster("Skeleton Warrior", 1000)
-				cs.ApplyDamageToMonster(m, 10, "Idol-Breaker, the Warlord's Maul", false)
+				cs.ApplyDamageToMonster(m, 10, testWeapon("Idol-Breaker, the Warlord's Maul"), false)
 				return m.HitPoints == 0
 			},
 		},
@@ -1076,7 +1094,7 @@ func TestCardOnHitProcsTriggerSometimes(t *testing.T) {
 				m := mkTestMonster("Armored Target", 100000)
 				m.ArmorClass = 200
 				before := m.HitPoints
-				cs.ApplyDamageToMonster(m, 100, "Idol-Breaker, the Warlord's Maul", false)
+				cs.ApplyDamageToMonster(m, 100, testWeapon("Idol-Breaker, the Warlord's Maul"), false)
 				return before-m.HitPoints >= 100
 			},
 		},
@@ -1088,7 +1106,7 @@ func TestCardOnHitProcsTriggerSometimes(t *testing.T) {
 			hit: func(cs *CombatSystem) bool {
 				m := mkTestMonster("Target", 100000)
 				cs.tryApplyWeaponStun(m, nil)
-				return m.StunFramesRemaining > 0 || m.StunTurnsRemaining > 0
+				return m.Stun.Active()
 			},
 		},
 	} {
@@ -1192,7 +1210,7 @@ func TestJungleGoblinCard_DoublesGold(t *testing.T) {
 	m := mkTestMonster("Goblin", 10)
 	m.Gold = 40
 	g.world.Monsters = []*monster.Monster3D{m}
-	cs.ApplyDamageToMonster(m, 1000, "Idol-Breaker, the Warlord's Maul", false)
+	cs.ApplyDamageToMonster(m, 1000, testWeapon("Idol-Breaker, the Warlord's Maul"), false)
 
 	if len(g.groundContainers) == 0 {
 		t.Fatal("expected a loot bag to spawn")
@@ -1246,8 +1264,8 @@ func TestTrollCards_RegenPct(t *testing.T) {
 
 	member.MaxHitPoints = 1000
 	member.HitPoints = 500
-	for i := 0; i < character.ManaRegenIntervalFrames; i++ {
-		member.UpdateWithMode(false)
+	for i := 0; i < (config.RegenerationSeconds * config.GetTargetTPS()); i++ {
+		member.UpdateWithMode(character.PartyClock{})
 	}
 	if want := 500 + 1000*regen/100; member.HitPoints != want {
 		t.Errorf("HP after one regen tick = %d, want %d (500 + %d%% of 1000)", member.HitPoints, want, regen)
@@ -1255,7 +1273,7 @@ func TestTrollCards_RegenPct(t *testing.T) {
 }
 
 // Regression: the Troll Card's HP regen only lived in the RT-only
-// updateRegenAndPoison - UpdateWithMode(true) (TB) returned before reaching it,
+// updateRegenAndPoison - UpdateWithMode(character.PartyClock{TurnBased: true}) (TB) returned before reaching it,
 // so equipping the card and fighting in turn-based mode silently regenerated
 // nothing all fight. The TB path now ticks it via ApplyCardRegenTick on the
 // same round counter as SP regen (endPartyTurn).
@@ -1266,11 +1284,11 @@ func TestTrollCard_RegensInTurnBasedMode(t *testing.T) {
 	member.MaxHitPoints, member.HitPoints = 1000, 500
 	member.BonusRegenPct = 5 // as if a Troll Card were active
 
-	for i := 0; i < TurnBasedSpRegenEveryNRounds; i++ {
+	for i := 0; i < config.RegenerationRounds; i++ {
 		g.endPartyTurn()
 	}
 	if member.HitPoints != 550 {
-		t.Errorf("HP after %d TB rounds = %d, want 550 (500 + 5%% of 1000)", TurnBasedSpRegenEveryNRounds, member.HitPoints)
+		t.Errorf("HP after %d TB rounds = %d, want 550 (500 + 5%% of 1000)", config.RegenerationRounds, member.HitPoints)
 	}
 }
 
@@ -1341,7 +1359,7 @@ func TestHexerIsisCards_ElementConversion(t *testing.T) {
 	g.cardSlots = [MaxCardSlots]cardSlot{}
 	g.cardSlots[0].key = "masked_hexer_girl_card" // physical -> dark
 	dark := mkTestMonster("Target", 1000)
-	cs.ApplyDamageToMonster(dark, 100, "Idol-Breaker, the Warlord's Maul", false)
+	cs.ApplyDamageToMonster(dark, 100, testWeapon("Idol-Breaker, the Warlord's Maul"), false)
 	if got := 1000 - dark.HitPoints; got != 100 {
 		t.Errorf("hexer split total damage = %d, want 100 conserved", got)
 	}
@@ -1349,9 +1367,134 @@ func TestHexerIsisCards_ElementConversion(t *testing.T) {
 	g.cardSlots = [MaxCardSlots]cardSlot{}
 	g.cardSlots[0].key = "isis_card" // physical -> light, melee AND ranged
 	light := mkTestMonster("Target2", 1000)
-	cs.ApplyDamageToMonster(light, 100, "Idol-Breaker, the Warlord's Maul", false)
+	cs.ApplyDamageToMonster(light, 100, testWeapon("Idol-Breaker, the Warlord's Maul"), false)
 	if got := 1000 - light.HitPoints; got != 100 {
 		t.Errorf("isis split total damage = %d, want 100 conserved", got)
+	}
+}
+
+// A weapon or trap card names a conversion card's share as the hit deals it:
+// the same amount in the same school, its own school's buff included, and
+// what the buff adds as a line of its own; its armor rules follow the shares.
+// The real hit lands on a target immune to physical damage, so what it loses
+// is the converted share.
+func TestConversionCardShareOnTheCard(t *testing.T) {
+	for _, tc := range []struct {
+		name, card, school, word string
+		copies                   int    // two Isis convert the whole hit
+		buff                     int    // a party buff on the converted school, percent
+		physicalLeft             bool   // a normal physical share stays
+		extra                    string // one more card: melee damage scales the buff's gain too
+		aura                     bool   // Fire Aura rides the weapon hit (the target is immune to fire)
+	}{
+		{"archmage", "archmage_card", "fire", "Fire", 1, 0, true, "", false},
+		{"hexer", "masked_hexer_girl_card", "dark", "Dark", 1, 0, true, "", false},
+		{"isis", "isis_card", "light", "Light", 1, 0, true, "", false},
+		{"isis with a light buff", "isis_card", "light", "Light", 1, 50, true, "", false},
+		{"isis with a light buff and melee cards", "isis_card", "light", "Light", 1, 50, true, "masked_serpent_dancer_card", false},
+		{"two isis", "isis_card", "light", "Light", 2, 0, false, "", false},
+		{"two isis with fire aura", "isis_card", "light", "Light", 2, 0, false, "", true},
+	} {
+		for _, source := range []string{"melee", "ranged", "trap"} {
+			t.Run(tc.name+"/"+source, func(t *testing.T) {
+				// land builds the cards and lands one real hit under a buff.
+				land := func(buff int) (card, full character.CardRows, dealt int) {
+					g := advancedSupportGame(t, false)
+					g.cardSlots = [MaxCardSlots]cardSlot{}
+					for i := range tc.copies {
+						g.cardSlots[i].key = tc.card
+					}
+					if tc.extra != "" {
+						g.cardSlots[tc.copies].key = tc.extra
+					}
+					if buff > 0 {
+						g.addCombatBuff(TimedCombatBuff{ID: "test", Clock: framesClock(600), OutDamageType: tc.school, OutPercent: buff})
+					}
+					c := g.party.Members[1]
+					g.selectedChar = 1
+					m := mkTestMonster("Conversion target", 10000)
+					m.ID, m.X = "conversion-target", float64(g.config.GetTileSize())
+					m.Resistances = map[monster.DamageType]int{monster.DamagePhysical: 100}
+					if tc.aura {
+						c.SpellState.Effects = []character.PersonalSpellEffect{{SpellID: "fire_aura", Charges: 1}}
+						m.Resistances[monster.DamageFire] = 100
+					}
+					g.world.Monsters = []*monster.Monster3D{m}
+					if source == "trap" {
+						const key = "cleave_trap"
+						def := config.GlobalTrapConfig.Traps[key]
+						if def == nil || normalizeDamageTypeStr(def.Element) != monster.DamagePhysical.String() || def.DamageBase <= 0 {
+							t.Fatalf("fixture: %s must be a physical damage trap", key)
+						}
+						card, full = buildTrapTooltipUnifiedRows(key, def, c, g.combat, false), buildTrapTooltipUnifiedRows(key, def, c, g.combat, true)
+						g.combat.applyTrapDamage(m, trapDamage(def, c), def.Element, def.Name)
+						return card, full, 10000 - m.HitPoints
+					}
+					weapon := "iron_sword"
+					if source == "ranged" {
+						weapon = "hunting_bow"
+					}
+					c.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML(weapon)
+					wd := lookupWeaponConfig(c.Equipment[items.SlotMainHand])
+					oldCrit := wd.CritChance
+					t.Cleanup(func() { wd.CritChance = oldCrit })
+					wd.CritChance = 0
+					if chance := g.combat.CalculateWeaponCritChance(c.Equipment[items.SlotMainHand], c); chance != 0 {
+						t.Fatalf("fixture: crit chance %d%%, want 0", chance)
+					}
+					card = GetItemTooltipRows(c.Equipment[items.SlotMainHand], c, g.combat, false)
+					full = GetItemTooltipRows(c.Equipment[items.SlotMainHand], c, g.combat, true)
+					if !g.combat.EquipmentMeleeAttack() {
+						t.Fatal("weapon action rejected")
+					}
+					if source == "ranged" {
+						if len(g.arrows) != 1 {
+							t.Fatalf("got %d arrows", len(g.arrows))
+						}
+						g.combat.applyProjectileDamage(&g.arrows[0], m, "")
+					}
+					return card, full, 10000 - m.HitPoints
+				}
+				card, full, dealt := land(tc.buff)
+				// Each school meets armor as combat does.
+				for _, rule := range []struct {
+					line    string
+					present bool
+				}{
+					{uitext.Text("armor.physical_reduction", config.ArmorPhysicalMitigationCap), tc.physicalLeft},
+					{character.ArmorPierceShotsLine(), tc.physicalLeft && source == "ranged"},
+					{uitext.Text("armor.elemental_reduction", config.ArmorElementalMitigationCap, tc.word), true},
+				} {
+					if got := slices.ContainsFunc(full, func(row character.CardRow) bool { return row.Text == rule.line }); got != rule.present {
+						t.Errorf("rule %q on the card = %v, want %v:\n%s", rule.line, got, rule.present, full)
+					}
+				}
+				// The type line names the hit's own school while a share of it
+				// stays, else the school the cards moved it to; never the aura's.
+				typeRun := character.CardRun{Text: uitext.Text("damage.school", "Physical"), Whole: true}
+				if !tc.physicalLeft {
+					typeRun = character.CardRun{Text: uitext.Text("damage.school", tc.word), School: tc.school, Whole: true}
+				}
+				typeLine := slices.IndexFunc(card, func(row character.CardRow) bool { return len(row.Runs) > 0 && row.Runs[0] == typeRun })
+				if typeLine < 0 || slices.ContainsFunc(card[typeLine].Runs[1:], func(run character.CardRun) bool { return run.School != "" }) {
+					t.Errorf("card lacks the type line %+v alone:\n%s", typeRun, card)
+				}
+				if dealt <= 0 {
+					t.Fatal("fixture: no converted damage landed")
+				}
+				share := character.CardRun{Text: fmt.Sprintf("%d %s", dealt, tc.word), School: tc.school, Whole: true}
+				if !slices.ContainsFunc(card, func(row character.CardRow) bool { return slices.Contains(row.Runs, share) }) {
+					t.Fatalf("card lacks the %s share %+v the hit dealt:\n%s", tc.school, share, card)
+				}
+				if tc.buff > 0 {
+					_, _, unbuffed := land(0)
+					line := uitext.Text("damage.school_buff", tc.word, dealt-unbuffed)
+					if dealt <= unbuffed || !slices.ContainsFunc(full, func(row character.CardRow) bool { return row.Text == line }) {
+						t.Fatalf("card lacks the buff line %q (hit %d, without the buff %d):\n%s", line, dealt, unbuffed, full)
+					}
+				}
+			})
+		}
 	}
 }
 
@@ -1418,11 +1561,11 @@ func TestMummyCard_PoisonImmunity(t *testing.T) {
 		t.Fatalf("cardPoisonResistPct = %d, want the authored immunity %d (>= 100)", g.cardPoisonResistPct(), want)
 	}
 
-	m := &monster.Monster3D{Name: "Rat", PoisonChance: 1.0, PoisonDurationSec: 10}
+	m := &monster.Monster3D{Name: "Rat", Abilities: monster.Abilities{Poison: monster.DoTAbility{Chance: 1.0, DurationSeconds: 10}}}
 	member := g.party.Members[0]
 	member.Conditions = nil
 	for i := 0; i < 50; i++ {
-		cs.applyMonsterHitRiders(m, "", heroHitTarget{cs, member})
+		cs.applyMonsterHitRiders(m, "", heroHitTarget{cs, member}, true)
 	}
 	if member.HasCondition(character.ConditionPoisoned) {
 		t.Error("mummy card should have fully resisted every poison roll")

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"ugataima/internal/character"
+	"ugataima/internal/config"
 	"ugataima/internal/spells"
 	"ugataima/internal/world"
 )
@@ -43,7 +44,7 @@ func TestFirewall_LaysAuthoredWallAcrossTheFacing(t *testing.T) {
 	}
 	tps := g.config.GetTPS()
 	wantInterval := int(def.ZoneTickSeconds * float64(tps))
-	wantLife := character.SpellDurationAtTier(def, tier).Seconds * tps
+	wantLife := def.DurationSeconds(tier) * tps
 	ys := map[float64]bool{}
 	for i := range g.persistentDamageZones {
 		z := &g.persistentDamageZones[i]
@@ -384,7 +385,6 @@ func TestJump_EndsTheTurnLikeMovementInTB(t *testing.T) {
 	g.turnBasedMode = true
 	g.currentTurn = 0
 	g.partyActionsUsed = 1 // the party already attacked this round
-	g.turnBasedSpRegenCount = 0
 	for _, m := range g.party.Members {
 		m.ActionsRemaining = 1
 	}
@@ -408,9 +408,12 @@ func TestJump_EndsTheTurnLikeMovementInTB(t *testing.T) {
 	// Every production cast path commits the action after castResolvedSpell
 	// returns. Jump already ended the party phase, so that generic commit must
 	// not end the round a second time and accelerate SP/card regeneration.
-	g.consumeSelectedCharActionWithRTCooldown(cs.SpellCooldownFrames(g.party.Members[0], spells.SpellID("jump")))
-	if g.turnBasedSpRegenCount != 1 {
-		t.Errorf("Jump advanced the TB regen counter to %d, want exactly 1", g.turnBasedSpRegenCount)
+	g.commitHeroAction(g.selectedChar, cs.SpellCooldownFrames(g.party.Members[0], spells.SpellID("jump")))
+	if g.partyInCombat() {
+		t.Fatal("fixture: a fight changes the SP period")
+	}
+	if got := g.party.Members[0].SPRegen.Turns; got != config.RegenerationRounds-1 {
+		t.Errorf("Jump left %d TB rounds of the SP period, want exactly one round spent", got)
 	}
 }
 

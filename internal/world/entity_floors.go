@@ -11,6 +11,7 @@ import (
 // explicit terrain edit to override automatic ground until that edit is undone.
 type entityFloor struct {
 	Tile, Fallback TileType3D
+	Recipient      FloorRecipient
 }
 
 func (spawn NPCSpawn) groundTileKey() string {
@@ -26,7 +27,7 @@ func (spawn NPCSpawn) groundTileKey() string {
 }
 
 // RebuildFloors is shared by the map loader and editor mutations. Overlay the
-// authored objects and explicit NPC ground before resolving any automatic cell.
+// authored objects and explicit entity ground before resolving any automatic cell.
 func (md *MapData) RebuildFloors(tm *TileManager, biome string) {
 	if tm == nil {
 		return
@@ -34,14 +35,14 @@ func (md *MapData) RebuildFloors(tm *TileManager, biome string) {
 	fallback, _ := tm.GetTileTypeFromLetterForBiome(".", biome)
 	previous := md.entityFloors
 	md.entityFloors = make(map[[2]int]entityFloor)
-	add := func(x, y int) {
+	add := func(x, y int, recipient FloorRecipient) {
 		if md.hasCell(x, y) {
 			cell, tile := [2]int{x, y}, md.Tiles[y][x]
 			old, derived := previous[cell]
 			// Only parser placeholders and previously derived ground inherit.
 			// An authored bridge or a later terrain edit must remain intact.
 			if tile == fallback || tile == TileEmpty || derived && old.Tile == tile {
-				md.entityFloors[cell] = entityFloor{Tile: tile, Fallback: fallback}
+				md.entityFloors[cell] = entityFloor{Tile: tile, Fallback: fallback, Recipient: recipient}
 			}
 		}
 	}
@@ -53,7 +54,7 @@ func (md *MapData) RebuildFloors(tm *TileManager, biome string) {
 			md.Tiles[spawn.Y][spawn.X] = tile
 			delete(md.entityFloors, [2]int{spawn.X, spawn.Y})
 		} else {
-			add(spawn.X, spawn.Y)
+			add(spawn.X, spawn.Y, FloorMonster)
 		}
 	}
 	for _, spawn := range md.NPCSpawns {
@@ -64,7 +65,7 @@ func (md *MapData) RebuildFloors(tm *TileManager, biome string) {
 			md.Tiles[spawn.Y][spawn.X] = tile
 			delete(md.entityFloors, [2]int{spawn.X, spawn.Y})
 		} else {
-			add(spawn.X, spawn.Y)
+			add(spawn.X, spawn.Y, FloorNPC)
 		}
 	}
 	for _, spawn := range md.SpecialTileSpawns {
@@ -126,11 +127,11 @@ func (md *MapData) hasCell(x, y int) bool {
 }
 
 func resolveEntityFloors(tm *TileManager, tiles [][]TileType3D, entities map[[2]int]entityFloor) FloorResolution {
-	pending := make(map[[2]int]bool, len(entities))
+	pending := make(map[[2]int]FloorRecipient, len(entities))
 	for cell, floor := range entities {
 		x, y := cell[0], cell[1]
 		if y >= 0 && y < len(tiles) && x >= 0 && x < len(tiles[y]) && tiles[y][x] == floor.Tile {
-			pending[cell] = true
+			pending[cell] = floor.Recipient
 		}
 	}
 	floors := tm.ResolveFloors(tiles, pending)

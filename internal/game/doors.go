@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/collision"
 	"ugataima/internal/world"
@@ -22,8 +23,9 @@ func (g *MMGame) npcIsDoor(npc *character.NPC) bool {
 	return npcRenderCatOf(npc) == catDoor
 }
 
-// npcDoorOpen: an open door is invisible and non-interactive - the render
-// collector and the focus/click resolvers all skip through this one test. Two
+// npcDoorOpen: an open door is invisible and non-interactive. The render
+// collector skips it through this test, interaction through
+// npcTakesInteraction. Two
 // explicit door behaviors share the render class: a lockable door is open once
 // unlocked (Visited); the champion portcullis is open while no champion lives.
 func (g *MMGame) npcDoorOpen(npc *character.NPC) bool {
@@ -73,7 +75,7 @@ func (g *MMGame) refreshDoors() {
 		return
 	}
 	if g.doorsClosed && !closed {
-		g.AddCombatMessage("The portcullises rise - the way is open!")
+		g.AddCombatMessage(uitext.Text("combat.the_portcullises_rise_the_way_is"))
 		g.playSound(soundDoorOpen)
 	}
 	g.doorsClosed = closed

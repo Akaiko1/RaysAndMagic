@@ -1,21 +1,22 @@
 package config
 
 import (
-	"bytes"
 	"fmt"
+	"maps"
 	"math"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	uitext "ugataima/assets/text"
 
 	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/items"
 	"ugataima/internal/stats"
-
-	"gopkg.in/yaml.v3"
+	"ugataima/internal/strictyaml"
 )
 
 // cooldownMultLine renders a cooldown multiplier as a +/-% line ("Spell cooldown
@@ -28,19 +29,111 @@ func cooldownMultLine(label string, mult float64) string {
 	return fmt.Sprintf("%s %+.0f%%", label, pct)
 }
 
-const weaponStatusSecondsPerTurn = 2
+// CombatRoundSeconds is the real-time span of one turn-based round. It is the
+// one exchange rate between the modes: every effect duration (status, buff,
+// field) is authored in seconds that are whole rounds, lasts those seconds in
+// RT and seconds/CombatRoundSeconds turns in TB (CombatRounds, RoundFrames).
+const CombatRoundSeconds = 3
 
-// WeaponStatusTurns converts the shared authored seconds field used by weapon
-// shred/root/slow/weaken into its turn-based clock.
-func WeaponStatusTurns(seconds int) int {
-	if seconds <= 0 {
-		return 0
-	}
-	return (seconds + weaponStatusSecondsPerTurn - 1) / weaponStatusSecondsPerTurn
+// InstakillSearMaxHPPct replaces an instakill on a boss: the hit adds this
+// share of its max HP as true damage instead.
+const InstakillSearMaxHPPct = 20
+
+// Armor mitigation - a PERCENTAGE model with diminishing returns, for party and
+// monster armor alike:
+//
+//	physical% = min(ArmorPhysicalMitigationCap, 100*AC/(AC+ArmorMitigationK))
+//	elemental% = physical% * ArmorElementalMitigationCap / ArmorPhysicalMitigationCap
+//
+// Elemental is the SAME curve scaled down, so it reaches its 33% cap at the
+// exact AC where physical reaches 75% - not capping out far earlier. Melted
+// armor meets physical hits on the elemental curve. K sets the curve (AC == K
+// gives 50% pre-cap).
+const (
+	ArmorMitigationK            = 45
+	ArmorPhysicalMitigationCap  = 75
+	ArmorElementalMitigationCap = 33
+)
+
+// CombatRounds converts real-time seconds to whole TB rounds, rounding up.
+func CombatRounds(seconds int) int {
+	return (seconds + CombatRoundSeconds - 1) / CombatRoundSeconds
 }
 
-func weaponStatusDurationLabel(seconds int) string {
-	return uitext.Text("weapon.status_duration", seconds, WeaponStatusTurns(seconds))
+// RoundFrames is the RT length of rounds TB turns, in frames.
+func RoundFrames(rounds, tps int) int {
+	return rounds * CombatRoundSeconds * tps
+}
+
+// ValidateEffectSeconds is the authoring rule for every effect duration:
+// positive whole rounds, so RT and TB last the same game time.
+func ValidateEffectSeconds(what string, seconds int) error {
+	if seconds <= 0 || seconds%CombatRoundSeconds != 0 {
+		return fmt.Errorf("%s: %ds must be a positive whole number of %ds rounds", what, seconds, CombatRoundSeconds)
+	}
+	return nil
+}
+
+// effectField names one authored duration for validateEffectFields.
+type effectField struct {
+	what    string
+	seconds int
+}
+
+// validateEffectFields checks every set duration in the given order, so the
+// first broken field is always the one reported.
+func validateEffectFields(fields ...effectField) error {
+	for _, f := range fields {
+		if f.seconds != 0 {
+			if err := ValidateEffectSeconds(f.what, f.seconds); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// EffectClock is an effect authored in seconds as the two clocks a status runs
+// on: its RT frames and its TB rounds, the same span.
+func EffectClock(seconds, tps int) (frames, rounds int) {
+	rounds = CombatRounds(seconds)
+	return RoundFrames(rounds, tps), rounds
+}
+
+// ScaleDuration shifts a hostile status's duration (rounds, or a DoT's frames)
+// by pct percent of status-duration gear, to the nearest unit, never below one.
+func ScaleDuration(duration, pct int) int {
+	if duration <= 0 || pct == 0 {
+		return duration
+	}
+	return max(1, (duration*(100+pct)+50)/100)
+}
+
+// ScaledRoundsText is what a duration shift does to short statuses, worked
+// through ScaleDuration itself: "1/2/3/4 -> 1/1/2/2".
+func ScaledRoundsText(pct int) string {
+	var from, to []string
+	for rounds := 1; rounds <= 4; rounds++ {
+		from = append(from, strconv.Itoa(rounds))
+		to = append(to, strconv.Itoa(ScaleDuration(rounds, pct)))
+	}
+	return strings.Join(from, "/") + " -> " + strings.Join(to, "/")
+}
+
+// DurationText writes compact status durations through the catalog templates.
+func DurationText(seconds int) string {
+	rounds := CombatRounds(seconds)
+	return DurationTextOf(strconv.Itoa(seconds), strconv.Itoa(rounds), rounds == 1)
+}
+
+// DurationTextOf writes already formatted seconds and TB turns, such as the
+// per-tier ladders "300/360/420/480" and "100/120/140/160", in the same
+// wording; oneTurn picks the singular.
+func DurationTextOf(seconds, turns string, oneTurn bool) string {
+	if oneTurn {
+		return uitext.Text("effect.duration_one", seconds, turns)
+	}
+	return uitext.Text("effect.duration", seconds, turns)
 }
 
 // SpecialEffectLines excludes set membership, compared as a separate rule.
@@ -59,20 +152,16 @@ func (w *WeaponDefinitionConfig) effectLines(includeStructured bool) []string {
 	}
 	var lines []string
 	lines = append(lines, w.ElementalAbility.Lines()...)
+	lines = append(lines, w.Signature.Lines()...)
 	lines = append(lines, w.reactiveEffectLines()...)
 	if damageType, err := damagecalc.ParseType(w.DamageType); includeStructured && err == nil && damageType != damagecalc.Physical {
 		lines = append(lines, uitext.Text("weapon.damage_type", titleCaseLower(damageType.String())))
 	}
 	if w.StunChance > 0 {
-		turns := w.StunTurns
-		if turns <= 0 {
-			turns = 1
-		}
-		// RT stun lasts one second per TB turn (tryApplyWeaponStun: turns x TPS frames).
-		lines = append(lines, uitext.Text("weapon.stun_chance_s_rt_turns_tb", w.StunChance*100, turns, turns))
+		lines = append(lines, uitext.Text("weapon.stun_chance", w.StunChance*100, DurationText(w.StunSeconds)))
 	}
 	if w.DisintegrateChance > 0 {
-		lines = append(lines, uitext.Text("weapon.disintegrate_chance_undead_and_dragons_immune", w.DisintegrateChance*100))
+		lines = append(lines, uitext.Text("weapon.disintegrate_chance_undead_and_dragons_immune", w.DisintegrateChance*100, InstakillSearMaxHPPct))
 	}
 	if includeStructured && w.AoeRadiusTiles > 0 {
 		lines = append(lines, uitext.Text("weapon.aoe_radius_tiles_splashes_all_nearby_monsters", w.AoeRadiusTiles))
@@ -83,7 +172,7 @@ func (w *WeaponDefinitionConfig) effectLines(includeStructured bool) []string {
 	// The structured attack section renders cooldown from the combat calculation.
 	// The spell-cooldown perk is computable at this layer.
 	if line := cooldownMultLine(uitext.Text("weapon.spell_cooldown"), w.SpellCooldownMultiplier); line != "" {
-		lines = append(lines, line+uitext.Text("weapon.main_hand_only"))
+		lines = append(lines, line)
 	}
 	if len(w.BonusVs) > 0 {
 		keys := make([]string, 0, len(w.BonusVs))
@@ -103,14 +192,14 @@ func (w *WeaponDefinitionConfig) effectLines(includeStructured bool) []string {
 		lines = append(lines, uitext.Text(
 			"weapon.sunder_hits_strip_of_the_target_s",
 			w.ArmorShredPct,
-			weaponStatusDurationLabel(w.ArmorShredSeconds),
+			DurationText(w.ArmorShredSeconds),
 		))
 	}
 	if w.RootChance > 0 && w.RootSeconds > 0 {
 		lines = append(lines, uitext.Text(
 			"weapon.root_chance_pins_in_place_not_a",
 			w.RootChance*100,
-			weaponStatusDurationLabel(w.RootSeconds),
+			DurationText(w.RootSeconds),
 		))
 	}
 	if w.ArmorClassBonus > 0 {
@@ -126,32 +215,47 @@ func (w *WeaponDefinitionConfig) effectLines(includeStructured bool) []string {
 		lines = append(lines, uitext.Text("weapon.pierces_through_target_s_and_flies_on", w.PierceCount))
 	}
 	if includeStructured && w.DoubleStrike {
-		lines = append(lines, uitext.Text("weapon.pair_every_swing_strikes_twice_at_half"))
+		lines = append(lines, uitext.Text("weapon.pair_strikes_twice"))
 	}
 	if w.EquipPersonalityMin > 0 {
 		lines = append(lines, uitext.Text("weapon.wieldable_by_anyone_with_personality_no_skill", w.EquipPersonalityMin))
 	}
 	// Drakeforged tier signature riders.
 	if w.IgniteChance > 0 && w.IgniteSeconds > 0 {
-		lines = append(lines, uitext.Text("weapon.ignite_chance_burns_s", w.IgniteChance*100, w.IgniteSeconds))
+		lines = append(lines, uitext.Text("weapon.ignite_chance_burns_s", w.IgniteChance*100, DurationText(w.IgniteSeconds)))
 	}
 	if w.PoisonChance > 0 && w.PoisonSeconds > 0 {
-		lines = append(lines, uitext.Text("weapon.brood_venom_chance_to_poison_s", w.PoisonChance*100, w.PoisonSeconds))
+		lines = append(lines, uitext.Text("weapon.brood_venom_chance_to_poison_s", w.PoisonChance*100, DurationText(w.PoisonSeconds)))
 	}
 	if w.ExecuteBelowPct > 0 {
 		lines = append(lines, uitext.Text("weapon.the_maw_targets_left_under_hp_are", w.ExecuteBelowPct))
 	}
-	if w.DeathBurstDamage > 0 && w.DeathBurstRadiusTiles > 0 {
-		lines = append(lines, uitext.Text("weapon.clutchburst_kills_explode_for_fire_within_tiles", w.DeathBurstDamage, w.DeathBurstRadiusTiles))
+	if w.DeathBurstMaxHPPct > 0 && w.DeathBurstRadiusTiles > 0 {
+		lines = append(lines, uitext.Text("weapon.clutchburst_max_hp_fire_within_tiles", w.DeathBurstMaxHPPct, w.DeathBurstRadiusTiles))
 	}
-	if includeStructured && w.TrueDamage > 0 {
-		lines = append(lines, uitext.Text("weapon.true_damage_ignores_armor_and_dodge", w.TrueDamage))
+	if includeStructured && w.TrueDamagePct > 0 {
+		lines = append(lines, uitext.Text("weapon.true_damage_share", w.TrueDamagePct))
+	}
+	if w.HourStrikeMarks > 0 {
+		lines = append(lines, uitext.Text("weapon.hour_strike", w.HourStrikeMarks, NumberText(w.HourStrikeMultiplier)))
+	}
+	if w.TollEchoPct > 0 {
+		lines = append(lines, uitext.Text("weapon.toll_echo", w.TollEchoPct))
+	}
+	if w.FreshTargetMinHPPct > 0 {
+		lines = append(lines, uitext.Text("weapon.fresh_target", NumberText(w.FreshTargetMultiplier), w.FreshTargetMinHPPct))
+	}
+	if w.JamSeconds > 0 {
+		lines = append(lines, uitext.Text("weapon.jam", w.JamSeconds, CombatRoundSeconds/w.JamSeconds))
+	}
+	if w.BuffDurationPct > 0 {
+		lines = append(lines, uitext.Text("weapon.buff_duration", w.BuffDurationPct))
 	}
 	if w.SlowPct > 0 && w.SlowSeconds > 0 {
 		lines = append(lines, uitext.Text(
 			"weapon.silt_hits_slow_the_target_for",
 			w.SlowPct,
-			weaponStatusDurationLabel(w.SlowSeconds),
+			DurationText(w.SlowSeconds),
 			SlowSkipEveryTurns(),
 		))
 	}
@@ -159,7 +263,7 @@ func (w *WeaponDefinitionConfig) effectLines(includeStructured bool) []string {
 		lines = append(lines, uitext.Text(
 			"weapon.sundering_roar_the_target_deals_less_damage",
 			w.WeakenPct,
-			weaponStatusDurationLabel(w.WeakenSeconds),
+			DurationText(w.WeakenSeconds),
 		))
 	}
 	if w.RicochetTargets > 0 {
@@ -209,22 +313,25 @@ func TitleWords(s string) string {
 
 // Config holds all game configuration values
 type Config struct {
-	PlayerPotions *PotionPreferences  `yaml:"-" json:"-"`
-	StatusDamage  StatusDamageConfig  `yaml:"status_damage"`
-	StatusEffects StatusEffectsConfig `yaml:"status_effects"`
-	MonsterCombat MonsterCombatConfig `yaml:"monster_combat"`
-	Display       DisplayConfig       `yaml:"display"`
-	Engine        EngineConfig        `yaml:"engine"`
-	World         WorldConfig         `yaml:"world"`
-	Movement      MovementConfig      `yaml:"movement"`
-	Camera        CameraConfig        `yaml:"camera"`
-	UI            UIConfig            `yaml:"ui"`
-	Characters    CharacterConfig     `yaml:"characters"`
-	MonsterAI     MonsterAIConfig     `yaml:"monster_ai"`
-	Graphics      GraphicsConfig      `yaml:"graphics"`
-	Tiles         TileConfig          `yaml:"tiles"`
-	DayNight      DayNightConfig      `yaml:"day_night"`
-	Camping       CampingConfig       `yaml:"camping"`
+	AutocastIntervalRounds int                    `yaml:"autocast_interval_rounds"`
+	PlayerPotions          *PotionPreferences     `yaml:"-" json:"-"`
+	StatusEffects          StatusEffectsConfig    `yaml:"status_effects"`
+	MonsterCombat          MonsterCombatConfig    `yaml:"monster_combat"`
+	Display                DisplayConfig          `yaml:"display"`
+	Engine                 EngineConfig           `yaml:"engine"`
+	World                  WorldConfig            `yaml:"world"`
+	Movement               MovementConfig         `yaml:"movement"`
+	Camera                 CameraConfig           `yaml:"camera"`
+	UI                     UIConfig               `yaml:"ui"`
+	Characters             CharacterConfig        `yaml:"characters"`
+	MonsterAI              MonsterAIConfig        `yaml:"monster_ai"`
+	Graphics               GraphicsConfig         `yaml:"graphics"`
+	Tiles                  TileConfig             `yaml:"tiles"`
+	DayNight               DayNightConfig         `yaml:"day_night"`
+	Camping                CampingConfig          `yaml:"camping"`
+	StoryScreen            StoryScreenConfig      `yaml:"story_screen"`
+	Watcher                WatcherConfig          `yaml:"watcher"`
+	AdventureScaling       AdventureScalingConfig `yaml:"adventure_scaling"`
 
 	// PlayerInterfaceSize is the saved interface preset key ("" until loaded).
 	PlayerInterfaceSize string `yaml:"-" json:"-"`
@@ -232,6 +339,10 @@ type Config struct {
 	PlayerFont string `yaml:"-" json:"-"`
 	// PlayerProps3D overrides the authored default when a preference is saved.
 	PlayerProps3D *bool `yaml:"-" json:"-"`
+	// PlayerFitTreesToTile and PlayerFitMonumentsToTile are the saved Display
+	// choices that scale world objects into their own tile. Both start off.
+	PlayerFitTreesToTile     bool `yaml:"-" json:"-"`
+	PlayerFitMonumentsToTile bool `yaml:"-" json:"-"`
 }
 
 type CampingConfig struct {
@@ -247,6 +358,81 @@ type CampingConfig struct {
 
 func DefaultCampingConfig() CampingConfig {
 	return CampingConfig{DissolveClustersMin: 5, DissolveClustersMax: 6, MaxTopCropFraction: 0.08, DissolvePixelSize: 4, DefaultScene: "camp_dungeon", FadeInSeconds: 0.65, HoldSeconds: 2.5, FadeOutSeconds: 0.8}
+}
+
+// StoryScreenConfig times the story event screen. Its plate reuses the camping
+// dissolve and fade-in; the captain's light blinks before his text appears.
+type StoryScreenConfig struct {
+	TextFadeSeconds   float64 `yaml:"text_fade_seconds"`
+	LightBlinks       int     `yaml:"light_blinks"`
+	LightBlinkSeconds float64 `yaml:"light_blink_seconds"`
+}
+
+// WatcherConfig paces the Pursuers' captain (assets/watcher.yaml). Story-boss
+// lines always play; every other line is a random remark: a chance per rest
+// or per kill, at most MaxRandomLines per run, never within MinDaysBetween
+// of his last one. CardSeconds keeps his kill card up.
+type WatcherConfig struct {
+	CampChance     float64 `yaml:"camp_chance"`
+	KillChance     float64 `yaml:"kill_chance"`
+	MaxRandomLines int     `yaml:"max_random_lines"`
+	MinDaysBetween int     `yaml:"min_days_between"`
+	CardSeconds    float64 `yaml:"card_seconds"`
+}
+
+func (c WatcherConfig) validate() error {
+	for _, v := range []struct {
+		name  string
+		value float64
+	}{{"camp_chance", c.CampChance}, {"kill_chance", c.KillChance}} {
+		if !(v.value >= 0 && v.value <= 1) {
+			return fmt.Errorf("watcher.%s must be in [0,1], got %v", v.name, v.value)
+		}
+	}
+	if c.MaxRandomLines < 0 || c.MinDaysBetween < 0 {
+		return fmt.Errorf("watcher.max_random_lines and min_days_between must not be negative")
+	}
+	if !(c.CardSeconds > 0) || math.IsInf(c.CardSeconds, 0) {
+		return fmt.Errorf("watcher.card_seconds must be positive")
+	}
+	return nil
+}
+
+// SecondsToFrames is THE seconds-to-frames rule: nearest frame, never zero for
+// a real duration. The game's framesForSeconds and the config checks share it;
+// whole seconds may multiply by the rate directly, which is exact.
+func SecondsToFrames(seconds float64, tps int) int {
+	frames := int(seconds*float64(tps) + 0.5)
+	if frames < 1 && seconds > 0 {
+		return 1
+	}
+	return frames
+}
+
+// validate also checks the camp scene against it, in the frames the game
+// counts: a rest that carries the captain's line holds until his light has
+// blinked and his words are up.
+func (c StoryScreenConfig) validate(camp CampingConfig, tps int) error {
+	for _, v := range []struct {
+		name  string
+		value float64
+	}{{"text_fade_seconds", c.TextFadeSeconds}, {"light_blink_seconds", c.LightBlinkSeconds}} {
+		if !(v.value > 0) || math.IsInf(v.value, 0) {
+			return fmt.Errorf("story_screen.%s must be positive", v.name)
+		}
+	}
+	if c.LightBlinks <= 0 {
+		return fmt.Errorf("story_screen.light_blinks must be positive")
+	}
+	hold := camp.HoldSeconds
+	if hold <= 0 {
+		hold = DefaultCampingConfig().HoldSeconds
+	}
+	need := c.LightBlinks*SecondsToFrames(c.LightBlinkSeconds, tps) + SecondsToFrames(c.TextFadeSeconds, tps)
+	if have := SecondsToFrames(hold, tps); have < need {
+		return fmt.Errorf("camping.hold_seconds %.2f (%d frames) is shorter than the captain's light and words (%d frames)", hold, have, need)
+	}
+	return nil
 }
 
 // DayNightConfig tunes the day/night cycle. Zero values fall back to the
@@ -377,6 +563,9 @@ type DisplayConfig struct {
 	Resizable         bool   `yaml:"resizable"`
 	Fullscreen        bool   `yaml:"fullscreen"`
 	DisableVsyncOnMac bool   `yaml:"disable_vsync_on_mac"`
+	// PreferDiscreteGPUOnWindows stores the high-performance GPU preference
+	// for the executable when the player has none (internal/gpupref).
+	PreferDiscreteGPUOnWindows bool `yaml:"prefer_discrete_gpu_on_windows"`
 
 	// InterfaceSizes are the Settings > Display presets, smallest first.
 	InterfaceSizes       []InterfaceSize `yaml:"interface_sizes"`
@@ -389,6 +578,9 @@ type DisplayConfig struct {
 
 type EngineConfig struct {
 	TPS int `yaml:"tps"`
+	// ParallelMonsterMinimum is the smallest monster count updated on the
+	// worker pool; a smaller map updates its monsters in a plain loop.
+	ParallelMonsterMinimum int `yaml:"parallel_monster_minimum"`
 }
 
 type WorldConfig struct {
@@ -476,10 +668,9 @@ func (p *ProjectilePhysicsConfig) GetLifetimeFrames() int {
 	if p.SpeedTiles <= 0 {
 		return GetTargetTPS() // Default 1 second if speed is invalid
 	}
-	// lifetime = range / speed * tps (frames per second). Round (not truncate) so
-	// the projectile travels as close to range_tiles as discrete frames allow -
-	// truncation left a few weapons ~1 frame short of their stated range.
-	return int((p.RangeTiles/p.SpeedTiles)*float64(GetTargetTPS()) + 0.5)
+	// The flight time, range / speed seconds, to the nearest frame so the
+	// projectile travels as close to range_tiles as discrete frames allow.
+	return SecondsToFrames(p.RangeTiles/p.SpeedTiles, GetTargetTPS())
 }
 
 // MeleeAttackConfig for instant melee weapons. ArcType is the discrete swing
@@ -488,12 +679,14 @@ func (p *ProjectilePhysicsConfig) GetLifetimeFrames() int {
 // diagonals counting as one step) it defines how many surrounding foes a swing
 // catches - e.g. arc 3 at range 2 sweeps a 90deg cone two ranks deep.
 type MeleeAttackConfig struct {
-	ArcType         int `yaml:"arc_type"`         // 1=single, 2=front+flank, 3=three, 4=five
-	AnimationFrames int `yaml:"animation_frames"` // Frames for animation
+	ArcType int `yaml:"arc_type"` // 1=single, 2=front+flank, 3=three, 4=five
 }
 
 // WeaponGraphicsConfig for melee slash effects and projectile weapon rendering.
 type WeaponGraphicsConfig struct {
+	HeldModel        string  `yaml:"held_model,omitempty"`         // Procedural equipment asset; independent of the flying projectile.
+	ImpactFlameScale float64 `yaml:"impact_flame_scale,omitempty"` // Scale of the shared one-tile campfire volume.
+
 	SlashLiftRatio float64 `yaml:"slash_lift_ratio,omitempty"` // Lift the complete swing by a fraction of view height.
 	SlashColor     [3]int  `yaml:"slash_color"`                // RGB color for slash effect
 	SlashWidth     int     `yaml:"slash_width"`                // Width of slash line
@@ -512,9 +705,9 @@ type CameraConfig struct {
 }
 
 type UIConfig struct {
-	SpellInputCooldown int                   `yaml:"spell_input_cooldown"`
-	DamageBlinkFrames  int                   `yaml:"damage_blink_frames"`
-	TurnBasedMouseHold MouseHoldTimingConfig `yaml:"turn_based_mouse_hold"`
+	InputStaggerSeconds float64               `yaml:"input_stagger_seconds"` // gap between accepted gameplay inputs (actions, Space pickup/talk, tabbed menus)
+	DamageBlinkSeconds  float64               `yaml:"damage_blink_seconds"`  // a hit party card's red blink
+	TurnBasedMouseHold  MouseHoldTimingConfig `yaml:"turn_based_mouse_hold"`
 }
 
 type MouseHoldTimingConfig struct {
@@ -538,6 +731,9 @@ type CharacterConfig struct {
 	HitPoints    HitPointsConfig       `yaml:"hit_points"`
 	SpellPoints  SpellPointsConfig     `yaml:"spell_points"`
 	Classes      map[string]ClassStats `yaml:"classes"`
+	// ProvidencePool is the party buff spells Celestial Providence draws from
+	// at each dawn and dusk, cast at Master.
+	ProvidencePool []string `yaml:"providence_pool"`
 	// Races holds additive stat modifiers applied on top of class base stats
 	// (the classic roster is human = no modifiers).
 	Races         map[string]RaceStats `yaml:"races,omitempty"`
@@ -565,13 +761,32 @@ type RaceStats struct {
 	Name string `yaml:"name"`
 	// Description points follow the race's stat shifts in a hero's pitch.
 	Description []DescriptionPoint `yaml:"description,omitempty"`
-	Might       int                `yaml:"might,omitempty"`
-	Intellect   int                `yaml:"intellect,omitempty"`
-	Personality int                `yaml:"personality,omitempty"`
-	Endurance   int                `yaml:"endurance,omitempty"`
-	Accuracy    int                `yaml:"accuracy,omitempty"`
-	Speed       int                `yaml:"speed,omitempty"`
-	Luck        int                `yaml:"luck,omitempty"`
+	// Shifts are the race's additive stat modifiers, authored as <stat>: N.
+	Shifts stats.StatBonuses `yaml:",inline"`
+	// PassiveSkill is the race's own skill, held at Novice (halfling_guile).
+	PassiveSkill string `yaml:"passive_skill,omitempty"`
+	// Replaces swaps one class's kit skill for a racial one, keeping its
+	// mastery (the half-orc Knight's Orcish Fury).
+	Replaces *RaceSkillSwap `yaml:"replaces,omitempty"`
+	// CardRarity frames the hero card; empty is common. A class's own
+	// card_rarity wins.
+	CardRarity string `yaml:"card_rarity,omitempty"`
+}
+
+// RaceSkillSwap: a hero of Class trades kit skill Skill for With.
+type RaceSkillSwap struct {
+	Class string `yaml:"class"`
+	Skill string `yaml:"skill"`
+	With  string `yaml:"with"`
+}
+
+// validCardRarity is the closed set of hero card frames.
+func validCardRarity(r string) bool {
+	switch r {
+	case "", "common", "uncommon", "rare", "legendary":
+		return true
+	}
+	return false
 }
 
 type HitPointsConfig struct {
@@ -591,18 +806,14 @@ type ClassMagicEntry struct {
 
 type ClassStats struct {
 	AutoStats  AutoStatsConfig   `yaml:"auto_stats,omitempty"`
+	AutoBuilds []AutoBuild       `yaml:"auto_builds,omitempty"`
 	Items      []ClassItemConfig `yaml:"items,omitempty"`
 	CardRarity string            `yaml:"card_rarity,omitempty"` // Presentation override; empty uses the hero race.
 	// Description is the party-creation pitch: what the class does and why
 	// to pick it, with {kind:text} keyword markup (keyword_markup.go).
 	Description []DescriptionPoint `yaml:"description"`
-	Might       int                `yaml:"might"`
-	Intellect   int                `yaml:"intellect"`
-	Personality int                `yaml:"personality"`
-	Endurance   int                `yaml:"endurance"`
-	Accuracy    int                `yaml:"accuracy"`
-	Speed       int                `yaml:"speed"`
-	Luck        int                `yaml:"luck"`
+	// Base are the class's starting stats, authored as <stat>: N.
+	Base stats.StatBonuses `yaml:",inline"`
 	// Starting kit (skills/magic/equipment), data-driven - used to live as
 	// per-class Go setup functions.
 	Skills     []string          `yaml:"skills,omitempty"`      // skill keys: sword, plate, bodybuilding, disarm_trap, ...
@@ -622,8 +833,18 @@ type SpellSystemConfig struct {
 	Spells map[string]*SpellDefinitionConfig `yaml:"spells"`
 }
 
+// Spell categories mark timed or charged beneficial effects in YAML. Both
+// spend mana and TB actions; a buff has no personal RT recovery, while a short
+// or charge-spent combat_buff keeps its authored cooldown so it cannot be
+// refilled on demand mid-fight.
+const (
+	SpellCategoryBuff       = "buff"
+	SpellCategoryCombatBuff = "combat_buff"
+)
+
 // SpellDefinitionConfig represents a complete spell definition with embedded physics and graphics
 type SpellDefinitionConfig struct {
+	Mechanic *SpellMechanicConfig `yaml:"mechanic,omitempty"`
 	// Basic spell properties
 	Name        string `yaml:"name"`
 	Description string `yaml:"description"`
@@ -634,19 +855,26 @@ type SpellDefinitionConfig struct {
 	// school the learner has.
 	Schools         []string `yaml:"schools,omitempty"`
 	SpellPointsCost int      `yaml:"spell_points_cost"`
-	// Category selects optional cast behavior. "buff" is a beneficial timed
-	// effect with no per-character real-time cooldown.
+	// Category explicitly marks beneficial effects, timed or charged, personal or
+	// party-wide: "buff" has no personal RT recovery, "combat_buff" keeps its
+	// cooldown_seconds. Mana, TB action costs and any reuse timer still apply.
 	Category string `yaml:"category,omitempty"`
 	// CooldownSeconds is the real-time cast cooldown for this spell at the
-	// reference Speed (see SpellCooldownSpeedRefSpeed); Speed scales it.
-	// REQUIRED - validated at load, so no spell can fall back to a guessed cadence.
+	// reference Speed (see ActionCooldownSpeedRefSpeed); Speed scales it.
+	// Required for non-buffs and forbidden for buffs (zero recovery by rule).
 	CooldownSeconds float64 `yaml:"cooldown_seconds,omitempty"`
+	ReuseSeconds    int     `yaml:"reuse_seconds,omitempty"` // Personal spell lockout, independent of action recovery.
 	// DamageByMastery authors the EXACT damage per mastery tier
 	// [Novice, Expert, Master, Grandmaster], for spells whose ladder is dictated
 	// rather than derived from SP cost (Earthquake 50/100/200/400 doubles; the
 	// cost-based MasteryScaledDamage cannot express that). Takes precedence over
 	// the cost formula wherever a spell authors it. Exactly 4 entries.
 	DamageByMastery []int `yaml:"damage_by_mastery,omitempty"`
+	// DamageBase changes only the base; ordinary stat and mastery scaling remain.
+	DamageBase int `yaml:"damage_base,omitempty"`
+	// DamageSource reuses another spell's complete formula before division.
+	DamageSource  string `yaml:"damage_source,omitempty"`
+	DamageDivisor int    `yaml:"damage_divisor,omitempty"`
 	// SummonMonster is the monster key a summon spell brings in as a party ally,
 	// capped at SummonMax live copies per caster-party. SummonHPByMastery and
 	// SummonDamageByMastery are per-tier ladders (Novice..GM) applied to the
@@ -669,7 +897,7 @@ type SpellDefinitionConfig struct {
 	// SparesParty exempts the caster's own party from a party-centred nova
 	// (Earthquake shakes the ground under monsters only; Inferno does not).
 	SparesParty        bool    `yaml:"spares_party,omitempty"`
-	Duration           int     `yaml:"duration"` // Duration in seconds (for buff spells)
+	DurationByMastery  []int   `yaml:"duration_by_mastery,omitempty"` // Exact gameplay seconds, Novice..Grandmaster; omit for instant/charged effects.
 	DisintegrateChance float64 `yaml:"disintegrate_chance,omitempty"`
 	// AoeRadiusTiles, when > 0, makes a projectile spell splash damage to
 	// every monster within this many tiles of the primary target. The splash
@@ -693,11 +921,11 @@ type SpellDefinitionConfig struct {
 	MasteryDamagePerTier int `yaml:"mastery_damage_per_tier,omitempty"`
 
 	// AoE-stun effect (e.g. Darkness): when StunRadiusTiles > 0 the spell stuns
-	// every monster within that radius of the caster - no damage. RT uses
-	// secondsxTPS frames, TB uses StunDurationTurns.
+	// every monster within that radius of the caster - no damage. The stun
+	// (here or from StunChance) lasts StunDurationSeconds: whole rounds, the
+	// same span in both modes.
 	StunRadiusTiles     float64 `yaml:"stun_radius_tiles,omitempty"`
 	StunDurationSeconds int     `yaml:"stun_duration_seconds,omitempty"`
-	StunDurationTurns   int     `yaml:"stun_duration_turns,omitempty"`
 
 	// DealsNoDamage zeroes the projectile's direct damage (e.g. Disintegrate,
 	// whose only effect is its disintegrate_chance instakill roll on hit).
@@ -818,27 +1046,78 @@ type SpellDefinitionConfig struct {
 	Graphics *ProjectileRenderConfig `yaml:"graphics,omitempty"`
 }
 
+// DefaultMonsterAI is monster_ai for a monster built without a config (unit
+// fixtures, the FX preview's contact target): the shipped config.yaml values
+// of every field the AI falls back on. A loaded config never takes them - its
+// keys are required (validateRequired).
+func DefaultMonsterAI() MonsterAIConfig {
+	return MonsterAIConfig{
+		IdlePatrolSeconds: 0.5, PatrolIdleSeconds: 10, AttackCooldownSeconds: 1, FleeSeconds: 7,
+		IdleToPatrolMeanSeconds: 0.079, PathCheckSeconds: 0.25,
+		NormalSpeedMultiplier: 0.5, FleeSpeedMultiplier: 1.5, FleeDistanceTiles: 4,
+		DefaultAlertRadiusTiles: 4, DisengageDistanceMultiplier: 2,
+		FleeAfterAttacks: 5, FleeAfterAttacksChance: 0.5,
+	}
+}
+
+// validateRequired fails the boot on a missing or non-positive monster_ai key
+// that DefaultMonsterAI covers, so a loaded config never falls back to it.
+func (c MonsterAIConfig) validateRequired() error {
+	for _, f := range []struct {
+		key   string
+		value float64
+	}{
+		{"idle_patrol_seconds", c.IdlePatrolSeconds},
+		{"patrol_idle_seconds", c.PatrolIdleSeconds},
+		{"attack_cooldown_seconds", c.AttackCooldownSeconds},
+		{"flee_seconds", c.FleeSeconds},
+		{"idle_to_patrol_mean_seconds", c.IdleToPatrolMeanSeconds},
+		{"path_check_seconds", c.PathCheckSeconds},
+		{"normal_speed_multiplier", c.NormalSpeedMultiplier},
+		{"flee_speed_multiplier", c.FleeSpeedMultiplier},
+		{"flee_distance_tiles", c.FleeDistanceTiles},
+		{"default_alert_radius_tiles", c.DefaultAlertRadiusTiles},
+		{"disengage_distance_multiplier", c.DisengageDistanceMultiplier},
+		{"flee_after_attacks", float64(c.FleeAfterAttacks)},
+		{"flee_after_attacks_chance", c.FleeAfterAttacksChance},
+	} {
+		if !(f.value > 0) {
+			return fmt.Errorf("monster_ai.%s must be positive", f.key)
+		}
+	}
+	if c.FleeAfterAttacksChance > 1 {
+		return fmt.Errorf("monster_ai.flee_after_attacks_chance must be at most 1")
+	}
+	return nil
+}
+
 type MonsterAIConfig struct {
-	Pursuit MonsterPursuitConfig `yaml:"pursuit"`
+	Pursuit    MonsterPursuitConfig    `yaml:"pursuit"`
+	PhaseShift MonsterPhaseShiftConfig `yaml:"phase_shift"`
 
-	// AI behavior timers in engine update ticks (see engine.tps).
-	IdlePatrolTimer int `yaml:"idle_patrol_timer"`
-	PatrolIdleTimer int `yaml:"patrol_idle_timer"`
-	AttackCooldown  int `yaml:"attack_cooldown"`
-	FleeDuration    int `yaml:"flee_duration"`
+	// AI behavior timers in seconds.
+	IdlePatrolSeconds     float64 `yaml:"idle_patrol_seconds"`
+	PatrolIdleSeconds     float64 `yaml:"patrol_idle_seconds"`
+	AttackCooldownSeconds float64 `yaml:"attack_cooldown_seconds"`
+	FleeSeconds           float64 `yaml:"flee_seconds"`
 
-	// Behavior chance (0.0 to 1.0)
-	IdleToPatrolChance float64 `yaml:"idle_to_patrol_chance"`
+	// IdleToPatrolMeanSeconds is the mean extra wait, once IdlePatrolSeconds
+	// passed, before an idle monster starts patrolling: an exponential wait,
+	// the same at any tick rate.
+	IdleToPatrolMeanSeconds float64 `yaml:"idle_to_patrol_mean_seconds"`
 
 	// Movement parameters
 	NormalSpeedMultiplier float64 `yaml:"normal_speed_multiplier"`
 	FleeSpeedMultiplier   float64 `yaml:"flee_speed_multiplier"`
+	// TurnStepSpeed is the monster speed that walks one tile per turn-based
+	// movement action; see GetTurnStepSpeed.
+	TurnStepSpeed float64 `yaml:"turn_step_speed"`
 
 	// Vision distance used while fleeing
 	FleeDistanceTiles float64 `yaml:"flee_distance_tiles"`
 
-	// AI frequency check (in frames)
-	PathCheckFrequency int `yaml:"path_check_frequency"`
+	// PathCheckSeconds throttles repathing.
+	PathCheckSeconds float64 `yaml:"path_check_seconds"`
 
 	// Detection tuning. Distances are in tiles; the rest are multipliers.
 	DefaultAlertRadiusTiles     float64 `yaml:"default_alert_radius_tiles"`    // fallback when a monster omits alert_radius
@@ -850,7 +1129,40 @@ type MonsterAIConfig struct {
 	FleeAfterAttacksChance float64 `yaml:"flee_after_attacks_chance"`
 }
 
+// StreamingConfig schedules the background loading of open-world regions.
+// A region is required once it can come into view; it starts loading
+// PrefetchLeadTiles earlier, so a walking party meets it already resident.
+type StreamingConfig struct {
+	PrefetchLeadTiles      float64 `yaml:"prefetch_lead_tiles"`
+	BackgroundStepsPerTick int     `yaml:"background_steps_per_tick"`
+	// ReleaseImagesPerTick is how many textures of an evicted region are
+	// disposed in one simulation tick.
+	ReleaseImagesPerTick int                 `yaml:"release_images_per_tick"`
+	LoadingScreen        LoadingScreenConfig `yaml:"loading_screen"`
+}
+
+// LoadingScreenConfig is how fast regions load while the loading screen holds
+// the game: nothing has to stay smooth then, so these replace the play quotas.
+type LoadingScreenConfig struct {
+	// Workers decode sprites, and as many again build tree and monument
+	// sheets. 0 sizes them to the machine; see WorkerCount.
+	Workers                 int `yaml:"workers"`
+	QueueMegabytes          int `yaml:"queue_megabytes"`
+	UploadMegabytesPerFrame int `yaml:"upload_megabytes_per_frame"`
+	UploadImagesPerFrame    int `yaml:"upload_images_per_frame"`
+}
+
+// WorkerCount resolves workers: 0 leaves two logical CPUs to the game loop
+// and the renderer and takes the rest, from 2 to 8.
+func (c LoadingScreenConfig) WorkerCount() int {
+	if c.Workers > 0 {
+		return c.Workers
+	}
+	return min(max(runtime.NumCPU()-2, 2), 8)
+}
+
 type GraphicsConfig struct {
+	RangedHeld         RangedHeldConfig        `yaml:"ranged_held"`
 	Props3D            bool                    `yaml:"props_3d"`
 	View               ViewRenderConfig        `yaml:"view"`
 	ElementalAttack    ElementalAttackFXConfig `yaml:"elemental_attack"`
@@ -878,6 +1190,8 @@ type GraphicsConfig struct {
 	// tokens standing in the world (board-game standees) instead of
 	// camera-facing billboards. Monsters turn with their travel direction.
 	Standee StandeeConfig `yaml:"standee"`
+	// Streaming schedules open-world region loading around the party.
+	Streaming StreamingConfig `yaml:"streaming"`
 
 	// TreesAsBillboards renders tree tiles as two crossed full-tile billboards
 	// (a "+" from above, double-sided) instead of the per-column full-sprite
@@ -889,6 +1203,13 @@ type GraphicsConfig struct {
 	NightMotes NightMoteRenderConfig `yaml:"night_motes"`
 }
 
+// RangedHeldConfig frames cosmetic equipment and limits recovery without delaying attacks.
+type RangedHeldConfig struct {
+	ModelScale         float64 `yaml:"model_scale"`
+	MaxDurationSeconds float64 `yaml:"max_duration_seconds"`
+	CooldownFraction   float64 `yaml:"cooldown_fraction"`
+}
+
 type ViewRenderConfig struct {
 	WideFocalRatio          float64 `yaml:"wide_focal_ratio"`
 	WideHorizonRatio        float64 `yaml:"wide_horizon_ratio"`
@@ -896,7 +1217,12 @@ type ViewRenderConfig struct {
 	WideWeaponViewportRatio float64 `yaml:"wide_weapon_viewport_ratio"`
 	LiftFadeTiles           float64 `yaml:"lift_fade_tiles"`
 	LiftFullTiles           float64 `yaml:"lift_full_tiles"`
+	// TurnStepSeconds: how long the view and the monsters slide over one
+	// turn-based step; 0 keeps the instant jump.
+	TurnStepSeconds float64 `yaml:"turn_step_seconds"`
 }
+
+const DefaultTurnStepSeconds = 0.15
 
 // NightMoteRenderConfig controls the shared runtime budget and timing for
 // moving night motes. Per-tile night_motes data only selects the palette.
@@ -961,22 +1287,26 @@ type StandeeConfig struct {
 }
 
 // ColorKeyConfig makes a key color (default magenta) transparent at sprite load,
-// clearing stray magenta from imperfect background removal.
+// clearing stray magenta from imperfect background removal. Three modes per
+// animation family: default (no list) erases only background - key colour
+// joined to the image border or a transparent pixel - and never changes a
+// colour; EdgeOnlyDespill also despills the rim; FullDespill keys every
+// key-close pixel and despills everywhere. config.yaml documents the choice.
 type ColorKeyConfig struct {
 	Enabled   bool   `yaml:"enabled"`
 	Color     [3]int `yaml:"color"`     // RGB of the key color; [0,0,0]/absent -> magenta (255,0,255)
-	Tolerance int    `yaml:"tolerance"` // per-channel max abs difference for the transparent core (0 = exact)
-	Despill   bool   `yaml:"despill"`   // fringe pixels: subtract the cast, keep the base tone opaque
-	// DespillExclusions disables despill for entire sprite animation families,
-	// including edges. Key-colour transparency is independent and still applies.
-	DespillExclusions []string `yaml:"despill_exclusions,omitempty"`
+	Tolerance int    `yaml:"tolerance"` // per-channel max abs difference for a key pixel (0 = exact)
+	Despill   bool   `yaml:"despill"`   // cast subtraction in both lists; false: full_despill still erases key pixels
 	// EdgeOnlyDespill lists sprite names (basenames; animation sheets as
-	// "<name>_<animType>") whose interior magenta is intentional art. Naming a
-	// directional sheet or its base covers the entire animation family. For these,
-	// despill runs ONLY within EdgeDespillRadius px of a transparent edge - the
-	// key-bleed halo is cleaned while the body's purple/magenta is preserved.
+	// "<name>_<animType>") whose rim keeps a magenta cast. Naming a directional
+	// sheet or its base covers the entire animation family. Despill runs ONLY
+	// within EdgeDespillRadius px of the background or the image border, so the
+	// body's purple and key-close highlights stay as drawn.
 	EdgeOnlyDespill   []string `yaml:"edge_only_despill,omitempty"`
 	EdgeDespillRadius int      `yaml:"edge_despill_radius,omitempty"` // px band; <=0 -> default
+	// FullDespill lists sprite names (same family rule) with key residue inside
+	// the body: every key-close pixel is erased and despill runs everywhere.
+	FullDespill []string `yaml:"full_despill,omitempty"`
 }
 
 // ImpassableAuraConfig tunes the aurora curtains along authored impassable
@@ -1040,10 +1370,12 @@ type NPCRenderConfig struct {
 }
 
 type ProjectileRenderConfig struct {
-	MaxSize  int    `yaml:"max_size"`
-	MinSize  int    `yaml:"min_size"`
-	BaseSize int    `yaml:"base_size"`
-	Color    [3]int `yaml:"color"`
+	TargetCursor string `yaml:"target_cursor,omitempty"` // Unframed transparent art for ally selection.
+	WorldFx      string `yaml:"world_fx,omitempty"`      // World-anchored cast material, not a camera overlay.
+	MaxSize      int    `yaml:"max_size"`
+	MinSize      int    `yaml:"min_size"`
+	BaseSize     int    `yaml:"base_size"`
+	Color        [3]int `yaml:"color"`
 	// ProjectileFx selects a bespoke flying-body renderer (signature spells);
 	// empty = the school's default particle style.
 	ProjectileFx string `yaml:"projectile_fx,omitempty"`
@@ -1056,7 +1388,22 @@ type ProjectileRenderConfig struct {
 	NovaFx string `yaml:"nova_fx,omitempty"`
 	// CastOverlay selects a procedural screen-space flourish on a committed
 	// cast. It is visual only and never controls a spell's gameplay duration.
-	CastOverlay string `yaml:"cast_overlay,omitempty"`
+	CastOverlay       string  `yaml:"cast_overlay,omitempty"`
+	CastOverlayWeapon string  `yaml:"cast_overlay_weapon,omitempty"`
+	CastOverlayScale  float64 `yaml:"cast_overlay_scale,omitempty"`
+	// TargetFlights borrows one projectile's presentation for visual-only rays to
+	// the victims of an instant area spell. Damage still resolves at cast time.
+	TargetFlights *SpellTargetFlightsConfig `yaml:"target_flights,omitempty"`
+}
+
+// SpellTargetFlightsConfig authors visual flights without a second damage event.
+type SpellTargetFlightsConfig struct {
+	Projectile      string   `yaml:"projectile"`
+	Palette         [][3]int `yaml:"palette"`
+	ProjectileFx    string   `yaml:"projectile_fx,omitempty"`
+	ReturnToParty   bool     `yaml:"return_to_party,omitempty"`
+	SizeScale       float64  `yaml:"size_scale"`
+	DurationSeconds float64  `yaml:"duration_seconds,omitempty"` // Optional presentation duration, independent of damage.
 }
 
 type TileConfig struct {
@@ -1299,6 +1646,10 @@ type MapConfig struct {
 	// and where the challenged champion spawns when a start_arena_duel dialogue
 	// choice fires. Required on any map whose NPCs offer that action.
 	Duel *MapDuelConfig `yaml:"duel,omitempty"`
+	// WaterBodies classifies every 8-connected body of water tiles (type:
+	// water) in the .map file, one entry per body; the boot fails on an
+	// unlisted body. Lakes and seas get surf on their banks.
+	WaterBodies []MapWaterBody `yaml:"water_bodies,omitempty"`
 }
 
 // MapDuelConfig is the duel staging geometry, in tile coordinates.
@@ -1412,6 +1763,7 @@ func WeaponCooldownMultiplierForSkill(skillNoun string) float64 {
 
 // WeaponDefinitionConfig represents a complete weapon definition with embedded physics and graphics
 type WeaponDefinitionConfig struct {
+	Signature                 *WeaponSignatureConfig  `yaml:"signature,omitempty"`
 	NightBaseDamageMultiplier int                     `yaml:"night_base_damage_multiplier,omitempty"`
 	HitShellAbsorption        int                     `yaml:"hit_shell_absorption,omitempty"`
 	AttackZoneProc            *AttackZoneProcConfig   `yaml:"attack_zone_proc,omitempty"`
@@ -1430,7 +1782,7 @@ type WeaponDefinitionConfig struct {
 	Volley             int     `yaml:"volley,omitempty"` // projectiles loosed per shot in a small fan (default 1)
 	CritChance         int     `yaml:"crit_chance"`
 	StunChance         float64 `yaml:"stun_chance"`
-	StunTurns          int     `yaml:"stun_turns"`
+	StunSeconds        int     `yaml:"stun_seconds"`
 	DisintegrateChance float64 `yaml:"disintegrate_chance,omitempty"`
 	// AoeRadiusTiles, when > 0, makes the weapon's hit splash damage
 	// to every other monster within this radius (in tiles) of the primary
@@ -1453,9 +1805,10 @@ type WeaponDefinitionConfig struct {
 	// Used for legendaries with a bespoke cadence (e.g. Bow of Hellfire = 1.7, slow).
 	// 0 = use the category default.
 	CooldownMultiplier float64 `yaml:"cooldown_multiplier,omitempty"`
-	// SpellCooldownMultiplier, when > 0, scales the cooldown of EVERY spell the
-	// wielder casts while this weapon is in their main hand (e.g. Archmage
-	// Staff = 0.8 -> -20% spell cooldown). 0 = no effect.
+	// SpellCooldownMultiplier, in (0,1), scales the cooldown of every spell the
+	// wielder casts (e.g. Archmage Staff = 0.8 -> -20% spell cooldown); with a
+	// staff in each hand the stronger one counts. Techniques, flasks and traps
+	// ignore it. 0 = no effect.
 	SpellCooldownMultiplier float64 `yaml:"spell_cooldown_multiplier,omitempty"`
 	// ProjectileSchool, when set ("air"/"dark"/...), makes a ranged weapon's
 	// projectile render as a glowing spell-style orb of that school instead of a
@@ -1499,15 +1852,39 @@ type WeaponDefinitionConfig struct {
 	// ExecuteBelowPct: a surviving target left at or under this % of max HP dies
 	// outright - the jaws close (Wyrmcleaver).
 	ExecuteBelowPct int `yaml:"execute_below_pct,omitempty"`
-	// DeathBurst: a target KILLED by this weapon bursts, dealing fire damage to
-	// monsters within the radius (Ember Egg).
-	DeathBurstDamage      int     `yaml:"death_burst_damage,omitempty"`
+	// DeathBurst: a target KILLED by this weapon bursts, dealing this share of
+	// its own max HP as fire damage to monsters within the radius (Ember Egg).
+	DeathBurstMaxHPPct    int     `yaml:"death_burst_max_hp_pct,omitempty"`
 	DeathBurstRadiusTiles float64 `yaml:"death_burst_radius_tiles,omitempty"`
-	// TrueDamage adds a flat component that bypasses armor and dodge, resisted
-	// only by the school (Broodspike).
-	TrueDamage int `yaml:"true_damage,omitempty"`
+	// TrueDamagePct turns this share of every hit's damage into true damage:
+	// it bypasses armor and dodge, resisted only by the school (Broodspike).
+	TrueDamagePct int `yaml:"true_damage_pct,omitempty"`
+
+	// --- Clock Tower riders ---
+	// HourStrike: each hit marks the target; the hit that lands the last of
+	// HourStrikeMarks deals HourStrikeMultiplier and clears them (Minute Hand).
+	HourStrikeMarks      int     `yaml:"hour_strike_marks,omitempty"`
+	HourStrikeMultiplier float64 `yaml:"hour_strike_multiplier,omitempty"`
+	// TollEchoPct: a hit rings again on the same target one round later for
+	// this share of its damage (Chime Maul).
+	TollEchoPct int `yaml:"toll_echo_pct,omitempty"`
+	// FreshTarget: hits on a target at or above FreshTargetMinHPPct of its max
+	// HP deal FreshTargetMultiplier (Mainspring Pike).
+	FreshTargetMinHPPct   int     `yaml:"fresh_target_min_hp_pct,omitempty"`
+	FreshTargetMultiplier float64 `yaml:"fresh_target_multiplier,omitempty"`
+	// JamSeconds: a hit delays the target's next attack by this long; more hits
+	// add nothing until the delayed attack (Cogfang Blade); turn-based takes
+	// it as a share of a turn's attacks.
+	JamSeconds int `yaml:"jam_seconds,omitempty"`
+	// BuffDurationPct: buffs the wielder casts last this much longer
+	// (Escapement Staff).
+	BuffDurationPct int `yaml:"buff_duration_pct,omitempty"`
+	// LegacyNames are former display names, so saved copies refresh to this
+	// weapon instead of turning unknown.
+	LegacyNames []string `yaml:"legacy_names,omitempty"`
 	// Slow drags the target's movement and attack cadence by SlowPct for
-	// SlowSeconds; in turn-based play it skips one turn in slow_skip_every_turns.
+	// SlowSeconds; in turn-based play it skips one turn in the slow status's
+	// skip_every_turns (assets/statuses.yaml).
 	SlowPct     int `yaml:"slow_pct,omitempty"`
 	SlowSeconds int `yaml:"slow_seconds,omitempty"`
 	// Weaken cuts the target's outgoing damage by WeakenPct for WeakenSeconds
@@ -1539,18 +1916,22 @@ type WeaponDefinitionConfig struct {
 }
 
 // DefaultTPS is the simulation tick rate the game SHIPS at: config.yaml sets
-// engine.tps to it, and main.go pins the same value when vsync is off (an
-// unsynced loop free-runs otherwise). It is the fallback here so a config-less
-// path ticks at the shipped rate rather than at a slower legacy one.
+// engine.tps to it. It is the fallback here so a config-less path ticks at the
+// shipped rate, and the rate a save without a recorded tick rate was written at.
 //
-// EVERY frame count in this codebase is a duration only at this rate: 60 frames
-// is half a second here, not one. Author durations in seconds and convert with
-// GetTPS (MMGame.framesForSeconds does exactly that); where a raw frame constant
-// remains, its comment states what it lasts at this rate.
+// A frame count is a duration only at one rate: 60 frames is half a second
+// here, not one. Author durations in seconds and convert with GetTPS
+// (MMGame.framesForSeconds does exactly that).
 const DefaultTPS = 120
 
-const RegenerationIntervalFrames = 600
-const RegenerationRounds = 3
+// Regeneration ticks every RegenerationSeconds in real time and every
+// RegenerationRounds in turn-based play. Timer exception: an authored RT/TB
+// pair, not the 1 round = 3 s conversion; Meditation and Personality regen
+// ride this period.
+const (
+	RegenerationSeconds = 5
+	RegenerationRounds  = 3
+)
 
 func (c *Config) GetTPS() int {
 	if c != nil && c.Engine.TPS > 0 {
@@ -1559,11 +1940,40 @@ func (c *Config) GetTPS() int {
 	return DefaultTPS
 }
 
-func GetTargetTPS() int {
-	if GlobalConfig != nil {
-		return GlobalConfig.GetTPS()
+// DefaultTurnStepSpeed backs GetTurnStepSpeed when no config is loaded.
+const DefaultTurnStepSpeed = 2.0
+
+// GetTurnStepSpeed is the monster speed worth one tile per turn-based movement
+// action. A monster's turn-based steps per action are its speed divided by
+// this (monster.TurnBasedStepRate), so slower monsters take one step and
+// faster ones accumulate extra steps.
+func (c *Config) GetTurnStepSpeed() float64 {
+	if c != nil && c.MonsterAI.TurnStepSpeed > 0 {
+		return c.MonsterAI.TurnStepSpeed
 	}
-	return DefaultTPS
+	return DefaultTurnStepSpeed
+}
+
+// GetTargetTPS is the loaded config's tick rate, or DefaultTPS before one is
+// loaded; never zero. Code without a config at hand reads the rate here.
+func GetTargetTPS() int {
+	return GlobalConfig.GetTPS()
+}
+
+// SP regenerates slower while the party fights: every CombatSPRegenSeconds in
+// real time and every CombatSPRegenRounds in turn-based, instead of the
+// RegenerationSeconds / RegenerationRounds cadence every other regen keeps.
+// Both real-time intervals are seconds, so the fight stays slower at any TPS.
+// Timer exception: an authored RT/TB pair, not the 1 round = 3 s conversion.
+const (
+	CombatSPRegenSeconds = 9
+	CombatSPRegenRounds  = 4
+)
+
+// RegenerationIntervalSeconds is RegenerationSeconds for the tooltips' float
+// formats.
+func RegenerationIntervalSeconds() float64 {
+	return RegenerationSeconds
 }
 
 var GlobalConfig *Config
@@ -1659,6 +2069,7 @@ func LoadConfig(filename string) (*Config, error) {
 	config.Camping = DefaultCampingConfig()
 	config.Graphics.Monster.Death = DefaultMonsterDeathRenderConfig()
 	config.Graphics.Monster.WalkFrameSeconds = DefaultMonsterWalkFrameSeconds
+	config.Graphics.View.TurnStepSeconds = DefaultTurnStepSeconds
 	// Defaults applied before unmarshal so an absent key keeps the default while a
 	// present key overrides it (bool can't otherwise distinguish unset from false).
 	config.Graphics.TreesAsBillboards = true // crossed-standee trees on by default
@@ -1672,11 +2083,29 @@ func LoadConfig(filename string) (*Config, error) {
 		LifetimeSeconds:         7,
 		MaxActive:               96,
 	}
-	err = yaml.Unmarshal(data, &config)
+	err = strictyaml.Decode(data, &config)
 	if err != nil {
 		return nil, err
 	}
+	if config.AutocastIntervalRounds <= 0 {
+		return nil, fmt.Errorf("autocast_interval_rounds must be positive")
+	}
 	if err := config.MonsterAI.Pursuit.validate(); err != nil {
+		return nil, err
+	}
+	if err := config.MonsterAI.PhaseShift.validate(); err != nil {
+		return nil, err
+	}
+	if config.MonsterAI.TurnStepSpeed <= 0 {
+		return nil, fmt.Errorf("monster_ai.turn_step_speed must be positive")
+	}
+	if f := config.MonsterAI.AttackEnterRangeFraction; !(f > 0 && f <= 1) {
+		return nil, fmt.Errorf("monster_ai.attack_enter_range_fraction must be in (0,1]")
+	}
+	if !(config.UI.InputStaggerSeconds > 0) || !(config.UI.DamageBlinkSeconds > 0) {
+		return nil, fmt.Errorf("ui.input_stagger_seconds and ui.damage_blink_seconds must be positive")
+	}
+	if err := config.MonsterAI.validateRequired(); err != nil {
 		return nil, err
 	}
 	if err := config.UI.TurnBasedMouseHold.validate(); err != nil {
@@ -1691,7 +2120,10 @@ func LoadConfig(filename string) (*Config, error) {
 	if err := config.StatusEffects.validate(); err != nil {
 		return nil, err
 	}
-	if err := config.StatusDamage.validate(); err != nil {
+	if err := config.StoryScreen.validate(config.Camping, config.GetTPS()); err != nil {
+		return nil, err
+	}
+	if err := config.Watcher.validate(); err != nil {
 		return nil, err
 	}
 	for _, pack := range config.DayNight.Packs {
@@ -1713,14 +2145,20 @@ func LoadConfig(filename string) (*Config, error) {
 		if err := validateDescription("characters.races."+key, race.Description, false); err != nil {
 			return nil, err
 		}
+		if !validCardRarity(race.CardRarity) {
+			return nil, fmt.Errorf("characters.races.%s.card_rarity: unknown rarity %q", key, race.CardRarity)
+		}
+		if s := race.Replaces; s != nil {
+			if _, ok := config.Characters.Classes[s.Class]; !ok || s.Skill == "" || s.With == "" {
+				return nil, fmt.Errorf("characters.races.%s.replaces needs a known class, skill and with", key)
+			}
+		}
 	}
 	for key, class := range config.Characters.Classes {
 		if err := validateClassProgression(key, class); err != nil {
 			return nil, err
 		}
-		switch class.CardRarity {
-		case "", "common", "uncommon", "rare", "legendary":
-		default:
+		if !validCardRarity(class.CardRarity) {
 			return nil, fmt.Errorf("characters.classes.%s.card_rarity: unknown rarity %q", key, class.CardRarity)
 		}
 		if err := validateDescription("characters.classes."+key, class.Description, true); err != nil {
@@ -1736,7 +2174,46 @@ func LoadConfig(filename string) (*Config, error) {
 	if config.Graphics.RemovedTreeStandeeLOD != nil {
 		return nil, fmt.Errorf("graphics.tree_standee_lod_tiles is removed - natural crosses retain both planes; use graphics.standee.crossed_standee_layers for interior budgets")
 	}
+	held := config.Graphics.RangedHeld
+	if !(held.ModelScale > 0 && held.ModelScale <= 1) {
+		return nil, fmt.Errorf("graphics.ranged_held.model_scale must be in (0, 1]")
+	}
+	if math.IsNaN(held.MaxDurationSeconds) || math.IsInf(held.MaxDurationSeconds, 0) || held.MaxDurationSeconds <= 0 {
+		return nil, fmt.Errorf("graphics.ranged_held.max_duration_seconds must be finite and positive")
+	}
+	if !(held.CooldownFraction > 0 && held.CooldownFraction <= 1) {
+		return nil, fmt.Errorf("graphics.ranged_held.cooldown_fraction must be in (0, 1]")
+	}
+	if n := config.Engine.ParallelMonsterMinimum; n < 1 || n > 100000 {
+		return nil, fmt.Errorf("engine.parallel_monster_minimum must be in [1, 100000], got %d", n)
+	}
+	if lead := config.Graphics.Streaming.PrefetchLeadTiles; !(lead >= 0 && lead <= 200) {
+		return nil, fmt.Errorf("graphics.streaming.prefetch_lead_tiles must be in [0, 200], got %g", lead)
+	}
+	if steps := config.Graphics.Streaming.BackgroundStepsPerTick; steps < 1 || steps > 32 {
+		return nil, fmt.Errorf("graphics.streaming.background_steps_per_tick must be in [1, 32], got %d", steps)
+	}
+	if n := config.Graphics.Streaming.ReleaseImagesPerTick; n < 1 || n > 4096 {
+		return nil, fmt.Errorf("graphics.streaming.release_images_per_tick must be in [1, 4096], got %d", n)
+	}
+	screen := config.Graphics.Streaming.LoadingScreen
+	for _, limit := range []struct {
+		key           string
+		got, min, max int
+	}{
+		{"workers", screen.Workers, 0, 64},
+		{"queue_megabytes", screen.QueueMegabytes, 32, 4096},
+		{"upload_megabytes_per_frame", screen.UploadMegabytesPerFrame, 8, 1024},
+		{"upload_images_per_frame", screen.UploadImagesPerFrame, 32, 8192},
+	} {
+		if limit.got < limit.min || limit.got > limit.max {
+			return nil, fmt.Errorf("graphics.streaming.loading_screen.%s must be in [%d, %d], got %d", limit.key, limit.min, limit.max, limit.got)
+		}
+	}
 	v := config.Graphics.View
+	if !(v.TurnStepSeconds >= 0 && v.TurnStepSeconds <= 2) {
+		return nil, fmt.Errorf("graphics.view.turn_step_seconds must be in [0, 2], got %g", v.TurnStepSeconds)
+	}
 	if !(v.WidePaniniDistance >= 0 && v.WidePaniniDistance <= 1) {
 		return nil, fmt.Errorf("graphics.view.wide_panini_distance must be in [0, 1], got %g", v.WidePaniniDistance)
 	}
@@ -1817,6 +2294,9 @@ func LoadConfig(filename string) (*Config, error) {
 	if err := config.Characters.AutoDrink.Validate(); err != nil {
 		return nil, err
 	}
+	if err := config.AdventureScaling.Validate(); err != nil {
+		return nil, err
+	}
 	GlobalConfig = &config
 
 	return &config, nil
@@ -1839,7 +2319,7 @@ func LoadSpellConfig(filename string) (*SpellSystemConfig, error) {
 	}
 
 	var spellConfig SpellSystemConfig
-	err = yaml.Unmarshal(data, &spellConfig)
+	err = strictyaml.Decode(data, &spellConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -1894,8 +2374,87 @@ func canonicalDamageIntMap(values map[string]int) (map[string]int, error) {
 
 // validateSpellAuthoring fails fast on malformed spell authoring: invalid stat
 // buff shapes or unknown typed-buff filters.
+// validateSpellGraphics checks presentation fields that gameplay depends on:
+// ally cursors, overlay scale and target flights.
+func validateSpellGraphics(def *SpellDefinitionConfig, all map[string]*SpellDefinitionConfig) error {
+	if def.Mechanic.TargetsAlly() && (def.Graphics == nil || def.Graphics.TargetCursor == "") {
+		return fmt.Errorf("ally-targeted mechanic requires graphics.target_cursor")
+	}
+	g := def.Graphics
+	if g == nil {
+		return nil
+	}
+	if g.TargetCursor != "" && !def.Mechanic.TargetsAlly() {
+		return fmt.Errorf("target_cursor requires an ally-targeted mechanic")
+	}
+	if scale := g.CastOverlayScale; scale < 0 || math.IsNaN(scale) || math.IsInf(scale, 0) || scale > 0 && g.CastOverlay == "" {
+		return fmt.Errorf("cast_overlay_scale needs a cast overlay and a finite positive value")
+	}
+	rays := g.TargetFlights
+	if rays == nil {
+		return nil
+	}
+	if rays.DurationSeconds < 0 || math.IsNaN(rays.DurationSeconds) || math.IsInf(rays.DurationSeconds, 0) {
+		return fmt.Errorf("target_flights.duration_seconds must be finite and nonnegative")
+	}
+	if rays.SizeScale <= 0 || math.IsNaN(rays.SizeScale) || math.IsInf(rays.SizeScale, 0) {
+		return fmt.Errorf("target_flights.size_scale must be finite and positive")
+	}
+	if def.Mechanic == nil || (def.Mechanic.Kind != MechanicPrismaticLight && def.Mechanic.Kind != MechanicSouldrinker) {
+		return fmt.Errorf("target_flights requires an instant area damage mechanic")
+	}
+	source := all[rays.Projectile]
+	if source == nil || !source.IsProjectile || source.Physics == nil || source.Physics.SpeedTiles <= 0 || source.Graphics == nil {
+		return fmt.Errorf("target_flights.projectile must name a rendered moving projectile")
+	}
+	if math.IsNaN(source.Physics.SpeedTiles) || math.IsInf(source.Physics.SpeedTiles, 0) {
+		return fmt.Errorf("target_flights source speed must be finite")
+	}
+	if len(rays.Palette) == 0 {
+		return fmt.Errorf("target_flights.palette must not be empty")
+	}
+	for _, rgb := range rays.Palette {
+		for _, channel := range rgb {
+			if channel < 0 || channel > 255 {
+				return fmt.Errorf("target_flights.palette channels must be in 0..255")
+			}
+		}
+	}
+	return nil
+}
+
+// validateSpellDamageRule checks that at most one damage rule is authored and
+// that a borrowed formula names an independent damaging projectile.
+func validateSpellDamageRule(def *SpellDefinitionConfig, all map[string]*SpellDefinitionConfig) error {
+	if def.DamageBase < 0 || def.DamageDivisor < 0 || (def.DamageDivisor > 0) != (def.DamageSource != "") {
+		return fmt.Errorf("invalid damage base or source/divisor pair")
+	}
+	if def.DamageBase > 0 && (len(def.DamageByMastery) > 0 || def.DamageSource != "" || def.DealsNoDamage) {
+		return fmt.Errorf("damage_base conflicts with another damage rule")
+	}
+	if def.DamageSource != "" {
+		source := all[def.DamageSource]
+		if source == nil || source.DamageSource != "" || source.DealsNoDamage || !source.IsProjectile || len(source.DamageByMastery) > 0 || len(def.DamageByMastery) > 0 || def.DealsNoDamage {
+			return fmt.Errorf("damage_source must name an independent damaging projectile formula")
+		}
+	}
+	return nil
+}
+
 func validateSpellAuthoring(cfg *SpellSystemConfig) error {
 	for id, def := range cfg.Spells {
+		if err := validateSpellDuration(def); err != nil {
+			return fmt.Errorf("spell %q: %w", id, err)
+		}
+		if err := validateSpellGraphics(def, cfg.Spells); err != nil {
+			return fmt.Errorf("spell %q: %w", id, err)
+		}
+		if err := validateSpellDamageRule(def, cfg.Spells); err != nil {
+			return fmt.Errorf("spell %q: %w", id, err)
+		}
+		if err := validateSpellMechanic(def); err != nil {
+			return fmt.Errorf("spell '%s': %w", id, err)
+		}
 		if def.Physics != nil {
 			if err := def.Physics.validate(); err != nil {
 				return fmt.Errorf("spell '%s': %w", id, err)
@@ -1904,7 +2463,7 @@ func validateSpellAuthoring(cfg *SpellSystemConfig) error {
 		if def.Fly && !def.TerrainPassage {
 			return fmt.Errorf("spell '%s': fly requires terrain_passage", id)
 		}
-		if def.TerrainPassage && (!def.IsUtility || def.Duration <= 0) {
+		if def.TerrainPassage && (!def.IsUtility || len(def.DurationByMastery) == 0) {
 			return fmt.Errorf("spell '%s': terrain_passage requires a timed utility spell", id)
 		}
 		if def.School != "" {
@@ -1973,19 +2532,42 @@ func validateSpellAuthoring(cfg *SpellSystemConfig) error {
 			return fmt.Errorf("spell '%s': standee_destroy_chance must be in [0,1]", id)
 		}
 		hasStunEffect := def.StunChance > 0 || def.StunRadiusTiles > 0
-		if hasStunEffect && (def.StunDurationSeconds <= 0 || def.StunDurationTurns <= 0) {
-			return fmt.Errorf("spell '%s': stun effect requires positive stun_duration_seconds and stun_duration_turns", id)
+		if hasStunEffect && def.StunDurationSeconds <= 0 {
+			return fmt.Errorf("spell '%s': stun effect requires positive stun_duration_seconds", id)
 		}
-		if !hasStunEffect && (def.StunDurationSeconds != 0 || def.StunDurationTurns != 0) {
-			return fmt.Errorf("spell '%s': stun durations require stun_chance or stun_radius_tiles", id)
+		if !hasStunEffect && def.StunDurationSeconds != 0 {
+			return fmt.Errorf("spell '%s': stun_duration_seconds requires stun_chance or stun_radius_tiles", id)
 		}
-		isBuff := strings.EqualFold(strings.TrimSpace(def.Category), "buff")
+		if def.ReuseSeconds < 0 {
+			return fmt.Errorf("spell '%s': reuse_seconds cannot be negative", id)
+		}
+		category := strings.ToLower(strings.TrimSpace(def.Category))
+		switch category {
+		case "", SpellCategoryBuff, SpellCategoryCombatBuff:
+		default:
+			return fmt.Errorf("spell '%s': unsupported category %q", id, def.Category)
+		}
+		isBuff := category != ""
+		// Check the authored flag, never infer or fill it in at runtime.
+		if m := def.Mechanic; m != nil && isBuff != (m.IsPartyBuff() || m.TargetsAlly()) {
+			return fmt.Errorf("spell '%s': mechanic %q requires category buff or combat_buff exactly for personal/party enchantments", id, m.Kind)
+		}
+		if def.Mechanic == nil && isBuff != def.HasTimedUtilityEffect() {
+			return fmt.Errorf("spell '%s': a timed utility effect requires category buff or combat_buff, and a buff requires one", id)
+		}
+		if isBuff && !def.IsUtility {
+			return fmt.Errorf("spell '%s': a buff must be a utility spell", id)
+		}
+		if def.GrantsStatBuff() && def.GrantsCombatBuff() {
+			// One cast grants one party buff: a stat block or a combat buff.
+			return fmt.Errorf("spell '%s': a party buff grants stat bonuses or a combat buff (resist, damage), not both", id)
+		}
 		switch {
-		case isBuff && def.CooldownSeconds != 0:
+		case category == SpellCategoryBuff && def.CooldownSeconds != 0:
 			// Buffs return a zero RT cooldown before this field is read, so an
 			// authored value would silently do nothing.
-			return fmt.Errorf("spell '%s': category buff must not author cooldown_seconds (buffs have no real-time cooldown)", id)
-		case !isBuff && def.CooldownSeconds <= 0:
+			return fmt.Errorf("spell '%s': buff must not author cooldown_seconds (use combat_buff to keep a real-time recovery)", id)
+		case category != SpellCategoryBuff && def.CooldownSeconds <= 0:
 			return fmt.Errorf("spell '%s': cooldown_seconds is required and must be > 0", id)
 		}
 		if def.MasteryDamagePerTier < 0 {
@@ -1994,21 +2576,12 @@ func validateSpellAuthoring(cfg *SpellSystemConfig) error {
 		if def.MasteryDamagePerTier > 0 && !def.MapWide && def.PartyAoeRadiusTiles <= 0 {
 			return fmt.Errorf("spell '%s': mastery_damage_per_tier requires map_wide or party_aoe_radius_tiles", id)
 		}
-		switch strings.ToLower(strings.TrimSpace(def.Category)) {
-		case "":
-		case "buff":
-			if !def.IsUtility || def.Duration <= 0 {
-				return fmt.Errorf("spell '%s': category %q requires a timed utility spell", id, def.Category)
-			}
-		default:
-			return fmt.Errorf("spell '%s': unsupported category %q", id, def.Category)
-		}
 		if len(def.StatBonuses) > 0 {
 			if def.StatBonus != 0 || def.StatBonusGrandmaster != 0 {
 				return fmt.Errorf("spell '%s': stat_bonus/stat_bonus_grandmaster and stat_bonuses are mutually exclusive", id)
 			}
 			for key := range def.StatBonuses {
-				if !IsStatName(key) {
+				if !stats.IsName(key) {
 					return fmt.Errorf("spell '%s': unknown stat %q in stat_bonuses", id, key)
 				}
 			}
@@ -2044,7 +2617,7 @@ func LoadWeaponConfig(filename string) (*WeaponSystemConfig, error) {
 	}
 
 	var weaponConfig WeaponSystemConfig
-	err = yaml.Unmarshal(data, &weaponConfig)
+	err = strictyaml.Decode(data, &weaponConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -2058,12 +2631,20 @@ func LoadWeaponConfig(filename string) (*WeaponSystemConfig, error) {
 	// Pre-compute display-name index so GetWeaponDefinitionByName is O(1).
 	weaponDefsByName := make(map[string]*WeaponDefinitionConfig, len(weaponConfig.Weapons))
 	weaponKeysByName := make(map[string]string, len(weaponConfig.Weapons))
+	renamed := make([]Renamed, 0, len(weaponConfig.Weapons))
 	for key, def := range weaponConfig.Weapons {
-		if prev, dup := weaponKeysByName[def.Name]; dup {
-			return nil, fmt.Errorf("weapons %q and %q share display name %q - display names must be unique", prev, key, def.Name)
-		}
+		renamed = append(renamed, Renamed{Key: key, Name: def.Name, LegacyNames: def.LegacyNames})
 		weaponDefsByName[def.Name] = def
 		weaponKeysByName[def.Name] = key
+	}
+	// Former names resolve to the same weapon so saved copies refresh to it.
+	legacyNames, err := ValidateRenames("weapon", renamed, true)
+	if err != nil {
+		return nil, err
+	}
+	for name, key := range legacyNames {
+		weaponDefsByName[name] = weaponConfig.Weapons[key]
+		weaponKeysByName[name] = key
 	}
 
 	// Publish the catalog and its indexes together only after all validation
@@ -2081,20 +2662,12 @@ var (
 	weaponKeyByName map[string]string
 )
 
-// StatNames is THE canonical, ordered list of the seven character stats
-// (lowercase - the YAML key convention), DERIVED from the StatBonuses struct
-// in internal/stats. Adding a stat = adding one struct field there.
-var StatNames = stats.Names
-
-// IsStatName reports whether s is a canonical lowercase stat name.
-func IsStatName(s string) bool { return stats.IsName(s) }
-
 // validWeaponBonusStats: weapons.yaml authors Title-case stat names
 // ("Might"); derived from the canonical list at init.
 var validWeaponBonusStats = func() map[string]bool {
-	m := make(map[string]bool, len(StatNames))
-	for _, n := range StatNames {
-		m[strings.ToUpper(n[:1])+n[1:]] = true
+	m := make(map[string]bool, len(stats.Names))
+	for _, n := range stats.Names {
+		m[stats.Title(n)] = true
 	}
 	return m
 }()
@@ -2124,6 +2697,9 @@ func validateWeaponConfig(cfg *WeaponSystemConfig) error {
 		if err := def.ElementalAbility.validate(def); err != nil {
 			return fmt.Errorf("weapon %q: %w", key, err)
 		}
+		if err := def.Signature.validate(def); err != nil {
+			return fmt.Errorf("weapon %q: %w", key, err)
+		}
 		if err := def.validateReactiveEffects(); err != nil {
 			return fmt.Errorf("weapon %q: %w", key, err)
 		}
@@ -2143,6 +2719,15 @@ func validateWeaponConfig(cfg *WeaponSystemConfig) error {
 		if def.BonusStatSecondary != "" && !validWeaponBonusStats[def.BonusStatSecondary] {
 			return fmt.Errorf("weapon '%s' has unknown bonus_stat_secondary %q", key, def.BonusStatSecondary)
 		}
+		if err := validateChanceDuration(key, "stun", def.StunChance, def.StunSeconds); err != nil {
+			return err
+		}
+		if err := validateChanceDuration(key, "root", def.RootChance, def.RootSeconds); err != nil {
+			return err
+		}
+		if err := validatePercentDuration(key, "armor_shred", def.ArmorShredPct, def.ArmorShredSeconds); err != nil {
+			return err
+		}
 		if err := validateChanceDuration(key, "ignite", def.IgniteChance, def.IgniteSeconds); err != nil {
 			return err
 		}
@@ -2158,16 +2743,37 @@ func validateWeaponConfig(cfg *WeaponSystemConfig) error {
 		if def.ExecuteBelowPct < 0 || def.ExecuteBelowPct > 100 {
 			return fmt.Errorf("weapon '%s': execute_below_pct must be in [0,100]", key)
 		}
-		if def.DeathBurstDamage < 0 || def.DeathBurstRadiusTiles < 0 ||
-			(def.DeathBurstDamage == 0) != (def.DeathBurstRadiusTiles == 0) {
-			return fmt.Errorf("weapon '%s': death_burst_damage and death_burst_radius_tiles must both be positive or both be zero", key)
+		if def.DeathBurstMaxHPPct < 0 || def.DeathBurstMaxHPPct > 100 || def.DeathBurstRadiusTiles < 0 ||
+			(def.DeathBurstMaxHPPct == 0) != (def.DeathBurstRadiusTiles == 0) {
+			return fmt.Errorf("weapon '%s': death_burst_max_hp_pct (1..100) and death_burst_radius_tiles must both be positive or both be zero", key)
 		}
-		if def.TrueDamage < 0 {
-			return fmt.Errorf("weapon '%s': true_damage must not be negative", key)
+		if def.TrueDamagePct < 0 || def.TrueDamagePct > 100 {
+			return fmt.Errorf("weapon '%s': true_damage_pct must be in [0,100]", key)
+		}
+		if def.TrueDamagePct > 0 && def.HasSignature(SignatureReturning) {
+			return fmt.Errorf("weapon '%s': true_damage_pct cannot ride a returning weapon - the return leg carries no weapon effects", key)
+		}
+		if def.HourStrikeMarks < 0 || def.HourStrikeMarks == 1 || (def.HourStrikeMarks > 0) != (def.HourStrikeMultiplier != 0) || def.HourStrikeMultiplier != 0 && def.HourStrikeMultiplier <= 1 {
+			return fmt.Errorf("weapon '%s': hour_strike_marks (2+) and hour_strike_multiplier (>1) must be authored together", key)
+		}
+		if def.TollEchoPct < 0 || def.TollEchoPct > 100 {
+			return fmt.Errorf("weapon '%s': toll_echo_pct must be in [0,100]", key)
+		}
+		if def.FreshTargetMinHPPct < 0 || def.FreshTargetMinHPPct > 100 || (def.FreshTargetMinHPPct > 0) != (def.FreshTargetMultiplier != 0) || def.FreshTargetMultiplier != 0 && def.FreshTargetMultiplier <= 1 {
+			return fmt.Errorf("weapon '%s': fresh_target_min_hp_pct (1..100) and fresh_target_multiplier (>1) must be authored together", key)
+		}
+		if def.JamSeconds < 0 || def.JamSeconds > 0 && (def.JamSeconds >= CombatRoundSeconds || CombatRoundSeconds%def.JamSeconds != 0) {
+			return fmt.Errorf("weapon '%s': jam_seconds must divide the %d s round and be shorter than it", key, CombatRoundSeconds)
+		}
+		if def.BuffDurationPct < 0 {
+			return fmt.Errorf("weapon '%s': buff_duration_pct must not be negative", key)
 		}
 		if def.RicochetTargets < 0 || def.RicochetRangeTiles < 0 ||
 			(def.RicochetTargets == 0) != (def.RicochetRangeTiles == 0) {
 			return fmt.Errorf("weapon '%s': ricochet_targets and ricochet_range_tiles must both be positive or both be zero", key)
+		}
+		if def.SpellCooldownMultiplier < 0 || def.SpellCooldownMultiplier >= 1 {
+			return fmt.Errorf("weapon '%s': spell_cooldown_multiplier must be in (0,1); 0 = none", key)
 		}
 		if def.SpellEchoPct < 0 || def.SpellEchoPct > 100 {
 			return fmt.Errorf("weapon '%s': spell_echo_pct must be in [0,100]", key)
@@ -2186,6 +2792,11 @@ func validateWeaponConfig(cfg *WeaponSystemConfig) error {
 			if math.IsNaN(lift) || math.IsInf(lift, 0) || lift < 0 || lift > .5 || (def.IsRanged() && lift != 0) {
 				return fmt.Errorf("weapon '%s': slash_lift_ratio must be finite in [0,0.5] and melee-only", key)
 			}
+		}
+		// A Solar Flare staff, and only one, scales its impact flame.
+		if flame := def.Graphics != nil && def.Graphics.ImpactFlameScale != 0; flame != def.HasSignature(SignatureSolarFlare) ||
+			flame && !positive(def.Graphics.ImpactFlameScale) {
+			return fmt.Errorf("weapon '%s': impact_flame_scale is exactly for a solar flare, with a positive finite scale", key)
 		}
 		if def.IsRanged() {
 			if def.Physics == nil {
@@ -2269,6 +2880,9 @@ func validateChanceDuration(weaponKey, effect string, chance float64, seconds in
 	if seconds < 0 || (chance == 0) != (seconds == 0) {
 		return fmt.Errorf("weapon '%s': %s_chance and %s_seconds must both be positive or both be zero", weaponKey, effect, effect)
 	}
+	if seconds > 0 {
+		return ValidateEffectSeconds(fmt.Sprintf("weapon '%s': %s_seconds", weaponKey, effect), seconds)
+	}
 	return nil
 }
 
@@ -2279,7 +2893,14 @@ func validatePercentDuration(weaponKey, effect string, pct, seconds int) error {
 	if seconds < 0 || (pct == 0) != (seconds == 0) {
 		return fmt.Errorf("weapon '%s': %s_pct and %s_seconds must both be positive or both be zero", weaponKey, effect, effect)
 	}
-	return nil
+	what := fmt.Sprintf("weapon '%s': %s_seconds", weaponKey, effect)
+	switch {
+	case seconds == 0:
+		return nil
+	case effect == "slow":
+		return ValidateSlowSeconds(what, seconds)
+	}
+	return ValidateEffectSeconds(what, seconds)
 }
 
 // RangedWeaponMinRangeTiles is the reach from which a weapon shoots
@@ -2355,6 +2976,22 @@ type ItemSystemConfig struct {
 	Sets map[string]*ItemSetConfig `yaml:"item_sets,omitempty"`
 }
 
+// ItemStatBonuses is the authored bonus_<stat> block of an item or a set: the
+// fields of stats.StatBonuses under their item keys, so Stats() is a plain
+// conversion the compiler keeps in step with the canonical list.
+type ItemStatBonuses struct {
+	Might       int `yaml:"bonus_might,omitempty"`
+	Intellect   int `yaml:"bonus_intellect,omitempty"`
+	Personality int `yaml:"bonus_personality,omitempty"`
+	Endurance   int `yaml:"bonus_endurance,omitempty"`
+	Accuracy    int `yaml:"bonus_accuracy,omitempty"`
+	Speed       int `yaml:"bonus_speed,omitempty"`
+	Luck        int `yaml:"bonus_luck,omitempty"`
+}
+
+// Stats reads the block as the one stat value.
+func (b ItemStatBonuses) Stats() stats.StatBonuses { return stats.StatBonuses(b) }
+
 // ItemSetConfig is one equipment set. A count-based set activates once
 // PiecesRequired equipped pieces carry its set key. RequiredPieces, when set,
 // names the exact YAML keys needed for a mixed weapon-and-armor set.
@@ -2365,21 +3002,29 @@ type ItemSetConfig struct {
 	RequiredPieces  []string `yaml:"required_pieces,omitempty"`
 	// StunDurationPct shifts stun durations suffered by the wearer (e.g. -50
 	// halves them - the padded set's quilting).
-	StunDurationPct  int `yaml:"stun_duration_pct,omitempty"`
-	BonusMight       int `yaml:"bonus_might,omitempty"`
-	BonusIntellect   int `yaml:"bonus_intellect,omitempty"`
-	BonusPersonality int `yaml:"bonus_personality,omitempty"`
-	BonusEndurance   int `yaml:"bonus_endurance,omitempty"`
-	BonusAccuracy    int `yaml:"bonus_accuracy,omitempty"`
-	BonusSpeed       int `yaml:"bonus_speed,omitempty"`
-	BonusLuck        int `yaml:"bonus_luck,omitempty"`
+	StunDurationPct int             `yaml:"stun_duration_pct,omitempty"`
+	StatBonus       ItemStatBonuses `yaml:",inline"`
 	// BonusCritChance adds flat percentage points to every critical-hit roll:
 	// weapon attacks and damage spells alike.
 	BonusCritChance int `yaml:"bonus_crit_chance,omitempty"`
 	// FieryRipostePct: melee attackers take this share of the damage they deal
 	// the wearer back as FIRE (the Drakeforged pair answering in kind).
 	FieryRipostePct int `yaml:"fiery_riposte_pct,omitempty"`
+	// FightOpenerActions: when a fight starts the wearer acts first - in
+	// real time the first attack has no recovery, in turn-based this many
+	// extra actions (Cogleather).
+	FightOpenerActions int `yaml:"fight_opener_actions,omitempty"`
+	// HealFollowUpSpell: in a fight, one round after the wearer heals, a
+	// random offensive spell the wearer knows is cast for free (Chainwork).
+	HealFollowUpSpell bool `yaml:"heal_follow_up_spell,omitempty"`
+	// StationaryDamageReductionPct: while the party has not moved this round
+	// the wearer takes this much less damage from enemy hits (Clockplate).
+	StationaryDamageReductionPct int `yaml:"stationary_damage_reduction_pct,omitempty"`
 }
+
+// MaxStationaryDamageReductionPct caps hold-your-ground reductions, one set
+// or several together, below a full block.
+const MaxStationaryDamageReductionPct = 90
 
 // RequiredPieceCount is the player-facing size of a set. Exact-piece sets
 // derive it from their explicit list so their authored contract stays truthful.
@@ -2402,6 +3047,8 @@ func GetItemSet(key string) *ItemSetConfig {
 }
 
 type ItemDefinitionConfig struct {
+	// Key is the entry's items.yaml key, stamped at load.
+	Key                string           `yaml:"-"`
 	UseAction          string           `yaml:"use_action,omitempty"`
 	UseSpell           string           `yaml:"use_spell,omitempty"`
 	UseJumpExtraTiles  int              `yaml:"use_jump_extra_tiles,omitempty"`
@@ -2414,7 +3061,9 @@ type ItemDefinitionConfig struct {
 	Flask              *FlaskDefinition `yaml:"flask,omitempty"`
 	AllowedClasses     []string         `yaml:"allowed_classes,omitempty"`
 	Name               string           `yaml:"name"`
-	Type               string           `yaml:"type"` // armor|accessory|consumable|quest|trinket|card|device
+	LegacyNames        []string         `yaml:"legacy_names,omitempty"`
+	LegacyKeys         []string         `yaml:"legacy_keys,omitempty"` // former keys, for saves that stored the key
+	Type               string           `yaml:"type"`                  // armor|accessory|consumable|quest|trinket|card|device
 	ArmorType          string           `yaml:"armor_category,omitempty"`
 	Description        string           `yaml:"description"`      // Gameplay-neutral summary (optional)
 	Flavor             string           `yaml:"flavor,omitempty"` // Short artistic line for tooltip
@@ -2433,17 +3082,15 @@ type ItemDefinitionConfig struct {
 	Discardable   bool   `yaml:"discardable,omitempty"`   // quest item the player may still throw away
 	Set           string `yaml:"set,omitempty"`           // armor-set key (item_sets) this piece belongs to
 	// Optional numeric stats to un-hardcode item effects
-	ArmorClassBase            int `yaml:"armor_class_base,omitempty"`
-	EnduranceScalingDivisor   int `yaml:"endurance_scaling_divisor,omitempty"`
-	IntellectScalingDivisor   int `yaml:"intellect_scaling_divisor,omitempty"`
-	PersonalityScalingDivisor int `yaml:"personality_scaling_divisor,omitempty"`
-	BonusMight                int `yaml:"bonus_might,omitempty"`
-	BonusIntellect            int `yaml:"bonus_intellect,omitempty"`
-	BonusPersonality          int `yaml:"bonus_personality,omitempty"`
-	BonusEndurance            int `yaml:"bonus_endurance,omitempty"`
-	BonusAccuracy             int `yaml:"bonus_accuracy,omitempty"`
-	BonusSpeed                int `yaml:"bonus_speed,omitempty"`
-	BonusLuck                 int `yaml:"bonus_luck,omitempty"`
+	ArmorClassBase            int             `yaml:"armor_class_base,omitempty"`
+	EnduranceScalingDivisor   int             `yaml:"endurance_scaling_divisor,omitempty"`
+	IntellectScalingDivisor   int             `yaml:"intellect_scaling_divisor,omitempty"`
+	PersonalityScalingDivisor int             `yaml:"personality_scaling_divisor,omitempty"`
+	StatBonus                 ItemStatBonuses `yaml:",inline"`
+	// RewindCooldownSeconds: in a fight the wearer's HP returns to what it was
+	// a round ago when that was higher, at most once per this many seconds
+	// (whole rounds; Chrono Cape).
+	RewindCooldownSeconds int `yaml:"rewind_cooldown_seconds,omitempty"`
 	// Per-school % damage resistance the wearer gains (e.g. {fire: 100}); physical stacks after armor.
 	Resistances map[string]int `yaml:"resistances,omitempty"`
 	// Monster-card collection effects (type: "card"). The same fields drive both
@@ -2498,9 +3145,24 @@ type ItemDefinitionConfig struct {
 	// Duplicate cards use the largest movement-burst radius, not its sum.
 	CardMoveAoeRadiusTiles float64 `yaml:"card_move_aoe_radius_tiles,omitempty"`
 
+	// Card rules: duplicates never stack; the strongest copy's whole rule
+	// applies (cardRules lists each rule by its strength field).
+	CardWildfireHPPct       int     `yaml:"card_wildfire_hp_pct,omitempty"`       // a burning enemy's death bursts for N% of its max HP as fire
+	CardWildfireRadiusTiles float64 `yaml:"card_wildfire_radius_tiles,omitempty"` // burst reach
+	CardWildfireBurnSeconds int     `yaml:"card_wildfire_burn_seconds,omitempty"` // burn on burst survivors
+	CardWildfireSchool      string  `yaml:"card_wildfire_school,omitempty"`       // the burst's damage school
+	CardOverflowPct         int     `yaml:"card_overflow_pct,omitempty"`          // N% of excess healing restores SP
+	CardOverflowCapPct      int     `yaml:"card_overflow_cap_pct,omitempty"`      // cap: N% of a healing spell's paid SP
+	CardCrumbleArmor        int     `yaml:"card_crumble_armor,omitempty"`         // armor removed per direct weapon hit
+	CardCrumbleCapPct       int     `yaml:"card_crumble_cap_pct,omitempty"`       // erosion cap: N% of the victim's base armor
+	CardStormReversalPct    int     `yaml:"card_storm_reversal_pct,omitempty"`    // N% of a perfectly dodged hit returned to the attacker
+	CardStormReversalSchool string  `yaml:"card_storm_reversal_school,omitempty"` // the returned damage's school
+
 	// PartyArmorBonus: flat AC granted to every OTHER party member while this
 	// item is equipped (the Parma's shield wall).
-	PartyArmorBonus int `yaml:"party_armor_bonus,omitempty"`
+	PartyArmorBonus           int `yaml:"party_armor_bonus,omitempty"`
+	WeaponBaseDamageBonus     int `yaml:"weapon_base_damage_bonus,omitempty"` // Equipped bearer, or active party for a collected card.
+	PersonalInventoryRegenPct int `yaml:"personal_inventory_regen_pct,omitempty"`
 	// ProjectileReflectPct: chance an incoming monster projectile is turned
 	// back at its shooter (Broodscale Aegis mirror-scale).
 	ProjectileReflectPct int `yaml:"projectile_reflect_pct,omitempty"`
@@ -2555,16 +3217,47 @@ func (d *ItemDefinitionConfig) HasTimedBuff() bool {
 		(d.ResistBuffSchoolPct > 0 || d.BuffArmorClass > 0 || d.BuffDodgePct > 0 || d.DamageBuffPct > 0 || d.BuffHPRegenPct > 0 || d.BuffManaRegenPct > 0)
 }
 
+// validateCatalogsDisjoint keeps items.yaml and weapons.yaml apart: one key
+// or display name names one entry, so an item's key (and a keyless item's
+// name) can never resolve into the other catalog.
+func validateCatalogsDisjoint(itemCfg *ItemSystemConfig, weapons *WeaponSystemConfig) error {
+	if weapons == nil {
+		return nil
+	}
+	weaponByName := make(map[string]string, len(weapons.Weapons))
+	for key, w := range weapons.Weapons {
+		weaponByName[w.Name] = key
+		for _, old := range w.LegacyNames {
+			weaponByName[old] = key
+		}
+	}
+	for _, key := range slices.Sorted(maps.Keys(itemCfg.Items)) {
+		def := itemCfg.Items[key]
+		if _, clash := weapons.Weapons[key]; clash {
+			return fmt.Errorf("item key %q is also a weapon key", key)
+		}
+		for _, name := range append([]string{def.Name}, def.LegacyNames...) {
+			if weapon, clash := weaponByName[name]; clash {
+				return fmt.Errorf("item %q and weapon %q share the name %q", key, weapon, name)
+			}
+		}
+	}
+	return nil
+}
+
 func LoadItemConfig(filename string) (*ItemSystemConfig, error) {
 	data, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, err
 	}
 	var itemCfg ItemSystemConfig
-	if err := yaml.Unmarshal(data, &itemCfg); err != nil {
+	if err := strictyaml.Decode(data, &itemCfg); err != nil {
 		return nil, err
 	}
 	if err := resolveBrewedItems(&itemCfg); err != nil {
+		return nil, err
+	}
+	if err := validateCatalogsDisjoint(&itemCfg, GlobalWeapons); err != nil {
 		return nil, err
 	}
 	// Validate per-type required attributes for single source of truth
@@ -2585,13 +3278,23 @@ func LoadItemConfig(filename string) (*ItemSystemConfig, error) {
 	// index (a duplicate would clobber map-order-nondeterministically).
 	itemDefsByName := make(map[string]*ItemDefinitionConfig, len(itemCfg.Items))
 	itemKeysByName := make(map[string]string, len(itemCfg.Items))
+	renamed := make([]Renamed, 0, len(itemCfg.Items))
 	for key, def := range itemCfg.Items {
+		def.Key = key
 		def.usageDefaults = &itemCfg.TooltipUsageDefaults
-		if prev, dup := itemKeysByName[def.Name]; dup {
-			return nil, fmt.Errorf("items %q and %q share display name %q - display names must be unique", prev, key, def.Name)
-		}
+		renamed = append(renamed, Renamed{Key: key, Name: def.Name, LegacyNames: def.LegacyNames, LegacyKeys: def.LegacyKeys})
 		itemDefsByName[def.Name] = def
 		itemKeysByName[def.Name] = key
+	}
+	// Historical names share the same index so saved items and merchant stock
+	// resolve to one canonical definition. Never allow an ambiguous migration.
+	legacyNames, err := ValidateRenames("item", renamed, true)
+	if err != nil {
+		return nil, err
+	}
+	for name, key := range legacyNames {
+		itemDefsByName[name] = itemCfg.Items[key]
+		itemKeysByName[name] = key
 	}
 
 	// Keep the catalog and lookup index in sync on every successful reload.
@@ -2624,10 +3327,27 @@ func validateItemConfig(cfg *ItemSystemConfig) error {
 		if def == nil {
 			return fmt.Errorf("item '%s' has empty definition", key)
 		}
+		if def.WeaponBaseDamageBonus < 0 || def.PersonalInventoryRegenPct < 0 || def.PersonalInventoryRegenPct > 100 {
+			return fmt.Errorf("item %q: weapon_base_damage_bonus must be nonnegative and personal_inventory_regen_pct must be 0..100", key)
+		}
+		if def.RewindCooldownSeconds != 0 {
+			if def.EquipSlot == "" {
+				return fmt.Errorf("item %q: rewind_cooldown_seconds needs a worn item", key)
+			}
+			if err := ValidateEffectSeconds(fmt.Sprintf("item %q: rewind_cooldown_seconds", key), def.RewindCooldownSeconds); err != nil {
+				return err
+			}
+		}
+		if def.WeaponBaseDamageBonus > 0 && def.EquipSlot == "" && def.Type != "card" {
+			return fmt.Errorf("item %q: weapon base damage bonus requires an equipment slot or card type", key)
+		}
 		if err := validateDeviceDefinition(key, def); err != nil {
 			return err
 		}
 		if err := def.validateReactiveCard(); err != nil {
+			return fmt.Errorf("item %q: %w", key, err)
+		}
+		if err := def.validateCardRules(); err != nil {
 			return fmt.Errorf("item %q: %w", key, err)
 		}
 		if err := validateCraftedItem(key, def); err != nil {
@@ -2730,6 +3450,12 @@ func validateItemConfig(cfg *ItemSystemConfig) error {
 		if hasBuffMetadata && !hasBuffEffect {
 			return fmt.Errorf("item '%s': buff metadata has no resist, armor, dodge, damage, or regeneration effect", key)
 		}
+		if err := validateEffectFields(
+			effectField{fmt.Sprintf("item '%s': buff_duration_seconds", key), def.BuffDurationSeconds},
+			effectField{fmt.Sprintf("item '%s': card_poison_duration_sec", key), def.CardPoisonDurationSec},
+		); err != nil {
+			return err
+		}
 		switch def.Type {
 		case "consumable":
 			// If heal_base is set, heal_endurance_divisor must be set and positive (unless revive)
@@ -2758,6 +3484,9 @@ func validateItemConfig(cfg *ItemSystemConfig) error {
 		}
 		if set.FieryRipostePct < 0 || set.FieryRipostePct > 100 {
 			return fmt.Errorf("item set '%s': fiery_riposte_pct must be in [0,100]", name)
+		}
+		if set.FightOpenerActions < 0 || set.StationaryDamageReductionPct < 0 || set.StationaryDamageReductionPct > MaxStationaryDamageReductionPct {
+			return fmt.Errorf("item set '%s': fight_opener_actions must not be negative and stationary_damage_reduction_pct must be in [0,%d]", name, MaxStationaryDamageReductionPct)
 		}
 	}
 	return nil
@@ -2824,6 +3553,75 @@ func GetItemDefinition(itemKey string) (*ItemDefinitionConfig, bool) {
 	return def, ok
 }
 
+// CanonicalItemKey maps a renamed item's former key (legacy_keys) to its
+// current key; any other key is returned unchanged.
+func CanonicalItemKey(key string) string {
+	if GlobalItems == nil {
+		return key
+	}
+	if _, ok := GlobalItems.Items[key]; ok {
+		return key
+	}
+	for current, def := range GlobalItems.Items {
+		if slices.Contains(def.LegacyKeys, key) {
+			return current
+		}
+	}
+	return key
+}
+
+// ItemDefOf is the items.yaml entry behind an item: by its key (legacy_keys
+// included), or by display name for a keyless item (a fixture, a save before
+// keys) or a key the catalog no longer has.
+func ItemDefOf(it items.Item) (*ItemDefinitionConfig, string, bool) {
+	if it.Key == "" {
+		return GetItemDefinitionByName(it.Name)
+	}
+	key := it.Key
+	def, ok := GetItemDefinition(key)
+	if !ok {
+		key = CanonicalItemKey(key)
+		def, ok = GetItemDefinition(key)
+	}
+	if !ok { // a key renamed without legacy_keys: the name still finds it
+		return GetItemDefinitionByName(it.Name)
+	}
+	return def, key, ok
+}
+
+// ItemName is an items.yaml entry's display name, "" for an unknown key.
+func ItemName(key string) string {
+	if def, ok := GetItemDefinition(key); ok {
+		return def.Name
+	}
+	return ""
+}
+
+// CatalogKey is an item's catalog key - weapons.yaml for a weapon, items.yaml
+// otherwise - or "" for a shortcut or an unknown item.
+func CatalogKey(it items.Item) string {
+	if it.Type == items.ItemWeapon {
+		if _, key, ok := WeaponDefOf(it); ok {
+			return key
+		}
+		return ""
+	}
+	if _, key, ok := ItemDefOf(it); ok {
+		return key
+	}
+	return ""
+}
+
+// WeaponDefOf is the weapons.yaml entry behind an item: by its key, or by
+// display name (legacy_names included) for a keyless item or a key the
+// catalog no longer has.
+func WeaponDefOf(it items.Item) (*WeaponDefinitionConfig, string, bool) {
+	if def, ok := GetWeaponDefinition(it.Key); ok && it.Key != "" {
+		return def, it.Key, true
+	}
+	return GetWeaponDefinitionByName(it.Name)
+}
+
 func GetItemDefinitionByName(name string) (*ItemDefinitionConfig, string, bool) {
 	def, ok := itemDefByName[name]
 	if !ok {
@@ -2835,8 +3633,12 @@ func GetItemDefinitionByName(name string) (*ItemDefinitionConfig, string, bool) 
 // ---------------- Loot Tables ----------------
 
 type LootTablesConfig struct {
-	Loots      map[string][]LootEntry `yaml:"loots"`
-	LootGroups map[string][]LootEntry `yaml:"loot_groups,omitempty"`
+	CardDropChance CardDropChance         `yaml:"card_drop_chance"`
+	Loots          map[string][]LootEntry `yaml:"loots"`
+	LootGroups     map[string][]LootEntry `yaml:"loot_groups,omitempty"`
+	// MonsterGold is each monster's gold entry, split out of its Loots table at
+	// load so every item consumer reads drops only.
+	MonsterGold map[string]GoldRange `yaml:"-"`
 	// BossLoot is appended to the normal loot table of every YAML-classified
 	// boss. This keeps universal boss drops data-driven without giving kills,
 	// theft, crates, and editor views divergent tables.
@@ -2851,6 +3653,14 @@ type LootTablesConfig struct {
 	Crates map[string]*CrateConfig `yaml:"crates"`
 }
 
+// CardDropChance is the single drop rule for monster cards: boss: true
+// monsters drop theirs at Boss, every other monster at Monster.
+type CardDropChance struct {
+	Boss          float64            `yaml:"boss"`
+	Monster       float64            `yaml:"monster"`
+	BossOverrides map[string]float64 `yaml:"boss_overrides,omitempty"`
+}
+
 // CrateConfig is one chest's loot + trap behavior. Tier semantics are data:
 //   - loot_table: roll that weighted pool (authored treasure) - overrides
 //     roll_sources.
@@ -2863,6 +3673,7 @@ type LootTablesConfig struct {
 // sets the party burning for TrapIgniteSeconds (DefaultTrapIgniteSeconds when
 // unset). Disarm Trap mastery avoids either entirely at 40/60/80/100%.
 type CrateConfig struct {
+	Buff             *CrateBuffConfig  `yaml:"buff,omitempty"`
 	TreasureChest    bool              `yaml:"treasure_chest,omitempty"` // Chest loot provenance, independent of sprite or name.
 	Rolls            int               `yaml:"rolls"`
 	LootTable        string            `yaml:"loot_table,omitempty"`
@@ -2888,7 +3699,7 @@ type CrateConfig struct {
 // DefaultTrapIgniteSeconds is the burn duration for a trap_ignite crate that
 // authors no trap_ignite_seconds. Named here so the default lives with the
 // field, not as a literal in the trap code.
-const DefaultTrapIgniteSeconds = 10
+const DefaultTrapIgniteSeconds = 12
 
 // CrateRollSource is one entry of a crate's roll table:
 //   - map: one entry from the drop tables of the monster kinds the current map
@@ -2897,13 +3708,18 @@ const DefaultTrapIgniteSeconds = 10
 //   - loot_table: one roll of that named weighted pool, as authored;
 //   - gold / arena_points: a fixed amount; nothing: an empty slot.
 //
-// Rarity gates map and catalog in one field: "" any, "rare" exactly,
+// Rarity gates map, catalog and equipment_slot in one field: "" any, "rare" exactly,
 // "common-uncommon" a span, "uncommon+" that tier and up.
 type CrateRollSource struct {
-	Pool      string  `yaml:"pool"`                 // "map" | "catalog" | "loot_table" | "gold" | "arena_points" | "nothing"
+	ItemKey     string `yaml:"item,omitempty"`
+	EquipSlot   string `yaml:"equip_slot,omitempty"`
+	QuantityMin int    `yaml:"quantity_min,omitempty"`
+	QuantityMax int    `yaml:"quantity_max,omitempty"`
+
+	Pool      string  `yaml:"pool"`                 // "map" | "catalog" | "item" | "equipment_slot" | "loot_table" | "gold" | "arena_points" | "nothing"
 	Weight    float64 `yaml:"weight"`               // percent of every slot, in 0.1 steps; a crate's weights total 100
 	ItemType  string  `yaml:"item_type,omitempty"`  // catalog: armor|accessory|consumable|trinket|weapon|any
-	Rarity    string  `yaml:"rarity,omitempty"`     // map/catalog rarity gate (see above)
+	Rarity    string  `yaml:"rarity,omitempty"`     // map/catalog/equipment_slot rarity gate (see above)
 	Amount    int     `yaml:"amount,omitempty"`     // gold/arena_points: currency awarded instead of an item
 	LootTable string  `yaml:"loot_table,omitempty"` // loot_table: key in loot_tables
 }
@@ -2987,10 +3803,70 @@ func CrateSoundKeys() []string {
 }
 
 type LootEntry struct {
-	Type   string  `yaml:"type"` // weapon|item
-	Key    string  `yaml:"key"`
-	Chance float64 `yaml:"chance"`
-	Rolls  int     `yaml:"rolls,omitempty"` // independent attempts; 0 defaults to one
+	KillOnly bool    `yaml:"kill_only,omitempty"`
+	Type     string  `yaml:"type"` // weapon|item|harvest|set|table|first_of|gold
+	Key      string  `yaml:"key"`
+	Chance   float64 `yaml:"chance"`
+	Rolls    int     `yaml:"rolls,omitempty"` // independent attempts; 0 defaults to one
+	// Min and Max: a gold entry's coin range, or how many units an item, weapon,
+	// harvest or set entry drops when it lands (one when omitted).
+	Min int `yaml:"min,omitempty"`
+	Max int `yaml:"max,omitempty"`
+	// Of is a first_of entry's resolved group: its entries roll in order and
+	// the first success is the entry's one drop.
+	Of []LootEntry `yaml:"-"`
+}
+
+// ItemSetPieces lists the items.yaml keys of one item set, sorted: a `set`
+// loot entry drops one of them at random.
+func ItemSetPieces(set string) []string {
+	if GlobalItems == nil {
+		return nil
+	}
+	var keys []string
+	for key, def := range GlobalItems.Items {
+		if def != nil && def.Set == set {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// GoldRange is the coin a monster carries, rolled once when it spawns and
+// dropped in its loot bag.
+type GoldRange struct{ Min, Max int }
+
+// MonsterGold is the monster's gold entry from its loots.yaml table.
+func MonsterGold(monsterKey string) (GoldRange, bool) {
+	if GlobalLoots == nil {
+		return GoldRange{}, false
+	}
+	gold, ok := GlobalLoots.MonsterGold[monsterKey]
+	return gold, ok
+}
+
+// splitMonsterGold moves each monster table's one gold entry into MonsterGold.
+func splitMonsterGold(lt *LootTablesConfig) error {
+	lt.MonsterGold = map[string]GoldRange{}
+	for key, entries := range lt.Loots {
+		drops := entries[:0:0]
+		for _, e := range entries {
+			if e.Type != "gold" {
+				drops = append(drops, e)
+				continue
+			}
+			if _, dup := lt.MonsterGold[key]; dup {
+				return fmt.Errorf("loots.%s: one gold entry per table", key)
+			}
+			if e.Key != "" || e.Chance != 0 || e.Rolls != 0 || e.Min < 0 || e.Max <= 0 || e.Max < e.Min {
+				return fmt.Errorf("loots.%s: gold needs only min and max (0 <= min <= max, max > 0)", key)
+			}
+			lt.MonsterGold[key] = GoldRange{e.Min, e.Max}
+		}
+		lt.Loots[key] = drops
+	}
+	return nil
 }
 
 func (e LootEntry) RollCount() int {
@@ -3021,12 +3897,13 @@ func LoadLootTables(filename string) (*LootTablesConfig, error) {
 	}
 	// Strict: a field this file no longer reads fails the load, never drops silently.
 	var loots LootTablesConfig
-	decoder := yaml.NewDecoder(bytes.NewReader(data))
-	decoder.KnownFields(true)
-	if err := decoder.Decode(&loots); err != nil {
+	if err := strictyaml.Decode(data, &loots); err != nil {
 		return nil, err
 	}
 	if err := expandMonsterLootGroups(&loots); err != nil {
+		return nil, err
+	}
+	if err := splitMonsterGold(&loots); err != nil {
 		return nil, err
 	}
 	if err := validateMonsterLoot(&loots); err != nil {
@@ -3041,11 +3918,33 @@ func LoadLootTables(filename string) (*LootTablesConfig, error) {
 	if err := validateCrates(&loots); err != nil {
 		return nil, err
 	}
+	if r := loots.CardDropChance; r.Boss < 0 || r.Boss > 1 || r.Monster < 0 || r.Monster > 1 {
+		return nil, fmt.Errorf("card_drop_chance values must lie in 0..1")
+	}
+	for key, chance := range loots.CardDropChance.BossOverrides {
+		if key == "" || math.IsNaN(chance) || math.IsInf(chance, 0) || chance <= 0 || chance > 1 {
+			return nil, fmt.Errorf("card_drop_chance.boss_overrides %q must lie in (0,1]", key)
+		}
+	}
 	GlobalLoots = &loots
 	return &loots, nil
 }
 
 func validateLootEntry(scope string, index int, e LootEntry) error {
+	if e.Type == "first_of" {
+		if len(e.Of) == 0 {
+			return fmt.Errorf("%s[%d]: first_of needs a non-empty loot group", scope, index)
+		}
+		for i, child := range e.Of {
+			if err := validateLootEntry(fmt.Sprintf("%s[%d].%s", scope, index, e.Key), i, child); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if (e.Min != 0 || e.Max != 0) && (e.Min < 1 || e.Max < e.Min) {
+		return fmt.Errorf("%s[%d] %q: a drop quantity needs 1 <= min <= max", scope, index, e.Key)
+	}
 	if e.Chance < 0 || e.Chance > 1 {
 		return fmt.Errorf("%s[%d] %q: chance must be in [0,1]", scope, index, e.Key)
 	}
@@ -3077,8 +3976,15 @@ func validateLootCatalogReference(scope, entryType, key string) error {
 		if err := ValidateOrdinaryItemGrant(key); err != nil {
 			return fmt.Errorf("%s: %w", scope, err)
 		}
+	case "set":
+		if GlobalItems == nil {
+			return fmt.Errorf("%s %q: items not loaded", scope, key)
+		}
+		if GetItemSet(key) == nil || len(ItemSetPieces(key)) == 0 {
+			return fmt.Errorf("%s: unknown or empty item set %q", scope, key)
+		}
 	default:
-		return fmt.Errorf("%s %q has bad type %q (want weapon|item)", scope, key, entryType)
+		return fmt.Errorf("%s %q has bad type %q (want weapon|item|set)", scope, key, entryType)
 	}
 	return nil
 }
@@ -3148,6 +4054,14 @@ func validateCrates(lt *LootTablesConfig) error {
 		if c == nil {
 			return fmt.Errorf("crate %q is empty", key)
 		}
+		if err := validateCrateBuff(key, c.Buff); err != nil {
+			return err
+		}
+		if c.TrapIgniteSeconds != 0 {
+			if err := ValidateEffectSeconds(fmt.Sprintf("crate %q: trap_ignite_seconds", key), c.TrapIgniteSeconds); err != nil {
+				return err
+			}
+		}
 		c.InteractionSound = strings.TrimSpace(c.InteractionSound)
 		if len(c.TrapDamageTypes) > 0 && c.TrapDamage <= 0 {
 			return fmt.Errorf("crate %q: trap_damage_types requires trap_damage", key)
@@ -3176,9 +4090,9 @@ func validateCrates(lt *LootTablesConfig) error {
 			}
 			continue
 		}
-		hasOtherEffect := c.FreeRest || c.BonusStat != ""
+		hasOtherEffect := c.FreeRest || c.BonusStat != "" || c.Buff != nil
 		if c.Rolls <= 0 && !hasOtherEffect {
-			return fmt.Errorf("crate %q: rolls must be > 0 (or set loot_table / free_rest / bonus_stat)", key)
+			return fmt.Errorf("crate %q: rolls must be > 0 (or set loot_table / free_rest / bonus_stat / buff)", key)
 		}
 		if c.Rolls > 0 && len(c.RollSources) == 0 {
 			return fmt.Errorf("crate %q: needs roll_sources (or set loot_table)", key)
@@ -3203,6 +4117,10 @@ var catalogItemTypes = map[string]bool{"armor": true, "accessory": true, "consum
 
 func validateCrateRollSource(tables map[string]*WeightedLootTable, crate string, idx int, src CrateRollSource) error {
 	where := fmt.Sprintf("crate %q roll_sources[%d]", crate, idx)
+	if err := validateDirectCrateSource(where, src); err != nil {
+		return err
+	}
+
 	if (src.LootTable != "") != (src.Pool == "loot_table") {
 		return fmt.Errorf("%s: loot_table names the pool of a loot_table source, and only of one", where)
 	}
@@ -3214,6 +4132,13 @@ func validateCrateRollSource(tables map[string]*WeightedLootTable, crate string,
 		return fmt.Errorf("%s: %v", where, err)
 	}
 	switch src.Pool {
+	case "item":
+		return nil
+	case "equipment_slot":
+		if len(CrateEquipmentSlotKeys(src.EquipSlot, tiers)) == 0 {
+			return fmt.Errorf("%s: no equipment matches equip_slot=%q rarity=%q", where, src.EquipSlot, src.Rarity)
+		}
+		return nil
 	case "nothing", "map":
 		if src.ItemType != "" || src.Amount != 0 || src.Pool == "nothing" && src.Rarity != "" {
 			return fmt.Errorf("%s: pool %s takes no item_type or amount", where, src.Pool)
@@ -3244,7 +4169,7 @@ func validateCrateRollSource(tables map[string]*WeightedLootTable, crate string,
 		}
 		return nil
 	default:
-		return fmt.Errorf("%s: pool must be \"nothing\", \"map\", \"catalog\", \"loot_table\", \"gold\", or \"arena_points\"", where)
+		return fmt.Errorf("%s: pool must be nothing, map, catalog, item, equipment_slot, loot_table, gold, or arena_points", where)
 	}
 }
 

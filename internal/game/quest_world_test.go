@@ -105,7 +105,7 @@ func TestQuestWorldReferencesRejectBrokenQuestLinks(t *testing.T) {
 		{
 			name: "unknown summon quest",
 			npcs: &character.NPCConfig{NPCs: map[string]*character.NPCData{"test_statue": {
-				Summons: []*character.NPCSummon{{Statuette: "Black Dragon Statuette", Monster: "elder_dragon", QuestID: "missing_quest"}},
+				Summons: []*character.NPCSummon{{Statuette: "black_dragon_statuette", Monster: "elder_dragon", QuestID: "missing_quest"}},
 			}}},
 			quests: map[string]*quests.QuestDefinition{},
 			want:   []string{`unknown quest "missing_quest"`},
@@ -120,7 +120,28 @@ func TestQuestWorldReferencesRejectBrokenQuestLinks(t *testing.T) {
 			name:   "unknown nested requirement",
 			npcs:   nested(&character.NPCDialogueChoice{Action: "info", RequiresQuest: "missing_quest"}),
 			quests: known(),
-			want:   []string{`unknown requires_quest "missing_quest"`},
+			want:   []string{`requires_quest: unknown quest "missing_quest"`},
+		},
+		{
+			name:   "repeatable quest as a gate",
+			npcs:   nested(&character.NPCDialogueChoice{Action: "info", RequiresQuest: "nightly"}),
+			quests: map[string]*quests.QuestDefinition{"nightly": {Name: "Nightly", Repeatable: quests.RepeatNightly}},
+			want:   []string{`requires_quest: quest "nightly" is repeatable and cannot gate`},
+		},
+		{
+			name: "turn-in beside the giver's own delivery",
+			npcs: giver(&character.NPCDialogue{Choices: ownChain(
+				&character.NPCDialogueChoice{Text: "Deliver", Action: questPropAction, QuestID: "own_quest", Prop: &character.NPCPropCopy{Tag: "own_quest"}},
+				&character.NPCDialogueChoice{Text: "Claim", Action: "turn_in_quest", QuestID: "own_quest"},
+			)}),
+			quests: chain(),
+			want:   []string{`takes the delivery for its own quest "own_quest"`},
+		},
+		{
+			name:   "unknown stock requirement",
+			npcs:   &character.NPCConfig{NPCs: map[string]*character.NPCData{"test_shop": {Inventory: []*character.NPCItem{{Key: "health_potion", RequiresQuest: "missing_quest"}}}}},
+			quests: known(),
+			want:   []string{`stock "health_potion" requires_quest: unknown quest "missing_quest"`},
 		},
 		{
 			name:   "unknown quest step",
@@ -207,7 +228,7 @@ func TestQuestRewardItemFailureLeavesClaimRetryable(t *testing.T) {
 	qm.MarkCompleted("bad_reward")
 	g.questManager = qm
 
-	if g.claimQuestReward("bad_reward") {
+	if g.claimQuestReward("bad_reward", nil) {
 		t.Fatal("claim with an invalid item key succeeded")
 	}
 	if quest := qm.GetQuest("bad_reward"); quest == nil || quest.RewardsClaimed {
@@ -358,7 +379,6 @@ func TestWolfCull_ExterminationLaysBridge(t *testing.T) {
 
 	// Wolf alive -> no completion, no bridge.
 	g.completeClearedKillQuestsForTarget("wolf", false)
-	g.applyCompletedQuestTiles()
 	if g.questManager.GetQuest("forest_wolf_cull").Completed {
 		t.Fatal("quest completed while a wolf lives")
 	}
@@ -366,15 +386,55 @@ func TestWolfCull_ExterminationLaysBridge(t *testing.T) {
 		t.Fatalf("%d bridge tiles laid while a wolf lives", laid)
 	}
 
-	// Last wolf dies -> quest completes and the bridge appears.
+	// Last wolf dies -> quest completes and the bridge appears, laid by the
+	// completion itself.
 	wolf.HitPoints = 0
 	g.completeClearedKillQuestsForTarget("wolf", false)
-	g.applyCompletedQuestTiles()
 	if !g.questManager.GetQuest("forest_wolf_cull").Completed {
 		t.Fatal("quest should complete once the map is cleared")
 	}
 	if laid := bridgeLaid(); laid != len(tileChanges) {
 		t.Errorf("bridge tiles laid = %d, want all %d", laid, len(tileChanges))
+	}
+}
+
+// Every path that completes a quest changes the world with it - the completion
+// hook owns that - so a talk that hands the screen to a story beat, an arena
+// bout (the same tag credit) or a cleared encounter cannot leave it unbuilt.
+func TestEveryCompletionPathChangesTheWorld(t *testing.T) {
+	for _, row := range []struct {
+		name     string
+		def      quests.QuestDefinition
+		complete func(*MMGame)
+	}{
+		{"talk tag", quests.QuestDefinition{Name: "Talk", Type: quests.QuestTypeInteract, TargetMonster: "test_talk", TargetCount: 1},
+			func(g *MMGame) { g.creditTalkTag(&character.NPC{TalkTag: "test_talk"}) }},
+		{"cleared encounter", quests.QuestDefinition{Name: "Camp", Type: quests.QuestTypeEncounter, TargetCount: 1},
+			func(g *MMGame) {
+				(&GameLoop{game: g}).awardEncounterRewards(&monster.EncounterRewards{QuestID: "test_quest"})
+			}},
+	} {
+		t.Run(row.name, func(t *testing.T) {
+			g, w := loadRealQuestTileData(t)
+			quests.GlobalQuestManager = g.questManager // the encounter path reads the global
+			bridge, ok := world.GlobalTileManager.GetTileTypeFromKey("quest_bridge")
+			if !ok || w.Tiles[5][5] == bridge {
+				t.Fatal("fixture: no bridge tile, or it is already laid")
+			}
+			def := row.def
+			def.OnCompleteTiles = []quests.QuestTileChange{{Map: "forest", X: 5, Y: 5, Tile: "quest_bridge"}}
+			g.questManager.Definitions()["test_quest"] = &def
+			if err := g.questManager.ActivateQuest("test_quest"); err != nil {
+				t.Fatal(err)
+			}
+			row.complete(g)
+			if q := g.questManager.GetQuest("test_quest"); q == nil || !q.Completed {
+				t.Fatal("fixture: the path did not complete the quest")
+			}
+			if w.Tiles[5][5] != bridge {
+				t.Error("the quest completed but its world change was not made")
+			}
+		})
 	}
 }
 
@@ -401,7 +461,7 @@ func TestKillQuestTargetsMatchMonsterNames(t *testing.T) {
 		wantErr bool
 	}{
 		{"display name", quests.QuestDefinition{TargetMonster: "forest spider"}, false},
-		{"name shared by a group", quests.QuestDefinition{TargetMonster: "elder_dragon"}, false},
+		{"color-named dragon", quests.QuestDefinition{TargetMonster: "elder_red_dragon"}, false},
 		{"monster key that is not its name", quests.QuestDefinition{TargetMonster: "rat"}, true},
 		{"typo", quests.QuestDefinition{TargetMonster: "forest_spidr"}, true},
 		{"one bad entry in a list", quests.QuestDefinition{TargetMonsters: []string{"wolf", "wolff"}}, true},

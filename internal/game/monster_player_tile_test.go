@@ -13,7 +13,7 @@ import (
 func ordinaryMeleeMonsterKeys(t *testing.T) []string {
 	t.Helper()
 	monster.MustLoadMonsterConfig("../../assets/monsters.yaml")
-	keys := monster.MonsterConfig.GetAllMonsterKeys()
+	keys := catalogMonsterKeys()
 	slices.Sort(keys)
 	var out []string
 	for _, key := range keys {
@@ -59,8 +59,8 @@ func TestRealTime_MeleePursuerNeverEntersPlayerTileButStillHits(t *testing.T) {
 			for i := 0; i < 720; i++ { // 6s at 120 TPS - covers even a speed-0.8 walker
 				// The live loop advances warnings before movement. A telegraphed
 				// melee actor holds its position until that clock releases it.
-				game.tickMonsterTelegraphs(1/float64(game.config.GetTPS()), false)
-				game.tickEnvironment(1/float64(game.config.GetTPS()), false)
+				game.tickMonsterTelegraphs(false)
+				game.tickEnvironment(false)
 				m.Update(game.collisionSystem, game.camera.X, game.camera.Y)
 				cs.HandleMonsterInteractions()
 

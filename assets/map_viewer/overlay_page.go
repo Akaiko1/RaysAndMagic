@@ -23,6 +23,7 @@ const pageOverlay = 9
 type overlayPage struct {
 	catalogs                  map[string][]string
 	questDefs                 map[string]*quests.QuestDefinition
+	questProps                map[string]map[[2]int][]editorQuestProp
 	pendingNPC, pendingPicker string
 	choicePath                []int
 	documents                 map[string]*overlayDocument
@@ -206,7 +207,7 @@ func (v *viewer) overlayWidgets(d *overlayDocument) []overlayWidget {
 		if v.overlay.section == "effect" && v.overlay.selected >= 0 && v.overlay.selected < len(a.Effects) {
 			e := a.Effects[v.overlay.selected]
 			d.checkpoint()
-			e.ID = d.uniqueID(e.Kind)
+			e.ID = d.uniqueID(string(e.Kind))
 			e.Name += " copy"
 			a.Effects = append(a.Effects, e)
 			v.overlaySelect("effect", len(a.Effects)-1)
@@ -242,7 +243,7 @@ func (v *viewer) overlayAddPhase(d *overlayDocument) {
 	}
 	lanes := []string{}
 	for _, e := range a.Effects {
-		if e.Kind == "lane" {
+		if e.Kind == config.EffectLane {
 			lanes = append(lanes, e.ID)
 			break
 		}
@@ -550,8 +551,8 @@ func (v *viewer) overlayMapPress(d *overlayDocument, tile [2]int) {
 				if a.Boss.HealPercent == 0 {
 					a.Boss.HealPercent = 5
 				}
-				if a.Boss.HealCapPercent == 0 {
-					a.Boss.HealCapPercent = 25
+				if a.Boss.HealCeilingPercent == 0 {
+					a.Boss.HealCeilingPercent = 50
 				}
 			}
 		}
@@ -708,10 +709,10 @@ func (v *viewer) overlayFinishDrag(d *overlayDocument) {
 		}
 		v.overlaySelect("arena", 0)
 	default:
-		kind := p.tool
+		kind := config.EffectKind(p.tool)
 		i := d.addEffect(kind, r)
 		v.overlaySelect("effect", i)
-		if kind == "transfer" {
+		if kind == config.EffectTransfer {
 			p.tool = "receiver"
 		}
 	}
@@ -734,9 +735,10 @@ func (v *viewer) drawOverlayPage(screen *ebiten.Image) {
 	m.Config = &mc
 	m.Data = d.state.Data
 	l := v.overlayLayout(d)
-	drawMapPanel(screen, m, l, v.tileManager, v.tileDataByKey, v.tileSpriteThumbnail)
+	v.drawMapPanel(screen, m, l)
 	drawFilledRect(screen, l.mapAreaX+2, l.mapAreaY+2, l.mapAreaW-4, 36, color.RGBA{20, 20, 35, 255})
 	game.DrawShadedText(screen, clipText(mc.Name, 224), l.mapAreaX+12, l.mapAreaY+12, overlayText)
+	v.drawQuestPropLegend(screen, m.Key, l.mapAreaX+12, l.mapAreaY+26, l.mapAreaW-24)
 	viewport := overlayMapViewport(l)
 	clip := screen.SubImage(image.Rect(viewport.x, viewport.y, viewport.x+viewport.w, viewport.y+viewport.h)).(*ebiten.Image)
 	drawBox := func(r [4]int, c color.RGBA, selected bool) {
@@ -753,14 +755,14 @@ func (v *viewer) drawOverlayPage(screen *ebiten.Image) {
 	}
 	for i, e := range d.state.Adventure.Effects {
 		c := color.RGBA{241, 181, 89, 255}
-		if e.Kind == "lane" {
+		if e.Kind == config.EffectLane {
 			c = color.RGBA{241, 112, 122, 255}
 		}
-		if e.Kind == "transfer" {
+		if e.Kind == config.EffectTransfer {
 			c = color.RGBA{94, 195, 240, 255}
 		}
 		drawBox(e.Rect, c, p.section == "effect" && p.selected == i)
-		if e.Kind == "transfer" {
+		if e.Kind == config.EffectTransfer {
 			sx, sy := l.originX+e.Rect[0]*l.tileSize+l.tileSize/2, l.originY+e.Rect[1]*l.tileSize+l.tileSize/2
 			dx, dy := l.originX+e.Destination[0]*l.tileSize+l.tileSize/2, l.originY+e.Destination[1]*l.tileSize+l.tileSize/2
 			vector.StrokeLine(clip, float32(sx), float32(sy), float32(dx), float32(dy), 1, c, false)
@@ -817,6 +819,7 @@ func (v *viewer) drawOverlayPage(screen *ebiten.Image) {
 	if p.anchorSet {
 		drawBox([4]int{p.anchor[0], p.anchor[1], p.anchor[0], p.anchor[1]}, overlayAccent, true)
 	}
+	v.drawQuestPropReservations(clip, m, l, false)
 	mx, my := ebiten.CursorPosition()
 	help := "Wheel: zoom map or scroll panels. Right-drag: pan. Ctrl+S: save. Ctrl+Z: undo."
 	for _, w := range v.overlayWidgets(d) {
@@ -871,6 +874,9 @@ func (v *viewer) drawOverlayPage(screen *ebiten.Image) {
 	}
 	if tile, ok := overlayTileAt(l, mx, my); ok {
 		game.DrawPlainText(screen, fmt.Sprintf("Tile %d, %d", tile[0], tile[1]), g.mapArea.x, g.height-82)
+		if lines := v.questPropHoverLines(m.Key, tile[0], tile[1]); len(lines) > 0 && !p.dragging && p.modal == nil {
+			drawTooltipBox(screen, append([]string{fmt.Sprintf("Tile %d, %d", tile[0], tile[1])}, lines...), mx, my)
+		}
 	}
 	for i, line := range wrapTooltipLines(help, game.ShadedTextColumns(g.width-30)) {
 		if i >= 2 {
@@ -910,7 +916,7 @@ func (v *viewer) overlayReceiverError(d *overlayDocument, tile [2]int) error {
 		return fmt.Errorf("Receiver must be on walkable ground")
 	}
 	for _, e := range d.state.Adventure.Effects {
-		if e.Kind != "lane" && e.Contains(x, y) {
+		if e.Kind != config.EffectLane && e.Contains(x, y) {
 			return fmt.Errorf("Receiver overlaps %s", e.Name)
 		}
 	}

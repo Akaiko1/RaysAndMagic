@@ -7,6 +7,7 @@ import (
 
 	"ugataima/internal/character"
 	"ugataima/internal/monster"
+	"ugataima/internal/quests"
 )
 
 func TestKillQuotaKeepsFutureBossesAndStatueSources(t *testing.T) {
@@ -48,6 +49,7 @@ func TestKillQuotaKeepsFutureBossesAndStatueSources(t *testing.T) {
 			}
 
 			ih := &InputHandler{game: g}
+			g.maxPartyLevel = 24 // Sylwen swears in no party below it
 			ih.handleGiveQuest("dragon_slayer")
 			hunt := g.questManager.GetQuest("dragon_slayer")
 			var seals []*character.NPC
@@ -86,6 +88,14 @@ func TestKillQuotaKeepsFutureBossesAndStatueSources(t *testing.T) {
 			if hunt.CurrentCount != 0 || hunt.Completed {
 				t.Fatal("ordinary dragon advanced statue hunt")
 			}
+			// A statue-bound dragon of any color counts: the hunt lists every name.
+			bound := monster.NewMonster3DFromConfig(2.5*ts, 2.5*ts, "elder_dragon_red", g.config)
+			bound.IsEncounterMonster, bound.EncounterRewards = true, &monster.EncounterRewards{QuestID: hunt.ID}
+			bound.HitPoints = 0
+			g.combat.updateQuestProgress(bound)
+			if hunt.CurrentCount != 1 {
+				t.Fatalf("statue-bound %s did not advance the hunt: %d", bound.Name, hunt.CurrentCount)
+			}
 		})
 	}
 }
@@ -121,7 +131,7 @@ func TestRepeatableKillQuotaStartsFresh(t *testing.T) {
 	if _, err := g.questManager.ClaimRewards(q.ID); err != nil {
 		t.Fatal(err)
 	}
-	g.refreshRepeatableQuests("night")
+	g.refreshRepeatableQuests(quests.RepeatNightly)
 	add(quota + 3)
 	ih.handleGiveQuest(q.ID)
 	q = g.questManager.GetQuest(q.ID)

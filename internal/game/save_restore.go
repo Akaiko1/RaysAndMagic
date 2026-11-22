@@ -6,6 +6,11 @@ import (
 	"ugataima/internal/world"
 )
 
+// Saves from stackLayoutSaveVersion on keep the player's separate stacks of
+// one item; an older save (canonical bags, or loose pre-stacking units) is
+// folded once by MergeStacks on load, after the stash strip.
+const stackLayoutSaveVersion = 1
+
 // applySave keeps the restore phases in dependency order. Travel deliberately
 // uses a different lifecycle: loading replaces the timeline and never autosaves
 // an intermediate state or consumes travel-only quest spawns.
@@ -23,10 +28,14 @@ func (g *MMGame) applySave(wm *world.WorldManager, source *GameSave) error {
 	g.terrainChanges = nil
 	g.cancelDayNightSkip()
 	g.cancelCampPresentation()
+	g.closeStoryScreen()
 	g.profileKilled = nil
 	g.discardFish()
 	wm.RandomizeEnvironmentSprites()
 	g.adventure = cloneAdventureState(save.Adventure)
+	for key, v := range g.adventure.Visits {
+		v.migrateLegacy(g.adventureConfig(key), g.config.GetTPS())
+	}
 	g.restoreSavedTimeline(wm, save, targetWorld)
 	g.restoreSavedParty(save)
 	g.updatePartyLevelUnlocks()
@@ -36,7 +45,10 @@ func (g *MMGame) applySave(wm *world.WorldManager, source *GameSave) error {
 	g.restoreSavedEffects(save)
 	g.restoreSavedContainers(wm, save)
 	g.reconcilePartyAgainstStash()
-	g.party.MergeStacks()
+	if save.StackLayoutVersion < stackLayoutSaveVersion {
+		g.party.MergeStacks()
+	}
+	g.warmPartyWeaponModels()
 	// The aggregate is DERIVED from the restored registry (never trusted from
 	// the save) - a drifted legacy save can't turn a buff expiry into a
 	// permanent debuff. Also re-derives members' MaxHP/MaxSP under the buffs.
@@ -46,8 +58,12 @@ func (g *MMGame) applySave(wm *world.WorldManager, source *GameSave) error {
 		g.addTreasureChestsFromRewards(legacyRewards)
 	}
 	g.restoreSavedEffectPresentation(wm, save)
+	g.restoreStory(save) // before the journal: its reconciliation reads this save's reveals
 	g.restoreSavedQuests(save)
+	g.resyncLegacyStory(save)
+	g.restoreWatcher(save)
 	g.restoreTerrainChanges(save.TerrainChanges)
+	g.settleStrandedMonsters() // after ice and terrain are restored
 	// A position saved on an older map layout can sit inside what is now a
 	// wall; clamp it to walkable ground. Runs here, after the buff restore
 	// above, so water/Fly saves keep their legal mid-lake or airborne spot.
@@ -57,6 +73,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, source *GameSave) error {
 	g.arenaBarrierMessageAfter = 0
 	g.syncAdventureArenaBounds()
 	g.ecology = cloneEcologyState(save.Ecology)
+	g.ecology.migrateLegacy(g.config.GetTPS())
 	g.ecologyViews = nil
 	g.caravanAttackAlertUntil = time.Time{}
 	g.syncCaravanStock()
@@ -65,6 +82,16 @@ func (g *MMGame) applySave(wm *world.WorldManager, source *GameSave) error {
 	// pointers survive). One reset, after the journal has settled.
 	g.resetScreenBanners()
 	g.reconcileRestoredPursuit(wm)
+	// Gear the party restore moved is reported in the loaded game's own log.
+	for _, notice := range g.loadNotices {
+		g.AddCombatMessage(notice)
+	}
+	g.loadNotices = nil
+	// A fight resumed from a save is not a fresh fight: no new opener. The
+	// flag reads the restored monsters.
+	g.partyWasInFight = g.partyInCombat()
+	// Nor is its aggro news: the saved mode stands.
+	_, g.fightAggroAnswered = g.fightPressure(g.combatPreferences.AutoTurnBased)
 
 	// Restore played time by adjusting session start
 	if save.PlayedTimeNs > 0 {
@@ -146,8 +173,6 @@ func (g *MMGame) restoreSavedTimeline(wm *world.WorldManager, save *GameSave, ta
 	// canon): a merged region key projects into the unified grid via the
 	// current layout and placement orientation.
 	playerX, playerY := wm.ProjectWorldPos(save.MapKey, save.PlayerX, save.PlayerY)
-	g.camera.X = playerX
-	g.camera.Y = playerY
+	g.setPartyPosition(playerX, playerY)
 	g.snapFacing(wm.ProjectAngle(save.MapKey, save.PlayerAngle))
-	g.collisionSystem.UpdateEntity("player", playerX, playerY)
 }

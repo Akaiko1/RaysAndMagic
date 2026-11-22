@@ -9,12 +9,19 @@ import (
 // Visible spans retain wall clipping. The unified painter pass supplies
 // per-pixel occlusion against scenery and actor silhouettes.
 func (r *Renderer) drawZonePlume(dst *ebiten.Image, wx, wy, width, height, maxDepth, alpha float64, rgb [3]int) {
-	r.drawFirePlume(dst, wx, wy, width, height, maxDepth, alpha, rgb, int(wx), int(wy))
+	r.drawFirePlume(dst, wx, wy, width, height, maxDepth, alpha, rgb, int(wx), int(wy), firePlumeTongues)
 }
+
+// Fire plume looks, selected per draw: zone_plume.kage branches on them by
+// name and TestShaderConstantsMatchGo keeps its const block equal.
+const (
+	firePlumeTongues float32 = iota // eroded tongues: burning actors and traps
+	firePlumeBlaze                  // fire zones: a merging blaze shedding sparks
+)
 
 // World fields seed from their position; attached flames use stable actor IDs
 // so moving a burning monster does not replace its noise pattern every step.
-func (r *Renderer) drawFirePlume(dst *ebiten.Image, wx, wy, width, height, maxDepth, alpha float64, rgb [3]int, seedX, seedY int) {
+func (r *Renderer) drawFirePlume(dst *ebiten.Image, wx, wy, width, height, maxDepth, alpha float64, rgb [3]int, seedX, seedY int, look float32) {
 	sx, depth, ok := r.game.renderHelper.projectToScreenXF(wx, wy)
 	if !ok || depth < auraMinDepth || depth > maxDepth || r.ensureWeaponMaterialShaders() != nil {
 		return
@@ -27,7 +34,7 @@ func (r *Renderer) drawFirePlume(dst *ebiten.Image, wx, wy, width, height, maxDe
 		return
 	}
 	lo, hi := max(0, int(math.Floor(sx-half))), min(r.game.worldWidth()-1, int(math.Ceil(sx+half)))
-	phase := r.weaponMaterialClock() * (.82 + .36*auraHash(seedX, seedY, 913, 0))
+	phase := r.game.worldSeconds() * (.82 + .36*auraHash(seedX, seedY, 913, 0))
 	seed := auraHash(seedX, seedY, 911, 0) * 47
 	alpha *= math.Min(1, (maxDepth-depth)/(maxDepth*.3))
 	verts, indices := r.standeeVerts[:0], r.standeeIdx[:0]
@@ -35,7 +42,7 @@ func (r *Renderer) drawFirePlume(dst *ebiten.Image, wx, wy, width, height, maxDe
 		base := uint16(len(verts))
 		for _, p := range [4][2]float64{{float64(a), 1}, {float64(b), 1}, {float64(a), 0}, {float64(b), 0}} {
 			v := weaponMaterialVertex(p[0], floor-p[1]*rise, (p[0]-sx)/half, p[1], rgb, alpha)
-			v.Custom0, v.Custom1 = float32(phase), float32(seed)
+			v.Custom0, v.Custom1, v.Custom2 = float32(phase), float32(seed), look
 			verts = append(verts, v)
 		}
 		indices = append(indices, base, base+1, base+2, base+1, base+3, base+2)

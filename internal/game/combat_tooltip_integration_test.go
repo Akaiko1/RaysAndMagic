@@ -17,14 +17,14 @@ import (
 // character's equipped spell.
 func mustEquipSpellID(t *testing.T, c *character.MMCharacter, spellID spells.SpellID) {
 	t.Helper()
-	if !characterKnowsSpellByID(c, spellID) && !addSpellByID(c, spellID) {
+	if !characterKnowsSpellByID(c, spellID) && !c.LearnSpell(spellID) {
 		t.Fatalf("%s: failed to add spell %s", c.Name, spellID)
 	}
 	sp, err := spells.CreateSpellItem(spellID)
 	if err != nil {
 		t.Fatalf("%s: create spell %s: %v", c.Name, spellID, err)
 	}
-	c.Equipment[items.SlotSpell] = sp
+	c.Equipment[items.SlotQuickAction] = sp
 }
 
 func tooltipNumber(t *testing.T, tooltip, label string) int {
@@ -65,7 +65,7 @@ func TestWeaponTooltipStrikeUnits(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					def := lookupWeaponConfigByName(weapon.Name)
+					def := lookupWeaponConfig(weapon)
 					original := *def
 					t.Cleanup(func() { *def = original })
 					def.Damage, def.Range, def.DoubleStrike, def.Volley = tc.base, tc.rangeTiles, tc.doubleStrike, tc.volley
@@ -136,7 +136,7 @@ func TestSharedSpellFormulaThroughCastAndTooltip(t *testing.T) {
 							caster.Luck = 100 * LuckToCritDivisor
 							caster.Skills[character.SkillStrongMagic] = &character.Skill{Mastery: tier}
 							caster.Skills[character.SkillNaturalHealer] = &character.Skill{Mastery: tier}
-							g.addCombatBuff(TimedCombatBuff{SpellID: "test", Frames: 600, OutBonus: 7, OutDamageType: "all"})
+							g.addCombatBuff(TimedCombatBuff{ID: "test", Clock: framesClock(600), OutBonus: 7, OutDamageType: "all"})
 						}
 						def, err := spells.GetSpellDefinitionByID(id)
 						if err != nil {
@@ -179,7 +179,7 @@ func TestSharedSpellFormulaThroughCastAndTooltip(t *testing.T) {
 								}
 								return
 							}
-							cs.applyProjectileDamage(shot, "magic_projectile", target, shot.ID)
+							cs.applyProjectileDamage(shot, target, shot.ID)
 							if shot.Crit {
 								label = "Critical Damage: "
 							}
@@ -264,7 +264,7 @@ func TestWeaponTooltipMatchesRealAttackStages(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					def := lookupWeaponConfigByName(weapon.Name)
+					def := lookupWeaponConfig(weapon)
 					originalCrit := def.CritChance
 					t.Cleanup(func() { def.CritChance = originalCrit })
 					def.CritChance = 0
@@ -278,7 +278,7 @@ func TestWeaponTooltipMatchesRealAttackStages(t *testing.T) {
 						g.cardSlots[0].key = "masked_serpent_dancer_card"
 						g.cardSlots[1].key = "masked_huntress_card"
 						g.cardSlots[2].key = "samurai_card"
-						g.addCombatBuff(TimedCombatBuff{SpellID: "test", Frames: 600, OutBonus: 7, OutDamageType: "all"})
+						g.addCombatBuff(TimedCombatBuff{ID: "test", Clock: framesClock(600), OutBonus: 7, OutDamageType: "all"})
 					}
 					target := mkTestMonster("Target", 10000)
 					target.ID, target.X, target.Y = "weapon-target", g.camera.X+32, g.camera.Y
@@ -301,7 +301,7 @@ func TestWeaponTooltipMatchesRealAttackStages(t *testing.T) {
 							t.Fatalf("arrows = %d, want %d", len(g.arrows), hits)
 						}
 						for i := range g.arrows {
-							cs.applyProjectileDamage(&g.arrows[i], "arrow", target, g.arrows[i].ID)
+							cs.applyProjectileDamage(&g.arrows[i], target, g.arrows[i].ID)
 						}
 					}
 					shown *= hits

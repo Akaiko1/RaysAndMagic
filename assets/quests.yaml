@@ -14,6 +14,7 @@ quests:
       experience: 800
     activity:
       objectives: [{"token": "marker_1", "map": "solstice_approach", "event": "interact"}, {"token": "marker_2", "map": "solstice_approach", "event": "interact"}, {"token": "marker_3", "map": "solstice_approach", "event": "interact"}]
+
   solstice_expedition:
     name: "The Missing Expedition"
     description: "Recover the measuring instrument and three separate journal pages from the abandoned camps."
@@ -26,6 +27,7 @@ quests:
       experience: 1000
     activity:
       objectives: [{"token": "instrument", "map": "solstice_approach", "event": "interact"}, {"token": "page_1", "map": "solstice_approach", "event": "interact"}, {"token": "page_2", "map": "solstice_approach", "event": "interact"}, {"token": "page_3", "map": "solstice_approach", "event": "interact"}]
+
   solstice_anchors:
     name: "Four Anchor Points"
     description: "Recover four calibration bearings and install each in its matching entrance socket."
@@ -38,6 +40,7 @@ quests:
       experience: 1200
     activity:
       objectives: [{"token": "recover_fire", "map": "solstice_approach", "event": "interact"}, {"token": "install_fire", "map": "solstice_approach", "event": "interact", "requires": ["recover_fire"]}, {"token": "recover_water", "map": "solstice_approach", "event": "interact"}, {"token": "install_water", "map": "solstice_approach", "event": "interact", "requires": ["recover_water"]}, {"token": "recover_earth", "map": "solstice_approach", "event": "interact"}, {"token": "install_earth", "map": "solstice_approach", "event": "interact", "requires": ["recover_earth"]}, {"token": "recover_air", "map": "solstice_approach", "event": "interact"}, {"token": "install_air", "map": "solstice_approach", "event": "interact", "requires": ["recover_air"]}]
+
   solstice_schedule:
     name: "The Engineers' Schedule"
     description: "Read the calibration disc by day and night, then align its seven positions in timetable order."
@@ -50,6 +53,7 @@ quests:
       experience: 1000
     activity:
       objectives: [{"token": "day_reading", "map": "solstice_approach", "event": "interact", "phase": "day"}, {"token": "night_reading", "map": "solstice_approach", "event": "interact", "phase": "night"}, {"token": "alignment", "map": "solstice_approach", "event": "interact", "requires": ["day_reading", "night_reading"], "sequence": ["1", "2", "3", "4", "5", "6", "7"]}]
+
   solstice_connection:
     name: "The Broken Connection"
     description: "Cross the broken vestibule connection with Jump or Fold Step, activate the receiving anchor, then report to Velna."
@@ -63,6 +67,7 @@ quests:
     activity:
       objectives: [{"token": "crossing", "event": "crossing", "map": "solstice_vestibule", "from": [7, 7], "to": [9, 7]}, {"token": "receiver", "map": "solstice_vestibule", "event": "interact", "requires": ["crossing"]}]
     on_complete_tiles: [{"map": "solstice_vestibule", "x": 8, "y": 7, "tile": "empty"}]
+
   solstice_records:
     name: "The Four Experiment Records"
     description: "Defeat all four regulators and read each surviving experiment record. Return to Velna."
@@ -75,6 +80,7 @@ quests:
       experience: 4000
     activity:
       objectives: [{"token": "fire_record", "map": "solstice_fire", "event": "interact", "requires_boss": "solstice_aureth"}, {"token": "water_record", "map": "solstice_water", "event": "interact", "requires_boss": "solstice_neressa"}, {"token": "earth_record", "map": "solstice_earth", "event": "interact", "requires_boss": "solstice_talura"}, {"token": "air_record", "map": "solstice_air", "event": "interact", "requires_boss": "solstice_vaelith"}]
+
   solstice_fire_commission:
     name: "Fire Supply Commission"
     description: "Bring three Heat Resistant Fang to Tovan for an elemental damage draught and payment."
@@ -88,6 +94,7 @@ quests:
       items: ["solstice_fire_ward"]
     activity:
       objectives: [{"token": "delivery", "map": "solstice_approach", "event": "interact", "item": "solstice_heat_resistant_fang", "count": 3}]
+
   solstice_water_commission:
     name: "Water Supply Commission"
     description: "Bring three Coldwater Gland to Tovan for an elemental damage draught and payment."
@@ -101,6 +108,7 @@ quests:
       items: ["solstice_water_ward"]
     activity:
       objectives: [{"token": "delivery", "map": "solstice_approach", "event": "interact", "item": "solstice_coldwater_gland", "count": 3}]
+
   solstice_earth_commission:
     name: "Earth Supply Commission"
     description: "Bring three Mineral Plate to Tovan for an elemental damage draught and payment."
@@ -114,6 +122,7 @@ quests:
       items: ["solstice_earth_ward"]
     activity:
       objectives: [{"token": "delivery", "map": "solstice_approach", "event": "interact", "item": "solstice_mineral_plate", "count": 3}]
+
   solstice_air_commission:
     name: "Air Supply Commission"
     description: "Bring three Charged Quill to Tovan for an elemental damage draught and payment."
@@ -127,6 +136,23 @@ quests:
       items: ["solstice_air_ward"]
     activity:
       objectives: [{"token": "delivery", "map": "solstice_approach", "event": "interact", "item": "solstice_charged_quill", "count": 3}]
+
+  # The main storyline's first step (docs/story-plan.md): Envoy Corwin at the
+  # forest tavern hands the party the Tower's letter. Speaking to the Mage Tower
+  # delivers it (talk_tag in npcs.yaml); the story screen takes over from there.
+  main_tower_letter:
+    name: "The Tower's Letter"
+    description: "Carry the Mage Tower's sealed letter from Envoy Corwin to the Mage Tower in the Misty Highlands."
+    type: "interact"
+    target_monster: "tower_letter"
+    progress_text: "letter delivered"
+    target_count: 1
+    is_starting_quest: false
+    main: true
+    auto_claim: true
+    rewards:
+      gold: 0
+      experience: 0
 
   # The opening chain: Wenna the herb-picker stands by the forest clearing where
   # the party begins. She asks for the goblins first and only mentions the wolves
@@ -206,6 +232,7 @@ quests:
     rewards:
       gold: 0
       experience: 0
+      promotion: "archmage"
 
   dragon_cliffs_troll_cull:
     name: "Cliffwatch Troll Cull"
@@ -348,9 +375,13 @@ quests:
     name: "Dragon Slayer"
     description: "Swear Sylwen the Pilgrim's hunt, then slay {target_count} Elder Dragons at the desert seals and return to her. Each seal needs a matching colored statuette from the Pyramid Sanctum's reliquaries. Beneath the dragons' scorched hides lie riveted plates; sword cuts throw sparks."
     type: "kill"
-    target_monster: "elder_dragon"   # all 4 statue dragons are named "Elder Dragon" -> type "elder_dragon"
+    target_monsters: ["elder_black_dragon", "elder_red_dragon", "elder_green_dragon", "elder_gold_dragon"]   # the 4 statue dragons
+    progress_text: "elder dragons killed"
     target_count: 4
     encounter_only: true
+    main: true
+    # Sylwen offers the hunt from this party level; the Elder Dragons are 29-31.
+    min_party_level: 24
     # Taken from Sylwen, the pilgrim keeping vigil at the desert seals. The
     # statues refuse a statuette until this oath is sworn (buildStatueChoices),
     # so the hunt can never be finished by a party that never accepted it.
@@ -414,11 +445,14 @@ quests:
     name: "The Silent Nests"
     description: "Slay every Dragon on the Dragon Cliffs to draw the Brood Mother into the Ember Crater. The cliff dragons give off smoke without breathing; their eyes light before their heads turn. Something built these creatures."
     type: "kill"
-    target_monster: "dragon"
+    target_monsters: ["black_dragon", "red_dragon", "green_dragon", "gold_dragon"]
+    progress_text: "dragons killed"
     target_count: 7   # nominal; exterminate snapshots the live census at accept
     target_map: "dragon_cliffs"
     exterminate: true
     is_starting_quest: true
+    main: true
+    hidden: true   # shown once the Tower's story beat reveals it
     rewards:
       gold: 3000
       experience: 2300
@@ -437,6 +471,8 @@ quests:
     target_map: "water"
     exterminate: true
     is_starting_quest: true
+    main: true
+    hidden: true   # shown once Seabright's story beat reveals it
     rewards:
       gold: 3000
       experience: 1800
@@ -454,6 +490,8 @@ quests:
     is_starting_quest: true
     auto_claim: true
     victory: true
+    main: true
+    hidden: true   # shown once the Last Reckoning story beat reveals it
     rewards:
       gold: 0
       experience: 0

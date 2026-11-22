@@ -13,9 +13,9 @@ func TestSniperSaveLoadAndRecruitMigration(t *testing.T) {
 		t.Run(fmt.Sprint(legacy), func(t *testing.T) {
 			g, _, ch, tile := sniperFixture(t, false)
 			m := spawnMonsterAtTile(g, "wolf", 10, 10, tile)
-			ch.AutoDrinkCooldown = 37
+			ch.AutoDrinkCD = framesClock(37)
 			ch.DesignatedTargetID = m.ID
-			ch.DesignationFrames = 99
+			ch.Designation = framesClock(99)
 			wm := world.NewWorldManager(g.config)
 			wm.LoadedMaps = map[string]*world.World3D{"forest": g.world}
 			wm.CurrentMapKey = "forest"
@@ -65,7 +65,7 @@ func TestSniperSaveLoadAndRecruitMigration(t *testing.T) {
 				}
 			} else {
 				ch = g.party.Members[0]
-				if ch.AutoDrinkCooldown != 37 || ch.DesignationFrames != 99 || ch.DesignatedTargetID != g.world.Monsters[0].ID {
+				if ch.AutoDrinkCD.Frames != 37 || ch.Designation.Frames != 99 || ch.DesignatedTargetID != g.world.Monsters[0].ID {
 					t.Fatal("tactical save lost timer or monster link")
 				}
 				if g.overwatchReady(ch) {
@@ -163,8 +163,8 @@ func TestSniperAutoLevelAndMasteryProgression(t *testing.T) {
 	cfg := loadTestConfig(t)
 	// Speed and endurance columns are offsets from the class's authored auto
 	// targets; the primary column is absolute.
-	speedTarget := autoSpeedTarget(character.ClassSniper, cfg)
-	enduranceTarget := autoEnduranceTarget(character.ClassSniper, cfg)
+	speedTarget := autoClassStats(character.ClassSniper, cfg).Speed
+	enduranceTarget := autoClassStats(character.ClassSniper, cfg).Endurance
 	for _, tc := range []struct {
 		name                                                        string
 		points, speed, endurance, primary, wantSpeed, wantEndurance int
@@ -183,7 +183,7 @@ func TestSniperAutoLevelAndMasteryProgression(t *testing.T) {
 			}
 			ch.Speed, ch.Endurance, *primary = speedTarget+tc.speed, enduranceTarget+tc.endurance, tc.primary
 			ch.FreeStatPoints = tc.points
-			autoDistributeStatPoints(ch, cfg)
+			autoDistributeStatPoints(ch, autoClassStats(ch.Class, cfg), cfg)
 			if ch.Speed != speedTarget+tc.wantSpeed || ch.Endurance != enduranceTarget+tc.wantEndurance || *primary != tc.wantPrimary || ch.FreeStatPoints != 0 {
 				t.Fatalf("unexpected auto stats: speed=%d endurance=%d primary=%d", ch.Speed, ch.Endurance, *primary)
 			}

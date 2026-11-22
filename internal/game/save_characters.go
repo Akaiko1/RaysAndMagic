@@ -1,12 +1,14 @@
 package game
 
 import (
+	"cmp"
 	"maps"
 	"math"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/spells"
+	"ugataima/internal/status"
 )
 
 func normalizeItemFromConfig(item *items.Item) {
@@ -14,34 +16,38 @@ func normalizeItemFromConfig(item *items.Item) {
 		return
 	}
 	// Weapons refresh from weapons.yaml (name/rarity/stat rebalances reach saved
-	// slots), keyed by display name. Type-gated so a non-weapon that happens to
-	// share a name can't be force-converted into a weapon.
+	// slots), by key - or by display name for a save before keys, which stamps
+	// the key. Type-gated so a non-weapon can't be force-converted into a weapon.
 	if item.Type == items.ItemWeapon {
-		if _, key, ok := config.GetWeaponDefinitionByName(item.Name); ok && key != "" {
+		if def, key, ok := config.WeaponDefOf(*item); ok && key != "" {
 			if template, err := items.TryCreateWeaponFromYAML(key); err == nil {
 				instanceID := item.InstanceID
+				signature := item.Signature
 				*item = template
 				item.InstanceID = instanceID
+				item.Signature = normalizedSignatureState(def, signature)
 			}
 		}
 		return
 	}
 	if item.Type == items.ItemTechnique {
-		if fresh, ok := config.TechniqueItem(string(item.SpellEffect)); ok {
+		// Older saves kept the technique key in SpellEffect.
+		if fresh, ok := config.TechniqueItem(cmp.Or(item.Technique, string(item.SpellEffect))); ok {
 			*item = fresh
 		}
 		return
 	}
 	if item.Type == items.ItemThrowable {
-		if fresh, ok := config.FlaskItem(string(item.SpellEffect)); ok {
+		// Older saves kept the flask key in SpellEffect.
+		if fresh, ok := config.FlaskItem(cmp.Or(item.Flask, string(item.SpellEffect))); ok {
 			*item = fresh
 		}
 		return
 	}
-	// Trap quick-slot items refresh from traps.yaml (name/cost rebalances
-	// reach saved slots), keyed by SpellEffect.
+	// Trap quick-slot items refresh from traps.yaml (name rebalances reach
+	// saved slots). Older saves kept the trap key in SpellEffect.
 	if item.Type == items.ItemTrap {
-		if fresh, ok := config.TrapItem(string(item.SpellEffect)); ok {
+		if fresh, ok := config.TrapItem(cmp.Or(item.Trap, string(item.SpellEffect))); ok {
 			fresh.InstanceID = item.InstanceID
 			*item = fresh
 		}
@@ -52,7 +58,7 @@ func normalizeItemFromConfig(item *items.Item) {
 	default:
 		return
 	}
-	_, key, ok := config.GetItemDefinitionByName(item.Name)
+	_, key, ok := config.ItemDefOf(*item)
 	if !ok || key == "" {
 		return
 	}
@@ -62,7 +68,9 @@ func normalizeItemFromConfig(item *items.Item) {
 	}
 	// Adopt the def's current type, so cards saved before they became their own
 	// type (was "trinket") migrate to items.ItemCard on load.
+	item.Key = template.Key
 	item.Type = template.Type
+	item.Name = template.Name
 	// The YAML definition is the single source of an item's attributes: ADOPT
 	// it wholesale, so rebalanced (or removed) values reach items saved before
 	// the change. Items carry no instance state in Attributes - merging only
@@ -81,15 +89,26 @@ func normalizeItemFromConfig(item *items.Item) {
 	item.UseAction = template.UseAction
 	if item.Type == items.ItemDevice {
 		item.SpellEffect = template.SpellEffect
-		limit := item.Attributes["use_cooldown_seconds"] * config.GetTargetTPS()
-		if item.LegacyDeviceCooldown > 0 && !math.IsNaN(item.LegacyDeviceCooldown) {
+		tps := config.GetTargetTPS()
+		limit := item.Attributes["use_cooldown_seconds"] * tps
+		recharge := deviceClock(item)
+		status.MigrateFrames(recharge, &item.LegacyDeviceCooldownFrames, tps)
+		if item.LegacyDeviceCooldown > 0 && !math.IsNaN(item.LegacyDeviceCooldown) && !recharge.Active() {
 			seconds := math.Min(item.LegacyDeviceCooldown, float64(item.Attributes["use_cooldown_seconds"]))
-			// Legacy float accumulation can drift just above an exact frame.
-			item.DeviceCooldownFrames = int(math.Round(seconds * float64(config.GetTargetTPS())))
+			// Legacy float accumulation drifts around an exact frame: a residue
+			// under half a frame is a device already recharged.
+			if seconds*float64(tps) >= 0.5 {
+				*recharge = status.FromSeconds(seconds, tps)
+			}
 		}
-		item.DeviceCooldownFrames = min(max(0, item.DeviceCooldownFrames), limit)
+		if recharge.Frames < 0 || recharge.Turns < 0 || recharge.Frames > limit {
+			// A recharge never outlasts the authored one.
+			*recharge = status.FromFrames(min(max(0, recharge.Frames), limit), tps)
+		}
+	} else {
+		item.DeviceCooldown = items.RoundClock{}
 	}
-	item.LegacyDeviceCooldown = 0
+	item.LegacyDeviceCooldownFrames, item.LegacyDeviceCooldown = 0, 0
 }
 
 // restoreCharacterSave reconstructs one character (active or reserve) from a save.
@@ -157,6 +176,7 @@ func restoreCharacterSave(cs CharacterSave) *character.MMCharacter {
 		normalizeItemFromConfig(&item)
 		m.Equipment[items.EquipSlot(eq.Slot)] = item
 	}
+	m.QuickSecondRow = cs.QuickSecondRow
 	for _, qs := range cs.QuickSlots {
 		if qs.Slot < 0 || qs.Slot >= character.QuickSlotCount {
 			continue
@@ -164,26 +184,50 @@ func restoreCharacterSave(cs CharacterSave) *character.MMCharacter {
 		item := qs.Item
 		normalizeItemFromConfig(&item)
 		m.QuickSlots[qs.Slot] = &item
+		// A filled second-row cell shows its row, whatever the flag said.
+		m.QuickSecondRow = m.QuickSecondRow || qs.Slot >= character.QuickSlotsPerRow
 	}
 	m.RareClass = cs.RareClass.Clone()
+	m.SpellState = cs.SpellState.Clone()
+	tps := config.GetTargetTPS()
+	m.RareClass.MigrateLegacyClocks(tps)
+	m.SpellState.MigrateLegacyClocks(tps)
+	// Older saves kept the autocast budget as frames, in the spell or rare-class state.
+	m.AutocastCD = restoreClock(cs.AutocastCD, max(cs.AutocastFrames, m.SpellState.LegacyAutoFrames, m.RareClass.AutoFrames))
+	m.SpellState.LegacyAutoFrames, m.RareClass.AutoFrames = 0, 0
+	for id, c := range m.SpellState.Reuse {
+		d, ok := config.GetSpellDefinition(id)
+		if !ok || d.ReuseSeconds <= 0 || !c.Active() {
+			delete(m.SpellState.Reuse, id)
+			continue
+		}
+		if c.Frames > d.ReuseSeconds*tps { // a lockout never outlasts the authored reuse
+			m.SpellState.ArmReuse(id, d.ReuseSeconds, tps)
+		}
+	}
 	// Old saves represented one charged attack by a timer. Preserve that one
 	// attack as a permanent charge; newer counts never inherit an expiry.
 	if m.RareClass.FlowCharges == 0 && m.RareClass.FlowFrames > 0 {
 		m.RareClass.FlowCharges = 1
 	}
 	m.RareClass.FlowFrames = 0
-	m.AutoDrinkCooldown = max(0, cs.AutoDrinkCooldown)
-	m.DesignatedTargetID, m.DesignationFrames = cs.DesignatedTargetID, max(0, cs.DesignationFrames)
+	m.AutoDrinkCD = restoreClock(cs.AutoDrinkCD, max(0, cs.AutoDrinkCooldown))
+	m.DesignatedTargetID, m.Designation = cs.DesignatedTargetID, restoreClock(cs.Designation, max(0, cs.DesignationFrames))
 	m.PoisonFramesRemaining = cs.PoisonFramesRemaining
 	m.BurnFramesRemaining = cs.BurnFramesRemaining
 	m.RestoreDoTTickTimers(cs.PoisonTickTimer, cs.BurnTickTimer)
-	m.RestoreRealtimeRegenProgress(cs.SpellRegenTimer, cs.HPRegenTimer)
-	m.StunFramesRemaining = cs.StunFramesRemaining
-	m.StunTurnsRemaining = cs.StunTurnsRemaining
-	m.StunRate = cs.StunRate
-	m.StunDRStacks, m.StunDRMemoryTurns, m.StunDRMemoryFrames = cs.StunDRStacks, cs.StunDRMemoryTurns, cs.StunDRMemoryFrames
+	m.SPRegen.Restore(cs.SPRegen)
+	m.HPRegen.Restore(cs.HPRegen)
+	m.SPRegenFight = cs.SPRegenFight
+	if cs.legacyRegen() {
+		m.RestoreLegacyRegen(cs.SpellRegenTimer, cs.HPRegenTimer, 0, 0)
+	}
+	m.Stun = savedClock(cs.Stun, status.DualClock{Frames: cs.StunFramesRemaining, Turns: cs.StunTurnsRemaining, Rate: cs.StunRate})
+	m.StunDRStacks = cs.StunDRStacks
+	m.StunDRMemory = savedClock(cs.StunDRMemory, status.StunDRMemory(cs.StunDRMemoryFrames, cs.StunDRMemoryTurns, config.GetTargetTPS()))
+	m.ArmorMelt.Restore(cs.ArmorMelt)
 	m.ActionsRemaining = cs.ActionsRemaining
-	m.ReactiveCombat = cs.ReactiveCombat
+	m.ActorID, m.ReactiveCombat, m.Clockwork = cs.ActorID, cs.ReactiveCombat, cs.Clockwork
 	m.TBRoundActionFloor = cs.TBRoundActionFloor
 	if m.TBRoundActionFloor <= 0 && m.ActionsRemaining > 0 {
 		// Legacy saves predate the credited-floor field. Recover the floor
@@ -199,7 +243,9 @@ func restoreCharacterSave(cs CharacterSave) *character.MMCharacter {
 // buildCharacterSave serializes one character (active or reserve).
 func buildCharacterSave(m *character.MMCharacter) CharacterSave {
 	cs := CharacterSave{
+		ActorID:          m.ActorID,
 		ReactiveCombat:   m.ReactiveCombat,
+		Clockwork:        m.Clockwork,
 		Name:             m.Name,
 		AdventureXP:      maps.Clone(m.AdventureXP),
 		Inventory:        append([]items.Item(nil), m.Inventory...),
@@ -252,21 +298,36 @@ func buildCharacterSave(m *character.MMCharacter) CharacterSave {
 			cs.QuickSlots = append(cs.QuickSlots, QuickSlotEntry{Slot: i, Item: *item})
 		}
 	}
+	cs.QuickSecondRow = m.QuickSecondRow
 	cs.RareClass = m.RareClass.Clone()
-	cs.AutoDrinkCooldown = m.AutoDrinkCooldown
-	cs.DesignatedTargetID, cs.DesignationFrames = m.DesignatedTargetID, m.DesignationFrames
+	cs.SpellState = m.SpellState.Clone()
+	cs.AutoDrinkCD, cs.AutocastCD = m.AutoDrinkCD.Saved(), m.AutocastCD.Saved()
+	cs.DesignatedTargetID, cs.Designation = m.DesignatedTargetID, m.Designation.Saved()
 	cs.PoisonFramesRemaining = m.PoisonFramesRemaining
 	cs.BurnFramesRemaining = m.BurnFramesRemaining
 	cs.PoisonTickTimer, cs.BurnTickTimer = m.DoTTickTimers()
-	cs.SpellRegenTimer, cs.HPRegenTimer = m.RealtimeRegenProgress()
-	cs.StunFramesRemaining = m.StunFramesRemaining
-	cs.StunTurnsRemaining = m.StunTurnsRemaining
-	cs.StunRate = m.StunRate
-	cs.StunDRStacks, cs.StunDRMemoryTurns, cs.StunDRMemoryFrames = m.StunDRStacks, m.StunDRMemoryTurns, m.StunDRMemoryFrames
+	cs.SPRegen, cs.HPRegen, cs.SPRegenFight = m.SPRegen.Saved(), m.HPRegen.Saved(), m.SPRegenFight
+	cs.Stun = m.Stun.Saved()
+	cs.StunDRStacks, cs.StunDRMemory = m.StunDRStacks, m.StunDRMemory.Saved()
+	cs.ArmorMelt = m.ArmorMelt.Saved()
 	cs.ActionsRemaining = m.ActionsRemaining
 	cs.TBRoundActionFloor = m.TBRoundActionFloor
 	cs.RTCooldown = m.RTCooldown
 	cs.OffHandRTCooldown = m.OffHandRTCooldown
 	cs.NextTBAttackOffHand = m.NextTBAttackOffHand
 	return cs
+}
+
+// savedClock reads a saved clock, or legacy - what an older save wrote in its
+// place - when the save has none.
+func savedClock(saved *status.DualClock, legacy status.DualClock) status.DualClock {
+	if saved != nil {
+		return *saved
+	}
+	return legacy
+}
+
+// restoreClock reads a saved clock, or an older save's frame count.
+func restoreClock(saved *status.DualClock, legacyFrames int) status.DualClock {
+	return savedClock(saved, status.FromFrames(legacyFrames, config.GetTargetTPS()))
 }

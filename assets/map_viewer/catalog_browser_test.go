@@ -217,71 +217,6 @@ func TestCatalogNavigationVisitsEveryOccurrence(t *testing.T) {
 	}
 }
 
-func TestMobInspectorSectionRoutingAndWrapping(t *testing.T) {
-	old := mobsPage
-	t.Cleanup(func() { mobsPage = old })
-	for _, tc := range []struct {
-		name      string
-		def       monster.MonsterDefinition
-		abilities []string
-	}{
-		{"without resists", monster.MonsterDefinition{}, []string{"Melee:"}},
-		{"with resists", monster.MonsterDefinition{Resistances: map[string]int{"fire": 20}}, []string{"Melee:"}},
-		{"champion", monster.MonsterDefinition{Champion: "fixture"}, []string{"CHAMPION"}},
-		{"inert", monster.MonsterDefinition{Disposition: monster.DispositionFish}, []string{"No special abilities."}},
-		{"behavior", monster.MonsterDefinition{Disposition: monster.DispositionFish, Flying: true}, []string{"BEHAVIOR", "flying"}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			tc.def.Name, tc.def.Biomes, tc.def.Sprite = "Fixture", []string{"forest"}, "fixture.png"
-			v := &viewer{monsterCfg: &monster.MonsterYAMLConfig{Monsters: map[string]monster.MonsterDefinition{"fixture": tc.def}}}
-			mobsPage.keys, mobsPage.selIdx = []string{"fixture"}, 0
-			mobsPage.info = buildMobInfoRuntime("fixture", tc.def, nil, 64)
-			text := func(tab string) string {
-				v.browser.mobTab = tab
-				var b strings.Builder
-				for _, row := range v.visibleMobDetails(600) {
-					fmt.Fprintln(&b, row.text)
-				}
-				return b.String()
-			}
-			overview, abilities := text("Overview"), text("Abilities")
-			for _, s := range []string{"Biomes: forest", "sprite fixture.png"} {
-				if !strings.Contains(overview, s) || strings.Contains(abilities, s) {
-					t.Fatalf("placement row %q routed incorrectly", s)
-				}
-			}
-			if strings.Contains(overview, "CHAMPION") {
-				t.Fatal("champion block duplicated in Overview")
-			}
-			for _, s := range tc.abilities {
-				if !strings.Contains(abilities, s) {
-					t.Fatalf("Abilities missing %q: %s", s, abilities)
-				}
-			}
-		})
-	}
-	d := monster.MonsterDefinition{Telegraph: &monster.TelegraphedAttack{Name: "Slam", WarningSeconds: 2, WarningRounds: 1, CooldownSeconds: 6, CooldownRounds: 3}}
-	v := &viewer{monsterCfg: &monster.MonsterYAMLConfig{Monsters: map[string]monster.MonsterDefinition{"fixture": d}}}
-	mobsPage.info = buildMobInfoRuntime("fixture", d, nil, 64)
-	v.browser.mobTab = "Abilities"
-	const warning = "Warning: 2s / 1 rounds; cooldown: 6s / 3 rounds"
-	wide := v.visibleMobDetails(800)
-	found := false
-	for _, row := range wide {
-		if row.text == warning && row.depth == 2 {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatal("wide pane still pre-wraps warning at 40 characters or loses nesting")
-	}
-	for _, row := range v.visibleMobDetails(220) {
-		if strings.Contains(row.text, "cooldown:") && row.depth != 2 {
-			t.Fatal("wrapped warning continuation lost its indent")
-		}
-	}
-}
-
 func TestCatalogCachesInvalidateVisibleState(t *testing.T) {
 	old := mobsPage
 	t.Cleanup(func() { mobsPage = old })
@@ -318,7 +253,7 @@ func TestCatalogCachesInvalidateVisibleState(t *testing.T) {
 	}
 	mobsPage.keys, mobsPage.selIdx = []string{"fixture"}, 0
 	v.monsterCfg = &monster.MonsterYAMLConfig{Monsters: map[string]monster.MonsterDefinition{"fixture": {Name: "Fixture"}}}
-	mobsPage.info = buildMobInfoRuntime("fixture", v.monsterCfg.Monsters["fixture"], nil, 64)
+	mobsPage.info = buildMobInfoRuntime("fixture", v.monsterCfg.Monsters["fixture"], nil, nil, 64)
 	rows := v.mobCatalogRows()
 	if next := v.mobCatalogRows(); &next[0] != &rows[0] {
 		t.Fatal("idle Bestiary list rebuilt")
@@ -356,18 +291,18 @@ func TestFailedMapKeepsOnlyVisibleRecoveryControls(t *testing.T) {
 func TestMobAbilityInspectorIncludesTelegraphAndEncounter(t *testing.T) {
 	old := mobsPage
 	t.Cleanup(func() { mobsPage = old })
-	d := monster.MonsterDefinition{Name: "Sentinel", Telegraph: &monster.TelegraphedAttack{Name: "Ground slam", Kind: "strike", School: "earth", Shape: "burst", Range: 3, WarningSeconds: 2, WarningRounds: 1, CooldownSeconds: 6, CooldownRounds: 3, DamagePercent: 150, DurationSeconds: 4, DurationRounds: 2, SustainDamage: 7, BelowHPPercent: 60}}
-	v := &viewer{monsterCfg: &monster.MonsterYAMLConfig{Monsters: map[string]monster.MonsterDefinition{"sentinel": d}}, maps: []mapInfo{{Key: "test_arena", Config: &config.MapConfig{Adventure: &config.AdventureConfig{Boss: &config.AdventureBoss{Monster: "sentinel", EveryActions: 3, Lanes: []string{"north"}}}}}}}
+	d := monster.MonsterDefinition{Name: "Sentinel", Abilities: monster.Abilities{Telegraph: &monster.TelegraphedAttack{Name: "Ground slam", Kind: "strike", School: "earth", Shape: "burst", Range: 3, WarningSeconds: 2, WarningRounds: 1, CooldownSeconds: 6, CooldownRounds: 3, DamagePercent: 150, DurationSeconds: 6, SustainPercent: 7, BelowHPPercent: 60}}}
+	v := &viewer{monsterCfg: &monster.MonsterYAMLConfig{Monsters: map[string]monster.MonsterDefinition{"sentinel": d}}, maps: []mapInfo{{Key: "test_arena", Config: &config.MapConfig{Adventure: &config.AdventureConfig{Boss: &config.AdventureBoss{Monster: "sentinel", CooldownSeconds: 9, Lanes: []string{"north"}}}}}}}
 	mobsPage.keys = []string{"sentinel"}
 	mobsPage.selIdx = 0
-	mobsPage.info = buildMobInfoRuntime("sentinel", d, nil, 64)
+	mobsPage.info = buildMobInfoRuntime("sentinel", d, nil, nil, 64)
 	v.browser.mobTab = "Abilities"
 	var text strings.Builder
 	for _, r := range v.visibleMobDetails(360) {
 		text.WriteString(r.text)
 		text.WriteByte(' ')
 	}
-	for _, want := range []string{"Ground slam", "Warning:", "2s / 1 rounds", "6s / 3 rounds", "150%", "sustained damage: 7", "60% HP", "ENCOUNTER: test_arena", "north"} {
+	for _, want := range []string{"Ground slam", "Warning:", "2s / 1 rounds", "6s / 3 rounds", "150%", "sustained damage: 7% of attack", "60% HP", "ENCOUNTER: test_arena", "north"} {
 		if !strings.Contains(text.String(), want) {
 			t.Fatalf("missing ability/encounter information %q in %s", want, text.String())
 		}
@@ -375,7 +310,7 @@ func TestMobAbilityInspectorIncludesTelegraphAndEncounter(t *testing.T) {
 	v.browser.mobTab = "Source"
 	rows := v.visibleMobDetails(360)
 	for _, r := range rows {
-		if r.header && strings.Contains(r.text, "telegraphed_attack") {
+		if r.header && strings.Contains(r.text, "telegraph") {
 			v.toggleCatalogSection(r.id)
 			break
 		}

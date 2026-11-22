@@ -14,6 +14,10 @@ import (
 var activeWorldRaster *paniniRasterizer
 var zeroWorldPanini [4]float32
 
+// A uniform map holds its values as interfaces. Boxing the same slice on
+// every world draw allocated twice per call; these are boxed once.
+var zeroWorldPaniniUniform any = zeroWorldPanini[:]
+
 type paniniRasterizer struct {
 	target        *ebiten.Image
 	projection    paniniProjection
@@ -24,7 +28,10 @@ type paniniRasterizer struct {
 	indices       []uint32
 	uniform       [4]float32
 	centerUniform [1]float32
-	emptyUniforms map[string]any
+	// uniformValue and centerValue are uniform and centerUniform as the
+	// uniform map stores them; they alias the arrays above.
+	uniformValue, centerValue any
+	emptyUniforms             map[string]any
 }
 
 func (gl *GameLoop) renderProjectedWorld(dst *ebiten.Image) {
@@ -117,16 +124,17 @@ func clipPaniniPolygon(out, in []ebiten.Vertex, axis int, edge float32, greater 
 	if len(in) == 0 {
 		return out
 	}
-	coordinate := func(v ebiten.Vertex) float32 {
-		if axis == 0 {
-			return v.DstX
-		}
-		return v.DstY
-	}
 	a := in[len(in)-1]
-	av := coordinate(a)
-	for _, b := range in {
-		bv := coordinate(b)
+	av := a.DstX
+	if axis != 0 {
+		av = a.DstY
+	}
+	for i := range in {
+		b := in[i]
+		bv := b.DstX
+		if axis != 0 {
+			bv = b.DstY
+		}
 		ai, bi := av >= edge, bv >= edge
 		if !greater {
 			ai, bi = av <= edge, bv <= edge
@@ -147,7 +155,16 @@ func clipPaniniPolygon(out, in []ebiten.Vertex, axis int, edge float32, greater 
 // rendered scene. Subdivision bounds nonlinear attribute interpolation error.
 func projectWorldTriangles[I ~uint16 | ~uint32](p *paniniRasterizer, vs []ebiten.Vertex, is []I, columnMaterial bool) ([]ebiten.Vertex, []uint32) {
 	p.vertices, p.indices = p.vertices[:0], p.indices[:0]
+	var a, b [12]ebiten.Vertex // clip scratch, zeroed once per submission
 	for i := 0; i+2 < len(is); i += 3 {
+		if columnMaterial && i+5 < len(is) {
+			q := is[i]
+			if is[i+1] == q+1 && is[i+2] == q+2 && is[i+3] == q+1 && is[i+4] == q+3 && is[i+5] == q+2 &&
+				p.appendColumnQuad(&vs[q], &vs[q+1], &vs[q+2], &vs[q+3]) {
+				i += 3
+				continue
+			}
+		}
 		tri := [3]ebiten.Vertex{vs[is[i]], vs[is[i+1]], vs[is[i+2]]}
 		analyticColumn := false
 		if columnMaterial {
@@ -174,7 +191,6 @@ func projectWorldTriangles[I ~uint16 | ~uint32](p *paniniRasterizer, vs []ebiten
 			continue
 		}
 		for k := start; k+1 < len(p.knots) && p.knots[k] < hi; k++ {
-			var a, b [12]ebiten.Vertex
 			poly := clipPaniniPolygon(a[:0], tri[:], 0, float32(p.knots[k]), true)
 			poly = clipPaniniPolygon(b[:0], poly, 0, float32(p.knots[k+1]), false)
 			poly = clipPaniniPolygon(a[:0], poly, 1, float32(p.bounds.Min.Y), true)
@@ -190,6 +206,8 @@ func projectWorldTriangles[I ~uint16 | ~uint32](p *paniniRasterizer, vs []ebiten
 	return p.vertices, p.indices
 }
 
+// worldDrawImage takes no ColorM or CompositeMode (both deprecated): the raster
+// path draws triangles and drops them; use ColorScale and Blend.
 func worldDrawImage(dst, src *ebiten.Image, op *ebiten.DrawImageOptions) {
 	p := worldRaster(dst)
 	if p == nil {
@@ -206,7 +224,7 @@ func worldDrawImage(dst, src *ebiten.Image, op *ebiten.DrawImageOptions) {
 		x, y := o.GeoM.Apply(q[0], q[1])
 		v[i] = ebiten.Vertex{DstX: float32(x), DstY: float32(y), SrcX: float32(q[0] + float64(b.Min.X)), SrcY: float32(q[1] + float64(b.Min.Y)), ColorR: o.ColorScale.R(), ColorG: o.ColorScale.G(), ColorB: o.ColorScale.B(), ColorA: o.ColorScale.A()}
 	}
-	opts := ebiten.DrawTrianglesOptions{ColorM: o.ColorM, ColorScaleMode: ebiten.ColorScaleModePremultipliedAlpha, CompositeMode: o.CompositeMode, Blend: o.Blend, Filter: o.Filter, DisableMipmaps: o.DisableMipmaps}
+	opts := ebiten.DrawTrianglesOptions{ColorScaleMode: ebiten.ColorScaleModePremultipliedAlpha, Blend: o.Blend, Filter: o.Filter, DisableMipmaps: o.DisableMipmaps}
 	vertices, indices := projectWorldTriangles(p, v[:], weaponQuadIndices, false)
 	dst.DrawTriangles32(vertices, indices, src, &opts)
 }
@@ -226,7 +244,7 @@ func worldShaderOptions(p *paniniRasterizer, op *ebiten.DrawTrianglesShaderOptio
 	}
 	if p == nil {
 		if o.Uniforms != nil {
-			o.Uniforms["WorldPanini"] = zeroWorldPanini[:]
+			o.Uniforms["WorldPanini"] = zeroWorldPaniniUniform
 		}
 		return o
 	}
@@ -241,8 +259,11 @@ func worldShaderOptions(p *paniniRasterizer, op *ebiten.DrawTrianglesShaderOptio
 			o.Uniforms = p.emptyUniforms
 		}
 	}
-	o.Uniforms["WorldPanini"] = p.uniform[:]
-	o.Uniforms["WorldCenter"] = p.centerUniform[:]
+	if p.uniformValue == nil {
+		p.uniformValue, p.centerValue = p.uniform[:], p.centerUniform[:]
+	}
+	o.Uniforms["WorldPanini"] = p.uniformValue
+	o.Uniforms["WorldCenter"] = p.centerValue
 	return o
 }
 func worldDrawTrianglesShader(dst *ebiten.Image, v []ebiten.Vertex, i []uint16, shader *ebiten.Shader, op *ebiten.DrawTrianglesShaderOptions) {
@@ -323,6 +344,57 @@ func (p *paniniRasterizer) appendSurfaceTriangle(a, b, c ebiten.Vertex, level in
 	p.indices = append(p.indices, base, base+1, base+2)
 }
 
+// appendColumnQuad cuts one column-material quad (top-left, top-right,
+// bottom-left, bottom-right; vertical side edges, attributes constant along
+// each) at the shared X knots: two vertices per cut, two triangles per strip.
+// It reports false for any other quad, which the triangle clipper then takes.
+// Projected Y is linear in Y within a column, so no vertical clip is needed.
+func (p *paniniRasterizer) appendColumnQuad(tl, tr, bl, br *ebiten.Vertex) bool {
+	x0, x1 := tl.DstX, tr.DstX
+	if !(x0 < x1) || bl.DstX != x0 || br.DstX != x1 {
+		return false
+	}
+	side := *bl
+	side.DstY = tl.DstY
+	if side != *tl {
+		return false
+	}
+	side = *br
+	side.DstY = tr.DstY
+	if side != *tr {
+		return false
+	}
+	lo, hi := max(float32(p.bounds.Min.X), x0), min(float32(p.bounds.Max.X), x1)
+	if hi <= lo {
+		return true
+	}
+	inverseWidth := 1 / (x1 - x0)
+	cut := func(x float32) {
+		t := (x - x0) * inverseWidth
+		top := vertexBetween(*tl, *tr, t)
+		bottomY := bl.DstY + (br.DstY-bl.DstY)*t
+		scale := p.columnMagnification(float64(x))
+		top.DstX = float32(p.projection.center + (float64(x)-p.projection.center)*scale)
+		bottom := top
+		top.DstY = float32(p.projection.horizon + (float64(top.DstY)-p.projection.horizon)*scale)
+		bottom.DstY = float32(p.projection.horizon + (float64(bottomY)-p.projection.horizon)*scale)
+		p.vertices = append(p.vertices, top, bottom)
+	}
+	base := uint32(len(p.vertices))
+	cut(lo)
+	for k := sort.SearchFloat64s(p.knots, float64(lo)); k < len(p.knots) && float32(p.knots[k]) < hi; k++ {
+		if float32(p.knots[k]) <= lo {
+			continue
+		}
+		cut(float32(p.knots[k]))
+		p.indices = append(p.indices, base, base+2, base+1, base+2, base+3, base+1)
+		base += 2
+	}
+	cut(hi)
+	p.indices = append(p.indices, base, base+2, base+1, base+2, base+3, base+1)
+	return true
+}
+
 // Column materials reconstruct their vertical sample analytically from dstPos.
 // Their remaining attributes vary only with X: vertical tessellation would add
 // geometry without improving their sampling or their projected outer edges.
@@ -339,13 +411,14 @@ func worldDrawColumnShader32(dst *ebiten.Image, v []ebiten.Vertex, i []uint32, s
 // Cache their scale when the viewport changes, keeping arbitrary clipped
 // vertices exact instead of quantizing them onto the column grid.
 func (p *paniniRasterizer) presentedPoint(x, y float64) (float64, float64) {
-	fx := 2 * (x - float64(p.bounds.Min.X))
-	i := int(fx)
-	scale := 0.0
-	if i >= 0 && i < len(p.columnScale) && fx == float64(i) {
-		scale = p.columnScale[i]
-	} else {
-		scale = p.projection.columnMagnification(x)
-	}
+	scale := p.columnMagnification(x)
 	return p.projection.center + (x-p.projection.center)*scale, p.projection.horizon + (y-p.projection.horizon)*scale
+}
+
+func (p *paniniRasterizer) columnMagnification(x float64) float64 {
+	fx := 2 * (x - float64(p.bounds.Min.X))
+	if i := int(fx); i >= 0 && i < len(p.columnScale) && fx == float64(i) {
+		return p.columnScale[i]
+	}
+	return p.projection.columnMagnification(x)
 }

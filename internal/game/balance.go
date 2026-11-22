@@ -3,7 +3,6 @@ package game
 import (
 	"ugataima/internal/character"
 	"ugataima/internal/config"
-	"ugataima/internal/status"
 )
 
 // Balance constants are the single source of truth shared by combat formulas
@@ -16,17 +15,17 @@ import (
 // shares them too - see character/catalog.go); these are thin re-exports so the
 // existing combat references keep compiling unchanged. The VALUE is defined once.
 const (
-	MasteryWeaponTrueDamagePerTier    = character.MasteryWeaponTrueDamagePerTier
-	WeaponGMCritBonus                 = character.WeaponGMCritBonus
-	MasteryArmorACPerLevel            = character.MasteryArmorACPerLevel
-	ArmorGMDodgeBonus                 = character.ArmorGMDodgeBonus
-	LearningXPPctPerTier              = character.LearningXPPctPerTier
-	LearningGMPartyXPPct              = character.LearningGMPartyXPPct
-	ArmsMasterDamagePerTier           = character.ArmsMasterDamagePerTier
-	ArmsMasterGMCritBonus             = character.ArmsMasterGMCritBonus
-	DisarmTrapDamageReductionPerTier  = character.DisarmTrapDamageReductionPerTier
-	MerchantPricePctPerTier           = character.MerchantPricePctPerTier
-	MeditationGMSpellCostReductionPct = character.MeditationGMSpellCostReductionPct
+	MasteryWeaponTrueDamagePerTier   = character.MasteryWeaponTrueDamagePerTier
+	WeaponGMCritBonus                = character.WeaponGMCritBonus
+	MasteryArmorACPerLevel           = character.MasteryArmorACPerLevel
+	ArmorGMDodgeBonus                = character.ArmorGMDodgeBonus
+	LearningXPPctPerTier             = character.LearningXPPctPerTier
+	LearningGMPartyXPPct             = character.LearningGMPartyXPPct
+	ArmsMasterDamagePerTier          = character.ArmsMasterDamagePerTier
+	ArmsMasterGMCritBonus            = character.ArmsMasterGMCritBonus
+	DisarmTrapDamageReductionPerTier = character.DisarmTrapDamageReductionPerTier
+	MerchantPricePctPerTier          = character.MerchantPricePctPerTier
+	MeditationGMSPCostReductionPct   = character.MeditationGMSPCostReductionPct
 )
 
 // turnBasedPeriodicEffectFrames converts the shared seconds-per-round policy to
@@ -35,7 +34,7 @@ func turnBasedPeriodicEffectFrames(tps int) int {
 	if tps <= 0 {
 		tps = config.GetTargetTPS()
 	}
-	return tps * TurnBasedPeriodicEffectSeconds
+	return tps * config.CombatRoundSeconds
 }
 
 // Game-only mastery constants (not needed by the editor) stay here.
@@ -61,11 +60,11 @@ const (
 const (
 	// Armor mitigation (percentage, diminishing returns) - shared by party AND
 	// monster armor via armorMitigationPctFromAC. Canonical values in
-	// character/catalog.go. Physical caps at 75%; elemental is the same curve
+	// config/config.go. Physical caps at 75%; elemental is the same curve
 	// scaled to reach its 33% cap at the same AC.
-	ArmorMitigationK            = character.ArmorMitigationK
-	ArmorPhysicalMitigationCap  = character.ArmorPhysicalMitigationCap
-	ArmorElementalMitigationCap = character.ArmorElementalMitigationCap
+	ArmorMitigationK            = config.ArmorMitigationK
+	ArmorPhysicalMitigationCap  = config.ArmorPhysicalMitigationCap
+	ArmorElementalMitigationCap = config.ArmorElementalMitigationCap
 
 	// MaxStatValue is the cap a character's base stat can reach (the stat +button
 	// and AUTO distribution both stop here). A mechanics constant, kept out of the
@@ -116,9 +115,6 @@ const (
 
 	// ArmorPierceRangedChancePct lives in character/catalog.go (tooltip SSoT).
 	ArmorPierceRangedChancePct = character.ArmorPierceRangedChancePct
-
-	// SpellMasteryDurationBonusPct lives in character/catalog.go (tooltip SSoT).
-	SpellMasteryDurationBonusPct = character.SpellMasteryDurationBonusPct
 )
 
 // Combat reach distances in tiles. Multiplied by tile size at call time.
@@ -142,48 +138,41 @@ const (
 	// each has direct line of sight to the party.
 	TurnBasedPackAggroRadiusTiles = 8.0
 
-	// TurnBasedSpRegenEveryNRounds: how many full party rounds must pass in
-	// turn-based mode between SP regeneration ticks. Each tick adds
-	// CalculateManaRegenAmount SP to every able-bodied member.
-	TurnBasedSpRegenEveryNRounds = config.RegenerationRounds
-
-	// TurnBasedPeriodicEffectSeconds is the RT-time equivalent consumed by one
-	// TB round for periodic damage effects. Poison and burn still deal one tick
-	// per round; Hot Steam's authored three-second cadence also becomes one tick.
-	TurnBasedPeriodicEffectSeconds = character.TurnBasedTurnSeconds
-
 	// TurnBasedExtraMonsterActionDelaySeconds: visual pause between the normal
 	// monster action pass and the anti-kite extra pass.
 	TurnBasedExtraMonsterActionDelaySeconds = 0.18
 
-	// BossInfernoRangedRollSeconds is how often a boss may roll its nova from
+	// BossNovaRangedRollSeconds is how often a boss may roll its nova from
 	// OUTSIDE melee reach (inside reach the nova replaces a normal hit and rides
 	// the attack cadence). Cooldown policy, not per-boss content - the reach itself
-	// is authored per monster as inferno_range_tiles.
-	BossInfernoRangedRollSeconds = 2
+	// is authored per nova as its party_attacks range_tiles. Timer exception: not
+	// whole rounds; DualClock.Arm rounds its TB count up.
+	BossNovaRangedRollSeconds = 2
 
 	// TurnBasedPounceCooldownTurns is the TB counterpart of a monster's authored
 	// real-time pounce cooldown. Both clocks are armed together across Tab.
+	// Timer exception: one TB count for every monster, not derived from its
+	// authored seconds.
 	TurnBasedPounceCooldownTurns = 2
 
 	// Camping (the Camp icon beside the HUD quick slots): costs CampFoodCost food
 	// and is refused while any living monster is within CampEnemyRadiusTiles.
 	CampFoodCost         = 1
-	CampEnemyRadiusTiles = 5.0
+	CampEnemyRadiusTiles = 9.0
 )
 
-// Speed-stat -> action cooldown curve. Cooldown in frames is a linear function
-// of the character's effective Speed stat, clamped to [Min, Max] frames.
-// The formula `frames = Intercept - Slope * Speed` reaches the minimum cooldown
-// at AttackCooldownCapSpeed. Adjusting these knobs changes how much Speed
-// matters for action cadence in realtime combat.
+// Speed-stat -> action cooldown curve. The cooldown is a linear function of
+// the character's effective Speed stat, `seconds = Intercept - Slope * Speed`,
+// rounded to whole frames and clamped to [Min, Max]; it reaches the minimum at
+// AttackCooldownCapSpeed. Adjusting these knobs changes how much Speed matters
+// for action cadence in realtime combat.
 const (
-	AttackCooldownIntercept  = 63.333333 // frames at Speed=0 (before clamp)
-	AttackCooldownCapSpeed   = 150.0     // Speed where the curve first reaches MinFrames
-	AttackCooldownMinFrames  = 15        // floor: ~0.125s at 120 TPS
-	AttackCooldownMaxFrames  = 90        // ceiling: ~0.75s at 120 TPS
-	AttackCooldownSpeedSlope = (AttackCooldownIntercept - AttackCooldownMinFrames) /
-		AttackCooldownCapSpeed // frames lost per +1 Speed
+	AttackCooldownInterceptSeconds = 0.5277777 // at Speed=0 (before clamp)
+	AttackCooldownCapSpeed         = 150.0     // Speed where the curve first reaches the minimum
+	AttackCooldownMinSeconds       = 0.125     // floor
+	AttackCooldownMaxSeconds       = 0.75      // ceiling
+	AttackCooldownSpeedSlope       = (AttackCooldownInterceptSeconds - AttackCooldownMinSeconds) /
+		AttackCooldownCapSpeed // seconds lost per +1 Speed
 )
 
 // Real-time per-character cooldown model. In RT every character has their OWN
@@ -195,20 +184,20 @@ const (
 	// real time (the "x2 base" balance pass). Speed still scales the curve, so
 	// faster characters keep their cadence advantage proportionally.
 	RTBaseCooldownMult = 2.0
-	// RTCooldownMinFrames / RTCooldownMaxFrames are a safety clamp on the final
-	// per-character cooldown (weapon OR spell) so a stray multiplier can't
-	// produce a silly value. It is NOT the design range: weapons land ~0.15-1.8s
-	// and spells are authored 0.8-5s (x1.35 for slow casters => up to ~6.75s), so
-	// the cap is deliberately generous. 12 ~ 0.1s, 900 = 7.5s at 120 TPS.
-	RTCooldownMinFrames = 12  // ~0.10s at 120 TPS
-	RTCooldownMaxFrames = 900 // ~7.50s at 120 TPS
+	// RTCooldownMinSeconds / RTCooldownMaxSeconds are a safety clamp on the
+	// final per-character cooldown (weapon OR spell) so a stray multiplier
+	// can't produce a silly value. It is NOT the design range: weapons land
+	// ~0.15-1.8s and spells are authored 0.8-5s (x1.35 for slow casters => up to
+	// ~6.75s), so the cap is deliberately generous.
+	RTCooldownMinSeconds = 0.1
+	RTCooldownMaxSeconds = 7.5
 
-	// Non-buff spell cooldowns are required in spells.yaml as
-	// `cooldown_seconds`. The authored seconds are the cooldown at the reference
-	// Speed below; Speed scales it via spellCooldownSpeedFactor.
-	SpellCooldownSpeedRefSpeed  = 25   // Speed at which a spell's authored seconds apply as-is
-	SpellCooldownSpeedFactorMin = 0.5  // fastest characters: x0.5 (never below half)
-	SpellCooldownSpeedFactorMax = 1.35 // slowest characters: x1.35
+	// Spells (non-buffs), techniques, flasks and traps author
+	// `cooldown_seconds`: the cooldown at the reference Speed below. Speed
+	// scales it via actionCooldownSpeedFactor.
+	ActionCooldownSpeedRefSpeed  = 25   // Speed at which authored seconds apply as-is
+	ActionCooldownSpeedFactorMin = 0.5  // fastest characters: x0.5 (never below half)
+	ActionCooldownSpeedFactorMax = 1.35 // slowest characters: x1.35
 )
 
 // Per-weapon-TYPE attack-cooldown multipliers are DATA, not code: they live in
@@ -234,15 +223,20 @@ const (
 // seeks across the room rather than only engaging foes already on its doorstep.
 const BoundAllySeekTiles = 10.0
 
-// MonsterHitFlashFrames is how long a monster flashes red when hit. The shared
-// config `damage_blink_frames` (3) is far too brief to see; this dedicated value
-// (~0.1s at 120 TPS) makes the reaction read clearly.
-const MonsterHitFlashFrames = 12 // ~0.10s at 120 TPS
+// MonsterHitFlashSeconds is how long a monster flashes red when hit. The
+// party card's `damage_blink_seconds` is far too brief to see on a monster;
+// this dedicated value makes the reaction read clearly.
+const MonsterHitFlashSeconds = 0.1
 
-// MonsterAttackAnimFrames is the legacy strike window for monsters without a
+// monsterHitFlashFrames is MonsterHitFlashSeconds at the live rate.
+func (g *MMGame) monsterHitFlashFrames() int {
+	return g.framesForSeconds(MonsterHitFlashSeconds)
+}
+
+// MonsterAttackAnimSeconds is the legacy strike window for monsters without a
 // dedicated attack sheet. Keep it stable: their walk-sheet lunge already has
 // the intended timing.
-const MonsterAttackAnimFrames = 18 // ~0.15s at 120 TPS
+const MonsterAttackAnimSeconds = 0.15
 
 // AuthoredMonsterAttackFPS is the playback rate for a dedicated attack sheet.
 // Four frames at 10 FPS make a readable 0.4-second one-shot instead of squeezing
@@ -269,19 +263,6 @@ const MonsterHitShakeAmplitudeFrac = 0.0333
 // plane), reading as furious blinking. Beyond this size the shudder stops growing.
 const MonsterHitShakeMaxRefPx = 300.0
 
-// Stun diminishing returns: each successive stun on the SAME target lands for a
-// smaller fraction of its duration - 100% -> 50% -> 25% -> 0% (immune) - so no
-// target (boss included) can be perma-stun-locked. The chain resets once the
-// target has been stun-free for the window below (TB turns / RT seconds). The
-// chain length is mode-agnostic; the reset window is tracked per mode so a
-// TB<->RT switch mid-fight is conservative (never speeds up the reset).
-var StunDRFactorsPct = status.StunDRFactorsPct
-
-const (
-	StunDRResetTurns   = status.StunDRResetTurns   // TB: stun-free turns that clear the DR chain
-	StunDRResetSeconds = status.StunDRResetSeconds // RT: stun-free seconds that clear the DR chain
-)
-
 // SmartHealWoundedPct is the HP fraction below which the Space "smart attack"
 // treats an ally as wounded and auto-heals them (with a slotted heal) instead
 // of attacking. 0.6 = heal anyone at or below 60% HP; healthier party -> attack.
@@ -289,9 +270,9 @@ const SmartHealWoundedPct = 0.6
 
 // Sprite animation timing.
 const (
-	// SpriteFrameStride is the number of game frames each animation frame is
-	// held for in horizontal sprite sheets (~0.3s at 60 FPS).
-	SpriteFrameStride = 18
+	// SpriteFrameSeconds is how long each animation frame is held for in
+	// horizontal sprite sheets.
+	SpriteFrameSeconds = 0.15
 
 	// SpriteSheetFrameCount is the expected number of frames in a horizontal
 	// sprite sheet (sheet width = frame height x SpriteSheetFrameCount).

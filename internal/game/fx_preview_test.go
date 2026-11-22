@@ -26,7 +26,7 @@ func TestFxPreview_CatalogAndSpawnCycle(t *testing.T) {
 	for _, it := range items {
 		kinds[it.Kind]++
 	}
-	for _, k := range []FxKind{FxSpell, FxWeapon, FxTrap, FxCard, FxStatus} {
+	for _, k := range []FxKind{FxSpell, FxWeapon, FxTrap, FxCard, FxStatus, FxFlask} {
 		if kinds[k] == 0 {
 			t.Errorf("FX catalog has no entries of kind %d", k)
 		}
@@ -40,7 +40,7 @@ func TestFxPreview_CatalogAndSpawnCycle(t *testing.T) {
 		}
 		seen[it.Kind] = true
 		p.Select(it)
-		steps := fxRespawnTicks + 5
+		steps := p.g.framesForSeconds(fxRespawnSeconds) + 5
 		if it.Kind == FxTrap {
 			steps = 3 * cfg.GetTPS()
 		}
@@ -108,12 +108,12 @@ func TestFxPreview_PresentationClockAdvancesOncePerStep(t *testing.T) {
 		seen[it.Kind] = true
 		t.Run(it.Key, func(t *testing.T) {
 			p.Select(it)
-			for _, steps := range []int{1, fxRespawnTicks, 1} {
-				before := p.g.gameLoop.ui.cardAnimClock()
+			for _, steps := range []int{1, p.g.framesForSeconds(fxRespawnSeconds), 1} {
+				before := p.g.uiFrameCount
 				for i := 0; i < steps; i++ {
 					p.Step()
 				}
-				if got := p.g.gameLoop.ui.cardAnimClock() - before; got != int64(steps) {
+				if got := p.g.uiFrameCount - before; got != int64(steps) {
 					t.Fatalf("presentation advanced %d ticks, want %d", got, steps)
 				}
 			}
@@ -167,7 +167,7 @@ func TestFxPreview_AuraExhibitUsesEligibleAuthoredTile(t *testing.T) {
 				}
 				found = true
 				p.g.flyActive, p.g.walkOnWaterActive, p.g.waterBreathingActive = true, true, true
-				p.g.flyDuration, p.g.walkOnWaterDuration, p.g.waterBreathingDuration = 1000, 1000, 1000
+				p.g.flyClock, p.g.walkOnWaterClock, p.g.waterBreathingClock = framesClock(1000), framesClock(1000), framesClock(1000)
 				p.Step()
 				p.Select(it)
 				if p.g.flyActive || p.g.walkOnWaterActive || p.g.waterBreathingActive || !p.arena.IsTileBlocking(1, 4) {
@@ -240,13 +240,13 @@ func TestFxPreview_StatusExhibitsStageRealState(t *testing.T) {
 				if !onHero {
 					staged = p.g.world.Monsters[0]
 				}
-				for i := 0; i < fxRespawnTicks+5; i++ {
+				for i := 0; i < p.g.framesForSeconds(fxRespawnSeconds)+5; i++ {
 					p.Step()
 				}
 				check("respawn")
 				// Outlive the staged state: loop-ticked timers (Charm, Bind, party
 				// root) must be refreshed, never left to expire mid-selection.
-				for i := 0; i < statusStageFrames+2*fxRespawnTicks; i++ {
+				for i := 0; i < p.g.framesForSeconds(statusStageSeconds)+2*p.g.framesForSeconds(fxRespawnSeconds); i++ {
 					p.Step()
 				}
 				check("past the staged duration")
@@ -299,7 +299,7 @@ func TestFxPreview_AttackCompletesBeforeReplay(t *testing.T) {
 		})
 	}
 	p.Select(FxItem{Kind: FxSpell, Key: "hot_steam"})
-	for i := 0; i < fxRespawnTicks*3; i++ {
+	for i := 0; i < p.g.framesForSeconds(fxRespawnSeconds)*3; i++ {
 		p.Step()
 	}
 	if len(p.g.persistentDamageZones) == 0 {
@@ -309,6 +309,65 @@ func TestFxPreview_AttackCompletesBeforeReplay(t *testing.T) {
 	for _, zone := range p.g.persistentDamageZones {
 		if zone.FieldID != field {
 			t.Fatal("field preview stacked a new cast over its active field")
+		}
+	}
+}
+
+// Reward variants share the ordinary weapon stage and complete their real
+// flight/contact cycle before replay. A charged staff adds its landed flare;
+// a returning dagger must reach its return leg without a staged visible actor.
+func TestFxPreview_RewardAttackCycles(t *testing.T) {
+	cfg := setupPreviewSandboxTest(t)
+	p, err := NewFxPreview(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.g.Shutdown()
+	for _, tc := range []struct {
+		key                       string
+		kind                      FxKind
+		charged, flare, returning bool
+	}{
+		{"solstice_sun_crucible", FxWeapon, false, false, false},
+		{"solstice_sun_crucible", FxWeapon, true, true, false},
+		{"solstice_returning_gale", FxWeapon, false, false, true},
+		{"solstice_stone_script", FxWeapon, false, false, false},
+		{"solstice_everflow_retort", FxFlask, false, false, false},
+	} {
+		found := false
+		for _, it := range p.Items() {
+			if it.Kind != tc.kind || it.Key != tc.key || it.charged != tc.charged {
+				continue
+			}
+			found = true
+			p.Select(it)
+			sawFlare, sawReturn, finished := false, false, false
+			for frame := 0; frame < 8*cfg.GetTPS(); frame++ {
+				if len(p.g.world.Monsters) != 0 {
+					t.Fatalf("%s: visible weapon-stage actor", tc.key)
+				}
+				for _, shot := range p.g.arrows {
+					sawReturn = sawReturn || shot.Signature.ReturnLeg
+				}
+				sawFlare = sawFlare || countWorldVisuals(p.g, worldSolarFlare) > 0
+				if !p.attackVisualsActive() {
+					finished = true
+					break
+				}
+				before := p.tick
+				p.Step()
+				if before > 0 && p.tick == 0 {
+					finished = true
+					break
+				}
+			}
+			if !finished || sawFlare != tc.flare || sawReturn != tc.returning {
+				t.Errorf("%s charged=%v: finished=%v flare=%v return=%v", tc.key, tc.charged, finished, sawFlare, sawReturn)
+			}
+			break
+		}
+		if !found {
+			t.Errorf("missing catalog variant: %+v", tc)
 		}
 	}
 }

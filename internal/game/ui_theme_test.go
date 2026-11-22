@@ -5,8 +5,9 @@ import (
 	"image"
 	"testing"
 
-	"github.com/hajimehoshi/ebiten/v2"
 	"ugataima/internal/graphics"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 func TestFramePlanUsesSubimageOrigin(t *testing.T) {

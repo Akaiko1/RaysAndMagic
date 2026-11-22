@@ -26,12 +26,15 @@ const (
 	MasteryWeaponTrueDamagePerTier = 3
 	// WeaponGMCritBonus: extra crit % a Grandmaster gets with their mastered weapon.
 	WeaponGMCritBonus = 7
+	// WeaponGMDodgeGrazePct: a Grandmaster's hit that meets a Perfect Dodge
+	// still lands this share of its normal damage (true damage lands whole).
+	WeaponGMDodgeGrazePct = 25
 	// MasteryArmorACPerLevel: bonus armor class per armor-mastery level.
 	MasteryArmorACPerLevel = 2
 	// ArmorGMDodgeBonus: extra Perfect-Dodge % per GM-mastered armor type worn.
 	ArmorGMDodgeBonus = 5
-	// MeditationGMSpellCostReductionPct: a GM meditator pays this % less SP per spell.
-	MeditationGMSpellCostReductionPct = 25
+	// MeditationGMSPCostReductionPct: a GM meditator pays this % less SP for spells, traps and techniques.
+	MeditationGMSPCostReductionPct = 25
 	// LearningXPPctPerTier: +% experience this character gains per Learning tier.
 	LearningXPPctPerTier = 10
 	// LearningGMPartyXPPct: a GM "teacher" grants this extra % XP to the whole party.
@@ -56,10 +59,6 @@ const (
 	DisarmTrapAvoidPerTierPct = 20
 	// TrapperDamagePerTier: bonus damage of damage traps per Trapper tier.
 	TrapperDamagePerTier = 5
-	// TrapperSecondsPerTier: extra RT seconds of control (stun/root) per Trapper
-	// tier - linear (base 2 -> 2/4/6/8). TB turns scale separately and
-	// NON-linearly; see TrapperTurnBonus.
-	TrapperSecondsPerTier = 2
 	// TrapStatScalingDivisor: trap damage gains (Intellect+Accuracy)/this.
 	TrapStatScalingDivisor = 3
 	// SpellAbsorbChancePctPerTier: Battle Mage Spell Absorption chance per tier
@@ -82,31 +81,13 @@ const (
 	WeaponPrimaryStatDivisor = 3
 	// WeaponSecondaryStatDivisor: bonus_stat_secondary adds stat/this.
 	WeaponSecondaryStatDivisor = 4
-	// ArmorPierceRangedChancePct: a ranged physical hit ON A MONSTER (from the
-	// party or from another monster) has this % chance to ignore its armor
-	// entirely. Monster shots never pierce party armor, by design: only a
-	// weapon's own armor_pierce_pct does.
+	// ArmorPierceRangedChancePct: a physical projectile hit has this % chance
+	// to ignore the target's armor entirely - party, monster or ally shot alike.
 	ArmorPierceRangedChancePct = 33
-	// Party armor mitigation - a PERCENTAGE model with diminishing returns:
-	//   physical% = min(ArmorPhysicalMitigationCap, 100*AC/(AC+ArmorMitigationK))
-	//   elemental% = physical% * ArmorElementalMitigationCap / ArmorPhysicalMitigationCap
-	// Elemental is the SAME curve scaled down, so it reaches its 33% cap at the
-	// exact AC where physical reaches 75% - not capping out far earlier.
-	// K sets the curve (AC == K gives 50% pre-cap).
-	ArmorMitigationK            = 45
-	ArmorPhysicalMitigationCap  = 75
-	ArmorElementalMitigationCap = 33
-	// TurnBasedTurnSeconds is the real-time equivalent one turn-based round
-	// consumes for periodic effects (DoTs, damage zones). Shared with the game's
-	// TurnBasedPeriodicEffectSeconds so cards can state ticks per turn.
-	TurnBasedTurnSeconds = 3
 	// MasterySpellEffectPerLevel: flat bonus per magic-school mastery tier above
 	// Novice to spell damage/healing. Buff magnitudes scale through their own
-	// *_grandmaster fields; duration via SpellMasteryDurationBonusPct.
+	// *_grandmaster fields; durations use explicit YAML mastery ladders.
 	MasterySpellEffectPerLevel = spells.MasterySpellEffectPerLevel
-	// SpellMasteryDurationBonusPct: +% spell duration per mastery tier above
-	// Novice (100/120/140/160% of the YAML duration).
-	SpellMasteryDurationBonusPct = 20
 	// SelfMagicGMResistPiercePct: a Grandmaster Body/Mind/Spirit caster's
 	// damaging spells ignore this % of the matching resistance. Elemental
 	// schools, including Light/Dark, use Elemental Mastery instead.
@@ -132,6 +113,8 @@ const (
 	// DarkElfBindingChancePct is shared by the racial hit gate and reference text.
 	DarkElfBindingChancePct = 3
 	// OverwatchReadySeconds: stationary time before RT reactions become ready.
+	// Timer exception: not whole rounds; DualClock.ArmSeconds rounds its TB
+	// count up.
 	OverwatchReadySeconds = 1.0
 	// DoorForceChancePct is the fixed chance of a qualifying Might/Intellect
 	// attempt. DoorMaxNonKeyAttempts failed non-key attempts jam the lock.
@@ -257,15 +240,11 @@ func elementalMagicSchoolNames() string {
 	}
 }
 
-// TrapperTurnBonus is the EXTRA TB turns a control trap (stun/root) gains at the
-// given Trapper tier, on top of its 1-turn base: Novice/Expert +0, Master +1,
-// Grandmaster +2 (so the total reads 1/1/2/3 turns). Deliberately NON-linear,
-// unlike the RT-seconds scaling (TrapperSecondsPerTier).
-func TrapperTurnBonus(tier int) int {
-	if tier <= int(MasteryExpert) {
-		return 0
-	}
-	return tier - int(MasteryExpert)
+// TrapperRoundBonus is the extra whole rounds a control trap (stun/root) lasts
+// at the given Trapper tier: +0/1/1/2 on its authored base, the same span in
+// both modes.
+func TrapperRoundBonus(tier int) int {
+	return [4]int{0, 1, 1, 2}[max(0, min(3, tier))]
 }
 
 // PlayableClasses is every playable class in canonical (enum) order.
@@ -380,8 +359,7 @@ func MagicMasteryDescription(school MagicSchoolID) string {
 
 func MagicMasteryReference(school MagicSchoolID) MasteryReference {
 	r := MasteryReference{Effects: uitext.Text("skill.magic",
-		MasterySpellEffectPerLevel, 2*MasterySpellEffectPerLevel, 3*MasterySpellEffectPerLevel,
-		SpellMasteryDurationBonusPct, 2*SpellMasteryDurationBonusPct, 3*SpellMasteryDurationBonusPct)}
+		MasterySpellEffectPerLevel, 2*MasterySpellEffectPerLevel, 3*MasterySpellEffectPerLevel)}
 	if school.IsElemental() {
 		r.Grandmaster = uitext.Text("skill.elemental_magic_grandmaster", int(MasteryGrandMaster)*MasterySpellEffectPerLevel, school.DisplayName())
 	} else {
@@ -449,7 +427,7 @@ func (s SkillType) Reference() MasteryReference {
 func (s SkillType) grandmasterDescription() string {
 	switch s {
 	case SkillSword, SkillDagger, SkillAxe, SkillSpear, SkillBow, SkillMace, SkillStaff, SkillBlaster, SkillMartialArts:
-		return uitext.Text("skill.weapon_grandmaster", WeaponGMCritBonus)
+		return uitext.Text("skill.weapon_grandmaster", WeaponGMCritBonus, WeaponGMDodgeGrazePct)
 	case SkillLeather, SkillChain, SkillPlate:
 		return ArmorGMDodgeRule() + "."
 	case SkillShield:
@@ -457,7 +435,7 @@ func (s SkillType) grandmasterDescription() string {
 	case SkillBodybuilding:
 		return uitext.Text("skill.bodybuilding_grandmaster", BodybuildingGMMaxHPPct)
 	case SkillMeditation:
-		return uitext.Text("skill.meditation_grandmaster", MeditationGMSpellCostReductionPct)
+		return uitext.Text("skill.meditation_grandmaster", MeditationGMSPCostReductionPct)
 	case SkillLearning:
 		return uitext.Text("skill.learning_grandmaster", LearningGMPartyXPPct)
 	case SkillArmsMaster:
@@ -482,7 +460,7 @@ func (s SkillType) effectDescription() string {
 	case SkillFieldMedicine:
 		return uitext.Text("skill.field_medicine", masteryProgression(FieldMedicineRestorePct), masteryProgression(FieldMedicinePoisonReductionPct))
 	case SkillDesignateTarget:
-		return uitext.Text("skill.designate_target", masteryProgression(DesignationSeconds), masteryProgression(func(tier int) int { return DesignationSeconds(tier) / TurnBasedTurnSeconds }), masteryProgression(DesignationCritPct))
+		return uitext.Text("skill.designate_target", masteryProgression(DesignationSeconds), masteryProgression(func(tier int) int { return DesignationSeconds(tier) / config.CombatRoundSeconds }), masteryProgression(DesignationCritPct))
 	case SkillSword, SkillDagger, SkillAxe, SkillSpear, SkillBow, SkillMace, SkillStaff, SkillBlaster, SkillMartialArts:
 		lead := uitext.Text("skill.weapon_permission", weaponNoun(s))
 		if s == SkillMartialArts {
@@ -498,7 +476,7 @@ func (s SkillType) effectDescription() string {
 	case SkillBodybuilding:
 		return uitext.Text("skill.bodybuilding", BodybuildingHPPerTier, 2*BodybuildingHPPerTier, 3*BodybuildingHPPerTier)
 	case SkillMeditation:
-		return uitext.Text("skill.meditation", MeditationRegenPerTier, 2*MeditationRegenPerTier, 3*MeditationRegenPerTier, config.RegenerationIntervalFrames/config.DefaultTPS, config.RegenerationRounds)
+		return uitext.Text("skill.meditation", MeditationRegenPerTier, 2*MeditationRegenPerTier, 3*MeditationRegenPerTier, config.RegenerationIntervalSeconds(), config.RegenerationRounds, config.CombatSPRegenSeconds, config.CombatSPRegenRounds)
 	case SkillLearning:
 		return uitext.Text("skill.learning", LearningXPPctPerTier, 2*LearningXPPctPerTier, 3*LearningXPPctPerTier)
 	case SkillArmsMaster:
@@ -506,9 +484,10 @@ func (s SkillType) effectDescription() string {
 	case SkillMerchant:
 		return uitext.Text("skill.merchant", MerchantPricePctPerTier, 2*MerchantPricePctPerTier, 3*MerchantPricePctPerTier, MerchantPricePctPerTier, 2*MerchantPricePctPerTier, 3*MerchantPricePctPerTier)
 	case SkillDisarmTrap:
-		return uitext.Text("skill.disarm_trap", DisarmTrapAvoidBasePct, DisarmTrapAvoidBasePct+DisarmTrapAvoidPerTierPct, DisarmTrapAvoidBasePct+2*DisarmTrapAvoidPerTierPct, DisarmTrapAvoidBasePct+3*DisarmTrapAvoidPerTierPct, DisarmTrapDamageReductionPerTier, 2*DisarmTrapDamageReductionPerTier, 3*DisarmTrapDamageReductionPerTier)
+		return uitext.Text("skill.disarm_trap", DisarmTrapAvoidBasePct, DisarmTrapAvoidBasePct+DisarmTrapAvoidPerTierPct, DisarmTrapAvoidBasePct+2*DisarmTrapAvoidPerTierPct, DisarmTrapAvoidBasePct+3*DisarmTrapAvoidPerTierPct, DisarmTrapDamageReductionPerTier, 2*DisarmTrapDamageReductionPerTier, 3*DisarmTrapDamageReductionPerTier, uitext.Text("damage.flat_reduction_rules"))
 	case SkillTrapper:
-		return uitext.Text("skill.trapper", TrapperDamagePerTier, 2*TrapperDamagePerTier, 3*TrapperDamagePerTier, TrapStatScalingDivisor, TrapperSecondsPerTier, 2*TrapperSecondsPerTier, 3*TrapperSecondsPerTier, masteryProgression(TrapperTurnBonus))
+		return uitext.Text("skill.trapper", TrapperDamagePerTier, 2*TrapperDamagePerTier, 3*TrapperDamagePerTier, TrapStatScalingDivisor,
+			masteryProgression(TrapperRoundBonus), masteryProgression(func(tier int) int { return TrapperRoundBonus(tier) * config.CombatRoundSeconds }))
 	case SkillSleightOfHand:
 		return uitext.Text("skill.sleight_of_hand", SleightChancePctPerTier, 2*SleightChancePctPerTier, 3*SleightChancePctPerTier, 4*SleightChancePctPerTier)
 	case SkillRepair, SkillIdentifyItem:
@@ -526,7 +505,7 @@ func (s SkillType) effectDescription() string {
 	case SkillSacrifice:
 		return uitext.Text("skill.sacrifice", masteryProgression(SacrificeRedirectPct))
 	case SkillImpenetrableDefense:
-		return uitext.Text("skill.impenetrable_defense", masteryProgression(ImpenetrableDefenseReduction))
+		return uitext.Text("skill.impenetrable_defense", masteryProgression(ImpenetrableDefenseReduction), uitext.Text("damage.flat_reduction_rules"))
 	case SkillLockpicking:
 		return uitext.Text("skill.lockpicking", masteryProgression(LockpickingChancePct), DoorMaxNonKeyAttempts)
 	case SkillNaturalHealer:

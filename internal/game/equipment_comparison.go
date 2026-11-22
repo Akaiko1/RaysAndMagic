@@ -15,8 +15,9 @@ import (
 )
 
 // equipmentComparisonContext isolates the equipment mutation while retaining
-// party membership, cards, auras and active buffs for the real combat formulas.
-// Other members and read-only skill/buff definitions are shared, never mutated.
+// party membership, cards, auras, active buffs, the night and the party hinder
+// for the real combat formulas. Other members and read-only skill/buff
+// definitions are shared, never mutated.
 func equipmentComparisonContext(cs *CombatSystem, original *character.MMCharacter) (*character.MMCharacter, *CombatSystem) {
 	copy := *original
 	copy.Equipment = maps.Clone(original.Equipment)
@@ -24,7 +25,8 @@ func equipmentComparisonContext(cs *CombatSystem, original *character.MMCharacte
 		copy.Equipment = make(map[items.EquipSlot]items.Item)
 	}
 	source := cs.game
-	preview := &MMGame{config: source.config, cardSlots: source.cardSlots, combatBuffs: source.combatBuffs, turnBasedMode: source.turnBasedMode}
+	preview := &MMGame{config: source.config, cardSlots: source.cardSlots, combatBuffs: source.combatBuffs, turnBasedMode: source.turnBasedMode,
+		dayNightIsNight: source.dayNightIsNight, partyHinder: source.partyHinder}
 	if source.party != nil {
 		preview.party = &character.Party{Members: slices.Clone(source.party.Members)}
 		for i, member := range preview.party.Members {
@@ -110,8 +112,8 @@ func buildEquipmentComparisonRows(item items.Item, original *character.MMCharact
 		appendDelta(&attack, hand.DisplayName()+" damage", oldDamage, afterCS.calculateWeaponDamagePreview(newWeapon, after).Total, "")
 		appendDelta(&attack, hand.DisplayName()+" critical chance", oldCrit, afterCS.CalculateWeaponCritChance(newWeapon, after), "%")
 		if oldOK && oldWeapon.Type == items.ItemWeapon {
-			oldRecovery := cooldownSeconds(beforeCS, beforeCS.WeaponCooldownFramesFor(before, oldWeapon.Name))
-			newRecovery := cooldownSeconds(afterCS, afterCS.WeaponCooldownFramesFor(after, newWeapon.Name))
+			oldRecovery := cooldownSeconds(beforeCS, beforeCS.WeaponCooldownFramesFor(before, oldWeapon))
+			newRecovery := cooldownSeconds(afterCS, afterCS.WeaponCooldownFramesFor(after, newWeapon))
 			if oldRecovery != newRecovery {
 				attack.Add("%s RT recovery: %s -> %s", hand.DisplayName(), oldRecovery, newRecovery)
 			}
@@ -185,12 +187,12 @@ func buildEquipmentComparisonRows(item items.Item, original *character.MMCharact
 
 func comparisonEffectLines(item items.Item) []string {
 	if item.Type == items.ItemWeapon {
-		if def, _, ok := config.GetWeaponDefinitionByName(item.Name); ok {
+		if def, _, ok := config.WeaponDefOf(item); ok {
 			return append(def.SpecialEffectLines(), character.WeaponCombatLines(def)...)
 		}
 		return nil
 	}
-	def, _, ok := config.GetItemDefinitionByName(item.Name)
+	def, _, ok := config.ItemDefOf(item)
 	if !ok || def == nil {
 		return nil
 	}

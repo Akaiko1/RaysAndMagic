@@ -118,7 +118,7 @@ func (ui *UISystem) drawTavernDialog(screen *ebiten.Image, dialogX, dialogY, dia
 	for i := range tabs {
 		labels[i] = tabs[i].label
 	}
-	tabsEnabled := !g.stashDragActive && !g.stashDragPickedUp && !ui.stackSplitPicker.open
+	tabsEnabled := !g.stashDrag.active && !g.stashDragPickedUp && !ui.stackSplitPicker.open
 	ui.drawDialogFolderTabsEnabled(screen, dialogX, dialogY, labels, tabsEnabled)
 
 	layout := computeNPCDialogSectionLayout(layoutRect{dialogX, dialogY, dialogWidth, dialogHeight}, true)
@@ -152,7 +152,7 @@ func (ui *UISystem) drawTavernDialog(screen *ebiten.Image, dialogX, dialogY, dia
 	case tavernRosterAction:
 		footer = uitext.Text("dialog.select_an_active_hero_then_click_a")
 	case tavernStashAction:
-		footer = uitext.Text("dialog.drag_items_between_the_chest_and_your")
+		footer = uitext.Text("stash.hint")
 	case tavernServicesAction:
 		footer = uitext.Text("dialog.select_a_service_then_confirm_it_up")
 	case tavernRumorsAction:
@@ -164,11 +164,10 @@ func (ui *UISystem) drawTavernDialog(screen *ebiten.Image, dialogX, dialogY, dia
 func (ui *UISystem) drawTavernStash(screen *ebiten.Image, area layoutRect) {
 	g := ui.game
 	if g.stash == nil {
-		drawCenteredUIText(screen, "The shared stash could not be loaded.", area.x, area.y, area.w, area.h)
+		drawCenteredUIText(screen, uitext.Text("stash.load_failed"), area.x, area.y, area.w, area.h)
 		return
 	}
-	drawUIText(screen, "Shared across all saves.", area.x+16, area.y+10)
-	ui.drawStashManager(screen, computeStashLayoutForArea(area, 46), ui.topModalLayer() == modalLayerDialog)
+	ui.drawStashManager(screen, computeStashLayoutForArea(area), ui.topModalLayer() == modalLayerDialog)
 }
 
 func (ui *UISystem) drawTavernServices(screen *ebiten.Image, npc *character.NPC, area layoutRect) {
@@ -182,7 +181,7 @@ func (ui *UISystem) drawTavernServices(screen *ebiten.Image, npc *character.NPC,
 	for i, choice := range choices {
 		card := tavernServiceCardRect(area, i)
 		hovered := isMouseHoveringBox(mouseX, mouseY, card.x, card.y, card.right(), card.bottom())
-		affordable := g.party.Gold >= choice.Cost
+		affordable := g.canAfford(choice.Cost)
 		ui.drawButtonFrame(screen, card.x, card.y, card.w, card.h, hovered || g.selectedChoice == i)
 		if !affordable {
 			drawFilledRect(screen, card.x+4, card.y+4, card.w-8, card.h-8, color.RGBA{25, 3, 3, 55})
@@ -207,16 +206,14 @@ func (ui *UISystem) drawTavernServices(screen *ebiten.Image, npc *character.NPC,
 		} else {
 			drawUITextColored(screen, uitext.Text("dialog.click_to_select"), card.x+14, card.y+152, color.RGBA{125, 205, 135, 255})
 		}
-		ui.onDisplayedInput(uiCommandClick, layoutRect{card.x, card.y, (card.right()) - (card.x), (card.bottom()) - (card.y)}, func() {
-			if g.consumeLeftClickIn(card.x, card.y, card.right(), card.bottom()) {
-				g.selectedChoice = i
-			}
+		ui.onClick(card, true, func() {
+			g.selectedChoice = i
 		})
 	}
 
 	selected := choices[g.selectedChoice]
 	confirm := tavernServiceConfirmRect(area)
-	affordable := g.party.Gold >= selected.Cost
+	affordable := g.canAfford(selected.Cost)
 	hovered := isMouseHoveringBox(mouseX, mouseY, confirm.x, confirm.y, confirm.right(), confirm.bottom())
 	ui.drawButtonFrame(screen, confirm.x, confirm.y, confirm.w, confirm.h, affordable && hovered)
 	if !affordable {
@@ -227,10 +224,8 @@ func (ui *UISystem) drawTavernServices(screen *ebiten.Image, npc *character.NPC,
 		label = uitext.Text("dialog.confirm_rations_gold", selected.Cost)
 	}
 	drawCenteredUIText(screen, clipUIText(label, confirm.w-20), confirm.x, confirm.y, confirm.w, confirm.h)
-	ui.onDisplayedInput(uiCommandClick, layoutRect{confirm.x, confirm.y, (confirm.right()) - (confirm.x), (confirm.bottom()) - (confirm.y)}, func() {
-		if affordable && g.consumeLeftClickIn(confirm.x, confirm.y, confirm.right(), confirm.bottom()) {
-			g.pendingTavernAction = selected
-		}
+	ui.onClick(confirm, affordable, func() {
+		g.pendingTavernAction = selected
 	})
 }
 
@@ -262,7 +257,7 @@ func (ih *InputHandler) handleTavernInput() {
 		ih.executeTavernAction(choice)
 		return
 	}
-	if g.stashDragActive || g.stashDragPickedUp || ih.game.stackSplitInteractionActive() {
+	if g.stashDrag.active || g.stashDragPickedUp || ih.game.stackSplitInteractionActive() {
 		return
 	}
 	if ih.keys.Consume(ebiten.KeyTab) {

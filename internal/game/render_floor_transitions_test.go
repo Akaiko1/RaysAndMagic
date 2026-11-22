@@ -59,6 +59,23 @@ func TestTerrainProfilesCoverShippedGroups(t *testing.T) {
 	}
 }
 
+// floor.kage reads a cell's profile as B modulo floorProfileModulus and its
+// flags above it: every profile fits under the modulus and every flag is a
+// multiple of it, or a profile would read as a flag.
+func TestFloorProfilesFitUnderTheFlags(t *testing.T) {
+	values, blocks := goIntConsts(t)
+	for _, profile := range blocks["floorBlendHard"] {
+		if values[profile] < 0 || values[profile] >= int(floorProfileModulus) {
+			t.Errorf("profile %s = %d does not fit under %d", profile, values[profile], floorProfileModulus)
+		}
+	}
+	for _, flag := range []byte{floorWaterGroupEdge, floorSurfWater, floorFrozenWater, floorBlendBoundary, floorBlendShore} {
+		if flag%floorProfileModulus != 0 {
+			t.Errorf("flag %d is not a multiple of %d", flag, floorProfileModulus)
+		}
+	}
+}
+
 // checkTerrainInput resolves one tile on a ground patch two tiles from water
 // and asserts its encoded profile and beach overlay; actors never alter it.
 func checkTerrainInput(t *testing.T, biome, tileKey, groundKey string, profile byte, wantShore bool) {
@@ -74,7 +91,7 @@ func checkTerrainInput(t *testing.T, biome, tileKey, groundKey string, profile b
 	r.game.world.Tiles[10][12] = terrainTile(t, "water")
 	_, indices, shore := r.prepareFloorMaps(r.game.world.Width, r.game.world.Height)
 	encoded := indices.RGBAAt(10, 10)
-	if encoded.B%8 != profile || (encoded.G != 0) != wantShore || encoded.R == 0 {
+	if encoded.B%floorProfileModulus != profile || (encoded.G != 0) != wantShore || encoded.R == 0 {
 		t.Fatalf("material=%v, want profile=%d shore=%v", encoded, profile, wantShore)
 	}
 	if wantShore && int(encoded.R) == r.floorTexGroups["beach"].start+1 {
@@ -169,6 +186,92 @@ func TestTerrainAuthoredProfilesEncode(t *testing.T) {
 	}
 }
 
+// Surf follows the authored kind of the water body: on a lake or sea every
+// water cell within reach of the bank gets it, deep cells included; a calm
+// kind never does, nor water painted after the bodies were resolved, nor the
+// lake's middle beyond reach, nor the land beside it. Rows: both surf kinds
+// and one calm kind (the shader reads only Surf()). The same lake pins the
+// water-group edge: a cell gets the bit when shallow and deep water meet at
+// one of its corners, never inside one group or on land.
+func TestTerrainSurfFollowsTheWaterBodyKind(t *testing.T) {
+	surfs := map[config.WaterBodyKind]bool{config.WaterBodyLake: true, config.WaterBodySea: true}
+	var kinds []config.WaterBodyKind
+	calm := false
+	for _, kind := range config.WaterBodyKinds {
+		if surfs[kind] || !calm {
+			kinds = append(kinds, kind)
+			calm = calm || !surfs[kind]
+		}
+	}
+	probes := []struct {
+		name  string
+		at    [2]int
+		shore bool
+	}{
+		{"shallow rim", [2]int{5, 9}, true},
+		{"deep within reach", [2]int{6, 9}, true},
+		{"middle beyond reach", [2]int{9, 9}, false},
+		{"land beside", [2]int{3, 9}, false},
+	}
+	r, _ := terrainTestRenderer(t, "forest")
+	w := r.game.world
+	ground, water, deep := terrainTile(t, "empty"), terrainTile(t, "water"), terrainTile(t, "deep_water")
+	for y := 0; y < w.Height; y++ {
+		for x := 0; x < w.Width; x++ {
+			w.Tiles[y][x] = ground
+			if x >= 5 && x < 14 && y >= 5 && y < 14 {
+				w.Tiles[y][x] = water
+			}
+			if x >= 6 && x < 13 && y >= 6 && y < 13 {
+				w.Tiles[y][x] = deep
+			}
+		}
+	}
+	for _, kind := range kinds {
+		t.Run(string(kind), func(t *testing.T) {
+			if err := w.ResolveWaterBodies("terrain_test", []config.MapWaterBody{{At: [2]int{5, 5}, Kind: kind}}); err != nil {
+				t.Fatal(err)
+			}
+			_, indices, _ := r.prepareFloorMaps(w.Width, w.Height)
+			for _, p := range probes {
+				got := indices.RGBAAt(p.at[0], p.at[1]).B&floorSurfWater != 0
+				if want := surfs[kind] && p.shore; got != want {
+					t.Errorf("%s: surf = %v, want %v", p.name, got, want)
+				}
+			}
+		})
+	}
+	t.Run("painted after load", func(t *testing.T) {
+		if err := w.ResolveWaterBodies("terrain_test", []config.MapWaterBody{{At: [2]int{5, 5}, Kind: config.WaterBodyLake}}); err != nil {
+			t.Fatal(err)
+		}
+		w.Tiles[9][4] = water
+		t.Cleanup(func() { w.Tiles[9][4] = ground })
+		_, indices, _ := r.prepareFloorMaps(w.Width, w.Height)
+		if indices.RGBAAt(4, 9).B&floorSurfWater != 0 {
+			t.Error("water no body names got surf")
+		}
+		if indices.RGBAAt(5, 9).B&floorSurfWater == 0 {
+			t.Error("the lake beside it lost its surf")
+		}
+	})
+	t.Run("water group edge", func(t *testing.T) {
+		_, indices, shore := r.prepareFloorMaps(w.Width, w.Height)
+		for _, c := range []struct {
+			name string
+			at   [2]int
+			want bool
+		}{{"shallow beside deep", [2]int{5, 9}, true}, {"deep middle", [2]int{9, 9}, false}, {"land", [2]int{3, 9}, false}} {
+			if got := indices.RGBAAt(c.at[0], c.at[1]).B&floorWaterGroupEdge != 0; got != c.want {
+				t.Errorf("%s: group edge = %v, want %v", c.name, got, c.want)
+			}
+		}
+		if shore.RGBAAt(6, 9).B == 0 || shore.RGBAAt(9, 9).B != 0 || shore.RGBAAt(4, 9).B != 0 {
+			t.Errorf("corner marks: shallow/deep %d, deep %d, land/shallow %d", shore.RGBAAt(6, 9).B, shore.RGBAAt(9, 9).B, shore.RGBAAt(4, 9).B)
+		}
+	})
+}
+
 func TestTerrainMonsterMarkerResolvesBeforeTransitions(t *testing.T) {
 	r, _ := terrainTestRenderer(t, "forest")
 	// Reuse a real forest monster marker, selected from the loaded catalog.
@@ -194,7 +297,7 @@ func TestTerrainMonsterMarkerResolvesBeforeTransitions(t *testing.T) {
 	r.game.world.Width = md.Width
 	r.game.world.Height = md.Height
 	_, indices, _ := r.prepareFloorMaps(md.Width, md.Height)
-	if len(md.MonsterSpawns) != 1 || indices.RGBAAt(2, 2).B%8 != floorBlendNatural || indices.RGBAAt(2, 2).R != indices.RGBAAt(1, 2).R {
+	if len(md.MonsterSpawns) != 1 || indices.RGBAAt(2, 2).B%floorProfileModulus != floorBlendNatural || indices.RGBAAt(2, 2).R != indices.RGBAAt(1, 2).R {
 		t.Fatal("monster marker became a different floor material")
 	}
 }
@@ -216,8 +319,9 @@ func TestTerrainOpenWorldRestoreAndQuestRebuild(t *testing.T) {
 				if wm.Biomes[r.floorBiomeKeyAt(x, y)].FloorTransitions == nil {
 					t.Fatalf("region %s lost its floor policy", region.MapKey)
 				}
-				if before.RGBAAt(x, y).B&0x38 != 0 {
-					t.Fatalf("region %s rotated authored floor UVs", region.MapKey)
+				// Ice is runtime-only: the static map never carries it.
+				if before.RGBAAt(x, y).B&floorFrozenWater != 0 {
+					t.Fatalf("region %s encodes ice in the static floor map", region.MapKey)
 				}
 			}
 		}
@@ -240,7 +344,7 @@ func TestTerrainOpenWorldRestoreAndQuestRebuild(t *testing.T) {
 			continue
 		}
 		x, y := wm.ProjectTile("forest", npc.X, npc.Y)
-		if got := before.RGBAAt(x, y); got.B%8 != floorBlendWater || got.G != 0 {
+		if got := before.RGBAAt(x, y); got.B%floorProfileModulus != floorBlendWater || got.G != 0 {
 			t.Fatalf("NPC ground override lost in transition map: %v", got)
 		}
 		overrides++

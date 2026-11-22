@@ -11,6 +11,7 @@ import (
 	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/monster"
 	"ugataima/internal/spells"
+	"ugataima/internal/status"
 	"ugataima/internal/world"
 )
 
@@ -33,18 +34,18 @@ func TestMonkEncounterAbilities(t *testing.T) {
 						key, x = "gale_novice", 9
 					}
 					m := spawnSpecialsMonster(g, key, x, 6)
-					m.RootPartyChance, m.RearBlinkChance = 0, 0
+					m.Abilities.RootParty.Chance, m.Abilities.RearBlink.Chance = 0, 0
 					chance := 1.0
 					if gate == "no_proc" {
 						chance = 0
 					}
 					if kind == "root" {
-						m.RootPartyChance = chance
+						m.Abilities.RootParty.Chance = chance
 					} else {
-						m.RearBlinkChance = chance
+						m.Abilities.RearBlink.Chance = chance
 					}
 					if gate == "stun" {
-						m.StunFramesRemaining, m.StunTurnsRemaining = 240, 2
+						m.Stun.Frames, m.Stun.Turns = 240, 2
 					}
 					if gate == "blocked" {
 						for x := 0; x < 6; x++ {
@@ -53,11 +54,11 @@ func TestMonkEncounterAbilities(t *testing.T) {
 						g.collisionSystem.UpdateTileChecker(g.world)
 					}
 					if gate == "rooted" {
-						m.RootFramesRemaining, m.RootTurnsRemaining = 240, 1
+						m.Root.Frames, m.Root.Turns = 240, 1
 					}
 					if gate == "occupied" {
 						// Fill every rear landing tile the blink may try.
-						for n := 2; n <= int(m.RearBlinkRangeTiles); n++ {
+						for n := 2; n <= int(m.Abilities.RearBlink.RangeTiles); n++ {
 							x := 6 - n
 							e := collision.NewEntity(fmt.Sprint("block", x), (float64(x)+0.5)*64, 6.5*64, 48, 48, collision.CollisionTypeNPC, true)
 							g.collisionSystem.RegisterEntity(e)
@@ -88,7 +89,7 @@ func TestMonkEncounterAbilities(t *testing.T) {
 						if len(g.magicProjectiles) != shots {
 							t.Fatalf("shots=%d want %d", len(g.magicProjectiles), shots)
 						}
-						if wantX := g.camera.X - m.RearBlinkRangeTiles*64; want && m.X != wantX {
+						if wantX := g.camera.X - m.Abilities.RearBlink.RangeTiles*64; want && m.X != wantX {
 							t.Fatalf("blink range: x=%v, want %v", m.X, wantX)
 						}
 					}
@@ -181,42 +182,42 @@ func TestMonsterSpellStunUsesImpactSpell(t *testing.T) {
 					config.GlobalSpells.Spells["lightning"] = &forced
 					t.Cleanup(func() { config.GlobalSpells.Spells["lightning"] = original })
 					// The melee rider differs from the spell's own stun so the
-					// two durations cannot be confused.
-					meleeSeconds := forced.StunDurationSeconds + 7
-					m := &monster.Monster3D{ID: "caster", Name: "Caster", HitPoints: 100, DamageMin: 1, DamageMax: 1, StunCharChance: 1, StunCharSeconds: meleeSeconds, StunCharTurns: 9}
+					// two durations cannot be confused (both whole rounds).
+					meleeSeconds := forced.StunDurationSeconds + 2*config.CombatRoundSeconds
+					m := &monster.Monster3D{ID: "caster", Name: "Caster", HitPoints: 100, DamageMin: 1, DamageMax: 1, Abilities: monster.Abilities{Stun: monster.TimedStatusAbility{Chance: 1, Seconds: meleeSeconds}}}
 					if champion {
 						m.ChampionKey = "test"
 					}
 					cs.spawnMonsterSpellProjectile(m, spells.SpellID(spell), g.camera.X, g.camera.Y, ProjectileOwnerMonster)
 					p := &g.magicProjectiles[0]
 					p.X, p.Y = g.camera.X, g.camera.Y
-					p.IgnoresDodge = true
 					if targetKind == "party" {
 						g.party.Members = g.party.Members[:1]
+						noPartyDodge(t, cs)
 						c := g.party.Members[0]
 						c.HitPoints, c.MaxHitPoints = 10000, 10000
 						g.collisionSystem.UpdateEntity(p.ID, p.X, p.Y)
 						cs.CheckProjectilePlayerCollisions()
 						want := !champion || spell == "lightning"
-						if (c.StunFramesRemaining > 0) != want {
-							t.Fatalf("stun frames=%d want active %v", c.StunFramesRemaining, want)
+						if (c.Stun.Frames > 0) != want {
+							t.Fatalf("stun frames=%d want active %v", c.Stun.Frames, want)
 						}
 						seconds := forced.StunDurationSeconds
 						if !champion {
 							seconds = meleeSeconds
 						}
-						if want && c.StunFramesRemaining != seconds*g.config.GetTPS() {
+						if want && c.Stun.Frames != seconds*g.config.GetTPS() {
 							t.Fatal("stun inherited melee duration")
 						}
 					} else {
 						target := &monster.Monster3D{ID: "victim", Name: "Victim", HitPoints: 100, MaxHitPoints: 100}
-						p.Owner = ProjectileOwnerMonsterAtBound
-						cs.resolveMonsterProjectileVsMonster(p, "magic_projectile", target, p.ID)
-						if (target.StunFramesRemaining > 0) != (!champion || spell == "lightning") {
-							t.Fatalf("crossfire stun frames=%d", target.StunFramesRemaining)
+						p.Owner = ProjectileOwnerMonsterAtActor
+						cs.resolveMonsterProjectileVsMonster(p, target, p.ID)
+						if (target.Stun.Frames > 0) != (!champion || spell == "lightning") {
+							t.Fatalf("crossfire stun frames=%d", target.Stun.Frames)
 						}
 					}
-					if m.StunCharSeconds != meleeSeconds {
+					if m.Abilities.Stun.Seconds != meleeSeconds {
 						t.Fatal("spell mutated source melee rider")
 					}
 				})
@@ -227,7 +228,7 @@ func TestMonsterSpellStunUsesImpactSpell(t *testing.T) {
 
 func TestPartyRootMovementAndPersistence(t *testing.T) {
 	g, _ := newSpecialsTestGame(t)
-	g.partyRoot = PartyRootState{Frames: 240, Turns: 1, Rate: 240}
+	g.partyRoot = status.DualClock{Frames: 240, Turns: 1, Rate: 240}
 	ih := &InputHandler{game: g}
 	x, y := g.camera.X, g.camera.Y
 	ih.movePlayer(10, 0)
@@ -264,7 +265,7 @@ func TestPartyRootMovementAndPersistence(t *testing.T) {
 	if err = json.Unmarshal(raw, &save); err != nil {
 		t.Fatal(err)
 	}
-	g.partyRoot = PartyRootState{}
+	g.partyRoot = status.DualClock{}
 	g.restoreSavedTurnState(&save)
 	if g.partyRoot.Frames != 180 || g.partyRoot.Rate != 240 {
 		t.Fatalf("lost root clock: %+v", g.partyRoot)
@@ -278,7 +279,7 @@ func TestPartyRootMovementAndPersistence(t *testing.T) {
 	if g.partyRooted() {
 		t.Fatal("mode switch revived root")
 	}
-	g.partyRoot = PartyRootState{Frames: 2, Turns: 1, Rate: 2}
+	g.partyRoot = status.DualClock{Frames: 2, Turns: 1, Rate: 2}
 	gl := &GameLoop{game: g}
 	gl.updateSpecialEffects()
 	gl.updateSpecialEffects()
@@ -297,7 +298,7 @@ func TestMonkEncounterSaveRestoreAndReset(t *testing.T) {
 	wm.LoadedMaps = map[string]*world.World3D{"forest": w}
 	wm.CurrentMapKey = "forest"
 	g := newTestGame(cfg, w)
-	g.partyRoot = PartyRootState{Frames: 180, Turns: 1, Rate: 240}
+	g.partyRoot = status.DualClock{Frames: 180, Turns: 1, Rate: 240}
 	raw, err := json.Marshal(g.buildSave(wm))
 	if err != nil {
 		t.Fatal(err)
@@ -328,12 +329,12 @@ func TestMonkEncounterSaveRestoreAndReset(t *testing.T) {
 		}
 		switch m.Key {
 		case "bronze_gatekeeper":
-			if def.RootPartyChance <= 0 || m.RootPartyChance != def.RootPartyChance ||
-				m.RootPartySeconds != def.RootPartySeconds || m.RootPartyTurns != def.RootPartyTurns {
+			if def.Abilities.RootParty.Chance <= 0 || m.Abilities.RootParty.Chance != def.Abilities.RootParty.Chance ||
+				m.Abilities.RootParty.Seconds != def.Abilities.RootParty.Seconds {
 				t.Fatal("root content/restoration mismatch")
 			}
 		case "gale_novice":
-			if def.RearBlinkChance <= 0 || m.RearBlinkChance != def.RearBlinkChance || m.RearBlinkRangeTiles != def.RearBlinkRangeTiles {
+			if def.Abilities.RearBlink.Chance <= 0 || m.Abilities.RearBlink.Chance != def.Abilities.RearBlink.Chance || m.Abilities.RearBlink.RangeTiles != def.Abilities.RearBlink.RangeTiles {
 				t.Fatal("blink content/restoration mismatch")
 			}
 		}
@@ -357,7 +358,7 @@ func TestMonkPartyAbilitiesDoNotFireAgainstActor(t *testing.T) {
 			foe := spawnSpecialsMonster(g, "gale_novice", 6, 5)
 			foe.Bound = true
 			m.AIFoe = foe
-			m.RootPartyChance = 1
+			m.Abilities.RootParty.Chance = 1
 			m.State, m.StateTimer = monster.StateAttacking, 1
 			if tb {
 				runTBMonsterTurns(g, gl, 1)
@@ -395,7 +396,7 @@ func TestMonsterSpellStunRespectsDefenses(t *testing.T) {
 			defended := 0
 			for i := 0; i < 64; i++ {
 				c.HitPoints = 5000
-				c.StunFramesRemaining, c.StunTurnsRemaining, c.StunRate = 0, 0, 0
+				c.Stun = status.DualClock{}
 				cs.spawnMonsterSpellProjectile(m, "lightning", g.camera.X, g.camera.Y, ProjectileOwnerMonster)
 				p := &g.magicProjectiles[len(g.magicProjectiles)-1]
 				p.X, p.Y = g.camera.X, g.camera.Y
@@ -403,7 +404,7 @@ func TestMonsterSpellStunRespectsDefenses(t *testing.T) {
 				cs.CheckProjectilePlayerCollisions()
 				if c.HitPoints >= 5000 {
 					defended++
-					if c.StunFramesRemaining > 0 {
+					if c.Stun.Frames > 0 {
 						t.Fatal("defended bolt still applied stun")
 					}
 				}

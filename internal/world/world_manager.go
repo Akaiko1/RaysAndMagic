@@ -4,11 +4,9 @@ import (
 	"fmt"
 	"os"
 	"sort"
-	"time"
 	"ugataima/internal/config"
 	"ugataima/internal/monster"
-
-	"gopkg.in/yaml.v3"
+	"ugataima/internal/strictyaml"
 )
 
 // WorldManager handles multiple loaded maps and transitions between them
@@ -51,8 +49,7 @@ func NewWorldManager(cfg *config.Config) *WorldManager {
 		TransitionInProgress: false,
 		config:               cfg,
 		GlobalTeleporterRegistry: &TeleporterRegistry{
-			Teleporters:     make([]TeleporterLocation, 0),
-			LastUsedByGroup: make(map[string]time.Time),
+			Teleporters: make([]TeleporterLocation, 0),
 		},
 	}
 }
@@ -65,7 +62,7 @@ func (wm *WorldManager) LoadMapConfigs(filename string) error {
 	}
 
 	var mapConfigs config.MapConfigs
-	err = yaml.Unmarshal(data, &mapConfigs)
+	err = strictyaml.Decode(data, &mapConfigs)
 	if err != nil {
 		return fmt.Errorf("failed to parse map configs: %w", err)
 	}
@@ -200,6 +197,9 @@ func (wm *WorldManager) LoadAllMaps() error {
 		fmt.Printf("Loading map: %s (%s)\n", mapConfig.Name, mapConfig.File)
 
 		world, err := wm.loadSingleMap(mapKey, mapConfig)
+		if isWaterBodiesError(err) {
+			return err // an authoring mistake, as in the stitched world
+		}
 		if err != nil {
 			fmt.Printf("Warning: Failed to load map %s: %v\n", mapKey, err)
 			wm.FailedMaps = append(wm.FailedMaps, mapKey)
@@ -227,8 +227,7 @@ func (wm *WorldManager) Reset() error {
 	// Clear loaded maps and teleporter registry
 	wm.LoadedMaps = make(map[string]*World3D)
 	wm.GlobalTeleporterRegistry = &TeleporterRegistry{
-		Teleporters:     make([]TeleporterLocation, 0),
-		LastUsedByGroup: make(map[string]time.Time),
+		Teleporters: make([]TeleporterLocation, 0),
 	}
 	// The unified world rebuilds with the maps (LoadAllMaps -> buildOpenWorld).
 	wm.OpenWorld = nil
@@ -273,8 +272,12 @@ func (wm *WorldManager) loadSingleMap(mapKey string, mapConfig *config.MapConfig
 	world.StartY = mapData.StartY
 	world.Tiles = mapData.Tiles
 	world.entityFloors = mapData.entityFloors
+	// On the parsed tiles (ground stamps included), as the stitcher does.
+	if err := world.ResolveWaterBodies(mapKey, mapConfig.WaterBodies); err != nil {
+		return nil, err
+	}
 
-	// Per-biome off-map backdrop wall (defaults to "seaview" set in NewWorld3D).
+	// Per-biome off-map backdrop wall (defaults to "oob_cliff" set in NewWorld3D).
 	if biome, ok := wm.Biomes[mapConfig.Biome]; ok && biome.OutOfBoundsTile != "" {
 		world.OutOfBoundsKey = biome.OutOfBoundsTile
 	}

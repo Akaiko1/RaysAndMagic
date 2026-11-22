@@ -66,7 +66,7 @@ func TestVisibleHeightFrameScaleUsesRealAssetsAndCache(t *testing.T) {
 
 // A prop-class cross must size EXACTLY like the flat standee it replaced -
 // authored class means VISIBLE HEIGHT - while a tree-class cross authors frame
-// WIDTH and takes no alpha normalization. The two halves live apart
+// WIDTH and takes no alpha normalization, only the optional tile fit. The two halves live apart
 // (envHeightMultiplier normalizes, the draw picks the axis), so only their
 // composition over real assets catches a contract flip that synthetic
 // fixtures without alpha padding would miss.
@@ -111,6 +111,29 @@ func TestCrossedTileSizeContractComposesWithRealAssets(t *testing.T) {
 			if math.Abs(mult-classTiles) > 1e-9 {
 				t.Fatalf("%s frame width = %.6f tiles, want the authored class %.6f", key, mult, classTiles)
 			}
+			// With the Display choice on it comes down only as far as the tile
+			// fit needs: the widest variant's art may reach the tile corners,
+			// sqrt(2)/2 from centre.
+			cfg.PlayerFitTreesToTile = true
+			defer func() { cfg.PlayerFitTreesToTile = false }()
+			mult = rh.envHeightMultiplier(tileType, 1.0)
+			variants := sprites.GetSpriteVariants(data.Sprite)
+			if len(variants) == 0 {
+				variants = []string{data.Sprite}
+			}
+			reach := 0.0
+			for _, name := range variants {
+				b, frameWidth, _, ok := sprites.SpriteVisibleFrameBounds(name)
+				if !ok {
+					t.Fatalf("sprite %q bounds were not resolved from the real asset", name)
+				}
+				centre := float64(frameWidth) / 2
+				reach = math.Max(reach, math.Max(centre-float64(b.Min.X), float64(b.Max.X)-centre)/float64(frameWidth))
+			}
+			want := math.Min(classTiles, math.Sqrt2/2/reach)
+			if math.Abs(mult-want) > 1e-9 {
+				t.Fatalf("%s frame width = %.6f tiles, want %.6f (class %.6f, art reach %.3f of the frame)", key, mult, want, classTiles, reach)
+			}
 			return
 		}
 		if frameHeight == bounds.Dy() {
@@ -123,5 +146,5 @@ func TestCrossedTileSizeContractComposesWithRealAssets(t *testing.T) {
 
 	check("steam_boiler", true) // prop-class cross: class = visible height
 	check("gear_pile", true)    // flat standee control: same contract
-	check("tree", false)        // tree class: class = frame width
+	check("tree", false)        // tree class: class = frame width; fitted to the tile on request
 }

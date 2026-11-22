@@ -9,6 +9,7 @@ import (
 	"ugataima/internal/boot"
 	"ugataima/internal/config"
 	"ugataima/internal/game"
+	"ugataima/internal/gpupref"
 	"ugataima/internal/monster"
 	"ugataima/internal/quests"
 	"ugataima/internal/shadercache"
@@ -34,6 +35,13 @@ func main() {
 	// Shared content configs (also loaded by the map editor).
 	cfg, _ := boot.LoadGameData()
 	minWindowW, minWindowH := game.MinimumWindowSize()
+	if cfg.Display.PreferDiscreteGPUOnWindows {
+		if stored, err := gpupref.PreferHighPerformance(); err != nil {
+			log.Printf("Warning: could not store the GPU preference: %v", err)
+		} else if stored {
+			log.Printf("Stored the high-performance GPU preference; Windows applies it from the next launch")
+		}
+	}
 
 	// Game-only configs.
 	config.MustLoadLevelUpConfig("assets/level_up.yaml")
@@ -69,6 +77,13 @@ func main() {
 	}
 	if err := world.GlobalWorldManager.LoadAllMaps(); err != nil {
 		log.Fatalf("Failed to load maps: %v", err)
+	}
+	// Story events: the main storyline's full-screen beats.
+	if err := game.LoadStoryConfig("assets/story_events.yaml", quests.GlobalQuestManager, world.GlobalWorldManager); err != nil {
+		log.Fatalf("Failed to load story events: %v", err)
+	}
+	if err := game.LoadWatcherConfig("assets/watcher.yaml"); err != nil {
+		log.Fatalf("Failed to load the watcher: %v", err)
 	}
 	audioManager, err := sound.LoadGlobal("assets/audio.yaml", storage.AppSavePath("audio_settings.json"))
 	if err != nil {
@@ -109,13 +124,9 @@ func main() {
 	if disableVsync {
 		ebiten.SetVsyncEnabled(false)
 	}
-	tps := cfg.GetTPS()
-	if disableVsync {
-		// An unsynced loop free-runs, so pin the SHIPPED rate rather than let the
-		// display dictate it - every frame-counted duration is calibrated to it.
-		tps = config.DefaultTPS
-	}
-	ebiten.SetTPS(tps)
+	// The configured rate, vsync or not: every duration converts from seconds at
+	// GetTPS, so the loop must tick at exactly that rate.
+	ebiten.SetTPS(cfg.GetTPS())
 
 	g := game.NewMMGame(cfg)
 	g.LoadPlayerProfile()

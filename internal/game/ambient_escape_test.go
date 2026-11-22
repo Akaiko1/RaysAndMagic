@@ -28,7 +28,7 @@ func TestWildlifeEscapeRoaming(t *testing.T) {
 				if mode != "party_RT" && mode != "party_TB" {
 					predator := monster.NewMonster3DFromConfig(tx, ty, "fennec", g.config)
 					predator.Prey = []string{key}
-					predator.RootFramesRemaining, predator.RootTurnsRemaining = 100000, 100000
+					predator.Root.Frames, predator.Root.Turns = 100000, 100000
 					g.world.Monsters = append(g.world.Monsters, predator)
 					placePlayerAtTile(g, 1, 1, tile)
 				}
@@ -80,7 +80,7 @@ func TestWildlifeThreatMemoryAndMovementHolds(t *testing.T) {
 					g.world.Monsters = []*monster.Monster3D{m}
 					g.world.RegisterMonstersWithCollisionSystem(g.collisionSystem)
 					advanceLemurThroughScheduler(g, m, turn)
-					if !m.AmbientFlee || m.Threat.Seconds <= 0 {
+					if !m.AmbientFlee || !m.Threat.Clock.Active() {
 						t.Fatal("threat not remembered")
 					}
 					x, y := m.X, m.Y
@@ -96,7 +96,7 @@ func TestWildlifeThreatMemoryAndMovementHolds(t *testing.T) {
 					case "root", "slow":
 						placePlayerAtTile(g, 12, 10, tile)
 						if scenario == "root" {
-							m.RootFramesRemaining, m.RootTurnsRemaining = 100000, 100000
+							m.Root.Frames, m.Root.Turns = 100000, 100000
 						} else {
 							m.ApplySlow(100, 100000, 100000)
 						}
@@ -125,10 +125,10 @@ func TestWildlifeThreatMemoryAndMovementHolds(t *testing.T) {
 						}
 					}
 					if scenario == "occlusion" || scenario == "gone" {
-						for i := 0; i < g.config.GetTPS()*4 && m.Threat.Seconds > 0; i++ {
+						for i := 0; i < g.config.GetTPS()*4 && m.Threat.Clock.Active(); i++ {
 							advanceLemurThroughScheduler(g, m, turn)
 						}
-						if m.Threat.Seconds != 0 || m.AmbientFlee || m.SpawnX != m.X || m.SpawnY != m.Y {
+						if m.Threat.Clock.Active() || m.AmbientFlee || m.SpawnX != m.X || m.SpawnY != m.Y {
 							t.Fatal("lost threat did not release wildlife at its refuge")
 						}
 						x, y = m.X, m.Y
@@ -192,7 +192,7 @@ func TestWildlifeThreatSaveRoundTrip(t *testing.T) {
 				}
 				got := g.world.Monsters[0]
 				if legacy {
-					if got.Threat.Seconds != 0 {
+					if got.Threat.Clock.Active() {
 						t.Fatal("legacy save invented a remembered threat")
 					}
 				} else if !got.AmbientFlee || got.Threat != m.Threat {
@@ -275,7 +275,7 @@ func TestWildlifeEscapeDetourLifecycle(t *testing.T) {
 					if mode != "party_RT" && mode != "party_TB" {
 						predator := monster.NewMonster3DFromConfig(tx, ty, "fennec", g.config)
 						predator.Prey = []string{key}
-						predator.RootFramesRemaining, predator.RootTurnsRemaining = 100000, 100000
+						predator.Root.Frames, predator.Root.Turns = 100000, 100000
 						g.world.Monsters = append(g.world.Monsters, predator)
 						placePlayerAtTile(g, 1, 1, tile)
 					}
@@ -303,7 +303,7 @@ func TestWildlifeEscapeDetourLifecycle(t *testing.T) {
 						d := Distance(m.X, m.Y, tx, ty)
 						detoured = detoured || d < float64(gap)*tile-.01
 						escaped = escaped || (detoured && d >= m.AlertRadius+tile)
-						if m.Threat.Seconds > 0 && d < float64(gap-1)*tile-1e-6 {
+						if m.Threat.Clock.Active() && d < float64(gap-1)*tile-1e-6 {
 							t.Fatal("escape spent more than its initial one-tile detour budget")
 						}
 					}
@@ -403,5 +403,18 @@ func TestLemurEscapeRefugeAfterPatrol(t *testing.T) {
 				})
 			}
 		}
+	}
+}
+
+// An old save's threat seconds come back as the same part of the clock: half
+// the memory is half its frames and half its walking turns.
+func TestWildlifeThreatLegacySave(t *testing.T) {
+	cfg := loadTestConfig(t)
+	m := monster.NewMonster3DFromConfig(64, 64, "fennec", cfg)
+	m.RememberAmbientThreat(10, 20)
+	full := m.Threat.Clock
+	m.RestoreAmbientThreat(monster.AmbientThreat{X: 10, Y: 20, LegacySeconds: 1.5})
+	if !m.AmbientFlee || m.Threat.Clock.Frames*2 != full.Frames || m.Threat.Clock.Turns*2 != full.Turns || m.Threat.LegacySeconds != 0 {
+		t.Fatalf("legacy threat %+v, full memory %+v", m.Threat, full)
 	}
 }

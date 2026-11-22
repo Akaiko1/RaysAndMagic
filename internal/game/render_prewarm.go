@@ -10,8 +10,10 @@ import (
 	"strings"
 	"time"
 
+	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/graphics"
+	"ugataima/internal/items"
 	"ugataima/internal/monster"
 	"ugataima/internal/world"
 
@@ -139,14 +141,18 @@ type mapRenderStandeeCommit struct {
 	core          *ebiten.Image
 	stickerLevels []*ebiten.Image
 	coreLevels    []*ebiten.Image
-	writes        []mapRenderImageWrite
-	owned         []*ebiten.Image
-	done          bool
+	// sheet holds the reduced levels of both chains when they pack into one.
+	sheet *standeeSheet
+	// rows bounds what each level of either chain can colour.
+	rows   []standeeLevelRows
+	writes []mapRenderImageWrite
+	owned  []*ebiten.Image
+	done   bool
 }
 
 func newMapRenderStandeeCommit(prepared mapRenderPreparedStandee) *mapRenderStandeeCommit {
 	defer prepared.lease.Release()
-	c := &mapRenderStandeeCommit{key: prepared.key, source: prepared.source}
+	c := &mapRenderStandeeCommit{key: prepared.key, source: prepared.source, rows: prepared.prepared.rows}
 	if prepared.source == nil || prepared.prepared.sticker == nil || prepared.prepared.core == nil {
 		c.done = true
 		return c
@@ -169,15 +175,25 @@ func newMapRenderStandeeCommit(prepared mapRenderPreparedStandee) *mapRenderStan
 		c.cancel()
 		return c
 	}
+	if c.sheet = newStandeeSheet(prepared.prepared.stickerMips, prepared.prepared.coreMips); c.sheet != nil {
+		c.owned = append(c.owned, c.sheet.image)
+	}
+	reduced := func(cpu *image.RGBA, views []*ebiten.Image, k int) *ebiten.Image {
+		if c.sheet == nil {
+			return makeImage(cpu)
+		}
+		c.writes = append(c.writes, mapRenderImageWrite{image: views[k], cpu: cpu})
+		return views[k]
+	}
 	c.stickerLevels = append(c.stickerLevels, c.sticker)
-	for _, cpu := range prepared.prepared.stickerMips[1:] {
-		if level := makeImage(cpu); level != nil {
+	for k, cpu := range prepared.prepared.stickerMips[1:] {
+		if level := reduced(cpu, c.sheet.stickerViews(), k+1); level != nil {
 			c.stickerLevels = append(c.stickerLevels, level)
 		}
 	}
 	c.coreLevels = append(c.coreLevels, c.core)
-	for _, cpu := range prepared.prepared.coreMips[1:] {
-		if level := makeImage(cpu); level != nil {
+	for k, cpu := range prepared.prepared.coreMips[1:] {
+		if level := reduced(cpu, c.sheet.coreViews(), k+1); level != nil {
 			c.coreLevels = append(c.coreLevels, level)
 		}
 	}
@@ -203,7 +219,8 @@ func (c *mapRenderStandeeCommit) advance(r *Renderer, maxBytes int) (*ebiten.Ima
 		}
 		start := write.cpu.PixOffset(bounds.Min.X, bounds.Min.Y+write.row)
 		end := start + rows*write.cpu.Stride
-		region := image.Rect(0, write.row, width, write.row+rows)
+		// A sheet view keeps its position on the sheet.
+		region := image.Rect(0, write.row, width, write.row+rows).Add(write.image.Bounds().Min)
 		graphics.WritePixelsRegion(write.image, region, write.cpu.Pix[start:end])
 		write.row += rows
 		if maxBytes > 0 {
@@ -241,16 +258,25 @@ func (c *mapRenderStandeeCommit) advance(r *Renderer, maxBytes int) (*ebiten.Ima
 	if r.standeeMipCache == nil {
 		r.standeeMipCache = make(map[standeeMipKey]*mipChain)
 	}
+	// The chains own their images; sheet views belong to the sheet, which the
+	// sticker chain owns.
 	stickerOwned := append([]*ebiten.Image(nil), c.stickerLevels[1:]...)
+	coreOwned := append([]*ebiten.Image(nil), c.coreLevels...)
+	if c.sheet != nil {
+		stickerOwned, coreOwned = []*ebiten.Image{c.sheet.image}, coreOwned[:1]
+		if r.standeeSheets == nil {
+			r.standeeSheets = make(map[standeeCoreKey]*standeeSheet)
+		}
+		r.standeeSheets[c.key] = c.sheet
+	}
 	if c.sticker != c.source {
 		stickerOwned = append(stickerOwned, c.sticker)
 	}
-	coreOwned := append([]*ebiten.Image(nil), c.coreLevels...)
 	r.standeeMipCache[standeeMipKey{frame: c.key, layer: standeeMipSticker}] = &mipChain{
-		levels: c.stickerLevels, owned: stickerOwned,
+		levels: c.stickerLevels, owned: stickerOwned, rows: c.rows,
 	}
 	r.standeeMipCache[standeeMipKey{frame: c.key, layer: standeeMipCore}] = &mipChain{
-		levels: c.coreLevels, owned: coreOwned,
+		levels: c.coreLevels, owned: coreOwned, rows: c.rows,
 	}
 	c.owned = nil
 	c.done = true
@@ -277,6 +303,7 @@ func (c *mapRenderStandeeCommit) cancel() {
 	c.owned = nil
 	c.stickerLevels = nil
 	c.coreLevels = nil
+	c.sheet = nil
 	c.sticker = nil
 	c.core = nil
 	c.done = true
@@ -341,15 +368,34 @@ type mapRenderUpload struct {
 type mapRenderPrewarmScope struct {
 	mapKey   string
 	region   *world.OpenWorldRegion
+	regions  []world.OpenWorldRegion
 	tileSize float64
 }
 
+// containsTile reports the tiles this region prepares: its own footprint,
+// and the tiles outside every footprint (corridors, the void between maps)
+// that lie nearest to it, so that art has exactly one owner too.
 func (s mapRenderPrewarmScope) containsTile(tx, ty int) bool {
 	if s.region == nil {
 		return true
 	}
-	return tx >= s.region.OffsetX && tx < s.region.OffsetX+s.region.Width &&
-		ty >= s.region.OffsetY && ty < s.region.OffsetY+s.region.Height
+	p := image.Pt(tx, ty)
+	if p.In(s.region.TileBounds()) {
+		return true
+	}
+	nearest, best := "", math.MaxInt
+	for i := range s.regions {
+		b := s.regions[i].TileBounds()
+		if p.In(b) {
+			return false
+		}
+		dx := max(b.Min.X-tx, 0, tx-(b.Max.X-1))
+		dy := max(b.Min.Y-ty, 0, ty-(b.Max.Y-1))
+		if d := dx*dx + dy*dy; d < best {
+			nearest, best = s.regions[i].MapKey, d
+		}
+	}
+	return nearest == s.mapKey
 }
 
 func (s mapRenderPrewarmScope) containsWorld(x, y float64) bool {
@@ -367,6 +413,7 @@ func (r *Renderer) mapRenderPrewarmScope(mapKey string) mapRenderPrewarmScope {
 	}
 	if wm := world.GlobalWorldManager; wm != nil && currentWorld == wm.OpenWorld {
 		scope.region = wm.OpenWorldRegionByKey(mapKey)
+		scope.regions = wm.OpenWorldRegions
 	}
 	return scope
 }
@@ -505,7 +552,7 @@ func resolveMonsterPrewarmResources(seeds map[string]float64, priorities mapRend
 			resources[mapMonsterPrewarmResource{key: current.key, spriteName: name}] = struct{}{}
 			priorities.observe(name, current.score)
 		}
-		for _, summonKey := range def.SummonMonsters {
+		for _, summonKey := range def.Abilities.Summon.Monsters {
 			if summonKey != "" {
 				pending = append(pending, pendingMonster{key: summonKey, score: current.score})
 			}
@@ -595,8 +642,11 @@ func (r *Renderer) collectMapRenderPrewarmPlanAndPriorities(scope mapRenderPrewa
 			// The stitched world caches cover every region. Inventory only tiles
 			// physically placed in this logical region; the retained neighbour
 			// provides the art visible across a seam.
-			for ty := scope.region.OffsetY; ty < scope.region.OffsetY+scope.region.Height; ty++ {
-				for tx := scope.region.OffsetX; tx < scope.region.OffsetX+scope.region.Width; tx++ {
+			for ty := 0; ty < currentWorld.Height; ty++ {
+				for tx := 0; tx < currentWorld.Width; tx++ {
+					if !scope.containsTile(tx, ty) {
+						continue
+					}
 					x, y := TileCenterFromTile(tx, ty, scope.tileSize)
 					tileType := currentWorld.GetTileAt(x, y)
 					tileTypes[tileType] = struct{}{}
@@ -749,7 +799,7 @@ func (r *Renderer) collectMapRenderPrewarmPlanAndPriorities(scope mapRenderPrewa
 			observeMinScore(decodeMonsterKeys, mon.Key, monsterScore)
 			observeMinScore(monsterKeys, mon.Key, monsterScore)
 		}
-		for _, key := range mon.SummonMonsters {
+		for _, key := range mon.Abilities.Summon.Monsters {
 			if inScope && key != "" {
 				observeMinScore(decodeMonsterKeys, key, monsterScore)
 				observeMinScore(monsterKeys, key, monsterScore)
@@ -794,11 +844,11 @@ func (r *Renderer) collectMapRenderPrewarmPlanAndPriorities(scope mapRenderPrewa
 			if population.Map != mapKey {
 				continue
 			}
+			// Every species: one absent when the plan is built (night-only, not
+			// yet respawned) would otherwise load in the middle of play.
 			for _, species := range population.Species() {
-				if len(monsterSpecialAnimations(species)) > 0 {
-					observeMinScore(decodeMonsterKeys, species, math.Inf(1))
-					observeMinScore(monsterKeys, species, math.Inf(1))
-				}
+				observeMinScore(decodeMonsterKeys, species, math.Inf(1))
+				observeMinScore(monsterKeys, species, math.Inf(1))
 			}
 		}
 	}
@@ -1146,6 +1196,7 @@ func (p *mapRenderPrewarmer) standee(prefix, name string, img *ebiten.Image, sta
 }
 
 func (p *mapRenderPrewarmer) recordStandeeUploads(key standeeCoreKey) {
+	sheet := p.renderer.standeeSheets[key]
 	for _, layer := range []standeeMipLayer{standeeMipSticker, standeeMipCore} {
 		chain := p.renderer.standeeMipCache[standeeMipKey{frame: key, layer: layer}]
 		if chain == nil {
@@ -1157,7 +1208,12 @@ func (p *mapRenderPrewarmer) recordStandeeUploads(key standeeCoreKey) {
 		if layer == standeeMipCore && p.shaderCoreMips == nil {
 			p.shaderCoreMips = chain
 		}
-		for _, level := range chain.levels {
+		for k, level := range chain.levels {
+			// A sheet is one texture: submitted once in place of its views, it
+			// takes one image of the frame's upload quota for all of them.
+			if sheet.views(layer, k, level) {
+				level = sheet.image
+			}
 			p.addUpload(level)
 		}
 	}
@@ -1165,44 +1221,20 @@ func (p *mapRenderPrewarmer) recordStandeeUploads(key standeeCoreKey) {
 
 // Computing these pixels is cheaper than compressing or reading their disk
 // cache. Keep only the shared GPU result and the bounded in-flight CPU work.
-func prepareMapRenderStandees(ctx context.Context, jobs []mapRenderStandeeJob, tint float64, budgets ...*graphics.PreparationBudget) <-chan mapRenderPreparedStandee {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	results := make(chan mapRenderPreparedStandee, 1)
-	go func() {
-		defer close(results)
-		for i := range jobs {
-			job := jobs[i]
-			select {
-			case <-ctx.Done():
-				return
-			default:
-			}
-			var budget *graphics.PreparationBudget
-			if len(budgets) > 0 {
-				budget = budgets[0]
-			}
-			lease, ok := budget.Acquire(ctx, int64(len(job.cpu.Pix))*3)
-			if !ok {
-				return
-			}
-			prepared := mapRenderPreparedStandee{
+// Sheets arrive in job order, built by as many workers as the gate admits.
+func prepareMapRenderStandees(ctx context.Context, jobs []mapRenderStandeeJob, tint float64, gate *graphics.WorkerGate, budget *graphics.PreparationBudget) <-chan mapRenderPreparedStandee {
+	return graphics.PrepareOrdered(ctx, jobs, gate,
+		func(ctx context.Context, job mapRenderStandeeJob) (*graphics.PreparationLease, bool) {
+			return budget.Acquire(ctx, int64(len(job.cpu.Pix))*3)
+		},
+		func(job mapRenderStandeeJob, lease *graphics.PreparationLease) mapRenderPreparedStandee {
+			return mapRenderPreparedStandee{
 				lease:    lease,
 				key:      job.key,
 				source:   job.source,
 				prepared: prepareStandeePixels(job.cpu, tint, true, job.silhouetteEdge),
 			}
-			lease.ReleaseOnCancel(ctx)
-			jobs[i] = mapRenderStandeeJob{}
-			select {
-			case results <- prepared:
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
-	return results
+		})
 }
 
 func (r *Renderer) resetMapRenderResourceResidency() {
@@ -1228,9 +1260,11 @@ func (r *Renderer) resetMapRenderResourceResidency() {
 		all[id] = struct{}{}
 	}
 	r.mapRenderRegistry.releaseResources(all)
+	r.drainRenderReleases(-1)
 	r.standeeCoreCache = nil
 	r.standeeRenderSourceCache = nil
 	r.standeeMipCache = nil
+	r.standeeSheets = nil
 	r.processedSpriteCache = nil
 	r.processedSpriteOrigins = nil
 	r.animFrameOrigins = nil
@@ -1399,10 +1433,7 @@ func mapRenderRegionIntersectsView(region *world.OpenWorldRegion, tileSize, came
 	if region == nil || tileSize <= 0 || fov <= 0 || distance <= 0 {
 		return false
 	}
-	minX := float64(region.OffsetX) * tileSize
-	minY := float64(region.OffsetY) * tileSize
-	maxX := float64(region.OffsetX+region.Width) * tileSize
-	maxY := float64(region.OffsetY+region.Height) * tileSize
+	minX, minY, maxX, maxY := region.PixelBounds(tileSize)
 	camera := mapRenderViewPoint{x: cameraX, y: cameraY}
 	if mapRenderPointInRect(camera, minX, minY, maxX, maxY) {
 		return true
@@ -1474,10 +1505,7 @@ func nearbyOpenWorldMapKeys(wm *world.WorldManager, camera *FirstPersonCamera, t
 	keys := make([]string, 0, len(wm.OpenWorldRegions))
 	for i := range wm.OpenWorldRegions {
 		region := &wm.OpenWorldRegions[i]
-		minX := float64(region.OffsetX) * tileSize
-		minY := float64(region.OffsetY) * tileSize
-		maxX := float64(region.OffsetX+region.Width) * tileSize
-		maxY := float64(region.OffsetY+region.Height) * tileSize
+		minX, minY, maxX, maxY := region.PixelBounds(tileSize)
 		closestX := math.Max(minX, math.Min(camera.X, maxX))
 		closestY := math.Max(minY, math.Min(camera.Y, maxY))
 		dx, dy := closestX-camera.X, closestY-camera.Y
@@ -1503,10 +1531,7 @@ func mapRenderRegionDistanceSq(wm *world.WorldManager, mapKey string, x, y, tile
 	if region == nil {
 		return math.Inf(1)
 	}
-	minX := float64(region.OffsetX) * tileSize
-	minY := float64(region.OffsetY) * tileSize
-	maxX := float64(region.OffsetX+region.Width) * tileSize
-	maxY := float64(region.OffsetY+region.Height) * tileSize
+	minX, minY, maxX, maxY := region.PixelBounds(tileSize)
 	closestX := math.Max(minX, math.Min(x, maxX))
 	closestY := math.Max(minY, math.Min(y, maxY))
 	dx, dy := closestX-x, closestY-y
@@ -1610,11 +1635,14 @@ func (r *Renderer) syncVisibleMapRenderResidency() {
 	r.mapRenderLastCameraX = r.game.camera.X
 	r.mapRenderLastCameraY = r.game.camera.Y
 	r.mapRenderLastCameraValid = true
+	// Residency reaches a lead past the required margin, so a region loads in
+	// the background before it can come into view.
+	lead := r.game.config.Graphics.Streaming.PrefetchLeadTiles
 	loadKeys := nearbyOpenWorldMapKeys(wm, r.game.camera, tileSize,
-		mapRenderLoadMarginInTiles*tileSize)
+		(mapRenderLoadMarginInTiles+lead)*tileSize)
 	prioritizeMapRenderKeys(wm, loadKeys, currentMapKey(), r.game.camera, tileSize, moveX, moveY)
 	retainKeys := nearbyOpenWorldMapKeys(wm, r.game.camera, tileSize,
-		mapRenderUnloadDistanceInTiles*tileSize)
+		(mapRenderUnloadDistanceInTiles+lead)*tileSize)
 	keep := make(map[string]struct{}, len(retainKeys)+1)
 	for _, mapKey := range retainKeys {
 		keep[mapKey] = struct{}{}
@@ -1944,7 +1972,8 @@ func (r *Renderer) startNextMapRenderPrewarm() {
 		}
 		ctx, cancel := context.WithCancel(context.Background())
 		task := &mapRenderPrewarmTask{mapKey: mapKey, ctx: ctx, cancel: cancel, generation: r.mapRenderGeneration, world: r.game.world}
-		task.queueBudget = graphics.NewPreparationBudget(32 << 20)
+		r.ensureLoadingGates()
+		task.queueBudget = graphics.NewPreparationBudget(r.loadingPace(r.game.loadingStall()).queueBytes)
 		task.cpuImages = make(map[*ebiten.Image]*image.RGBA)
 		task.plan, task.priorities = r.collectMapRenderPrewarmPlanAndPriorities(r.mapRenderPrewarmScope(mapKey))
 		task.pendingSourceNames = make(map[string]int)
@@ -2045,17 +2074,7 @@ func (r *Renderer) drainPreparedMapRenderResource(task *mapRenderPrewarmTask) bo
 	if !task.spritesDone {
 		select {
 		case prepared, ok := <-task.preparedSprites:
-			if !ok {
-				task.spritesDone = true
-				task.sourcesChanged = true
-			} else {
-				task.prewarmer.lastResource = "begin:" + prepared.Request.Name
-				if prepared.Request.AnimationType != "" {
-					task.prewarmer.lastResource += ":" + prepared.Request.AnimationType
-				}
-				task.spriteCommit = r.game.sprites.BeginPreparedResourceCommit(prepared)
-				task.spriteCommitReq = prepared.Request
-				task.spriteCommitFound = prepared.Found
+			if r.acceptPreparedSprite(task, prepared, ok) {
 				return true
 			}
 		default:
@@ -2064,20 +2083,7 @@ func (r *Renderer) drainPreparedMapRenderResource(task *mapRenderPrewarmTask) bo
 	if !task.skiesDone {
 		select {
 		case prepared, ok := <-task.preparedSkies:
-			prepared.lease.Release()
-			if !ok {
-				task.skiesDone = true
-			} else {
-				if prepared.image != nil {
-					img := r.game.skyPanoramaCache[prepared.name]
-					if img == nil {
-						img = ebiten.NewImage(prepared.image.Bounds().Dx(), prepared.image.Bounds().Dy())
-						task.skyCommit = &mapRenderSkyCommit{name: prepared.name, image: img, cpu: prepared.image}
-						return true
-					}
-					task.prewarmer.resources.skies[prepared.name] = struct{}{}
-					task.prewarmer.addUpload(img)
-				}
+			if r.acceptPreparedSky(task, prepared, ok) {
 				return true
 			}
 		default:
@@ -2086,17 +2092,99 @@ func (r *Renderer) drainPreparedMapRenderResource(task *mapRenderPrewarmTask) bo
 	if task.preparedStandees != nil {
 		select {
 		case prepared, ok := <-task.preparedStandees:
-			if !ok {
-				task.preparedStandees = nil
-			} else {
-				task.prewarmer.lastResource = "standee:" + prepared.key.name
-				task.standeeCommit = newMapRenderStandeeCommit(prepared)
+			if r.acceptPreparedStandee(task, prepared, ok) {
 				return true
 			}
 		default:
 		}
 	}
 	return false
+}
+
+// The accept functions take one worker result off its queue: they start its
+// commit and report true, or record that the queue has closed.
+func (r *Renderer) acceptPreparedSprite(task *mapRenderPrewarmTask, prepared graphics.PreparedSpriteResource, ok bool) bool {
+	if !ok {
+		task.spritesDone = true
+		task.sourcesChanged = true
+		return false
+	}
+	task.prewarmer.lastResource = "begin:" + prepared.Request.Name
+	if prepared.Request.AnimationType != "" {
+		task.prewarmer.lastResource += ":" + prepared.Request.AnimationType
+	}
+	task.spriteCommit = r.game.sprites.BeginPreparedResourceCommit(prepared)
+	task.spriteCommitReq = prepared.Request
+	task.spriteCommitFound = prepared.Found
+	return true
+}
+
+func (r *Renderer) acceptPreparedSky(task *mapRenderPrewarmTask, prepared mapRenderPreparedSky, ok bool) bool {
+	prepared.lease.Release()
+	if !ok {
+		task.skiesDone = true
+		return false
+	}
+	if prepared.image != nil {
+		img := r.game.skyPanoramaCache[prepared.name]
+		if img == nil {
+			img = ebiten.NewImage(prepared.image.Bounds().Dx(), prepared.image.Bounds().Dy())
+			task.skyCommit = &mapRenderSkyCommit{name: prepared.name, image: img, cpu: prepared.image}
+			return true
+		}
+		task.prewarmer.resources.skies[prepared.name] = struct{}{}
+		task.prewarmer.addUpload(img)
+	}
+	return true
+}
+
+func (r *Renderer) acceptPreparedStandee(task *mapRenderPrewarmTask, prepared mapRenderPreparedStandee, ok bool) bool {
+	if !ok {
+		task.preparedStandees = nil
+		return false
+	}
+	task.prewarmer.lastResource = "standee:" + prepared.key.name
+	task.standeeCommit = newMapRenderStandeeCommit(prepared)
+	return true
+}
+
+// awaitMapRenderWorker blocks until a worker of the active region delivers or
+// closes its queue, or the deadline passes, and reports whether the region can
+// advance again. Only a held frame calls it: play never waits for a worker.
+func (r *Renderer) awaitMapRenderWorker(deadline time.Time) bool {
+	task := r.mapRenderResourcePrewarmActive
+	if task == nil || r.floorPreparation != nil || !r.mapRenderTaskCurrent(task) {
+		return false
+	}
+	if task.standeeCommit != nil || task.spriteCommit != nil || task.skyCommit != nil {
+		return true
+	}
+	// A nil queue never delivers: only the live ones take part.
+	var sprites <-chan graphics.PreparedSpriteResource
+	var skies <-chan mapRenderPreparedSky
+	if !task.spritesDone {
+		sprites = task.preparedSprites
+	}
+	if !task.skiesDone {
+		skies = task.preparedSkies
+	}
+	standees := task.preparedStandees
+	if sprites == nil && skies == nil && standees == nil {
+		return false
+	}
+	timer := time.NewTimer(time.Until(deadline))
+	defer timer.Stop()
+	select {
+	case prepared, ok := <-sprites:
+		r.acceptPreparedSprite(task, prepared, ok)
+	case prepared, ok := <-skies:
+		r.acceptPreparedSky(task, prepared, ok)
+	case prepared, ok := <-standees:
+		r.acceptPreparedStandee(task, prepared, ok)
+	case <-timer.C:
+		return false
+	}
+	return true
 }
 
 func (p *mapRenderPrewarmer) monsterVisualFrames(resource mapMonsterPrewarmResource) []*ebiten.Image {
@@ -2344,6 +2432,8 @@ func (r *Renderer) buildMapRenderPrewarmSteps(task *mapRenderPrewarmTask, plan m
 	for _, resource := range orderedByStreamPriority(plan.monsterSprites, task.priorities,
 		func(resource mapMonsterPrewarmResource) string { return resource.spriteName }) {
 		resource := resource
+		// Shots and hit bursts aim at the measured body, not the frame centre.
+		appendStep(func() { warmVisibleBounds(resource.spriteName) })
 		seen := make(map[*ebiten.Image]struct{})
 		for _, frame := range p.monsterVisualFrames(resource) {
 			if frame == nil {
@@ -2388,6 +2478,7 @@ func (r *Renderer) finalizeMapRenderPrewarm(task *mapRenderPrewarmTask) {
 	if p.stats.standeeFrames > 0 {
 		_, _ = r.ensureStandeeTrilinearShader()
 		_, _ = r.ensureStandeeVolumeShader()
+		_, _ = r.ensureStandeeSheetShader()
 		r.reserveStandeeBuffers()
 	}
 	_, _ = r.ensureFloorShader()
@@ -2408,7 +2499,8 @@ func (r *Renderer) prewarmPendingMapRenderResources() bool {
 }
 
 // advanceMapRenderPrewarm shares the scheduler deadline and reports whether
-// another immediate step could be useful. It never waits for a CPU worker.
+// another immediate step could be useful. It never waits for a CPU worker;
+// a held frame does that between steps, in awaitMapRenderWorker.
 func (r *Renderer) advanceMapRenderPrewarm(deadline time.Time) bool {
 	if r == nil || r.game == nil {
 		return false
@@ -2448,12 +2540,12 @@ func (r *Renderer) advanceMapRenderPrewarm(deadline time.Time) bool {
 		}
 	}
 	// Start ready standees before the rest of the region is decoded or derived.
-	// A single worker shares the source queue's budget and drains one batch at
-	// a time; decoded pixels stay owned by this task until final publication.
+	// Their workers share the source queue's budget and drain one batch at a
+	// time; decoded pixels stay owned by this task until final publication.
 	if len(task.standeeJobs) > 0 && task.preparedStandees == nil && task.standeeCommit == nil {
 		jobs := task.standeeJobs
 		task.standeeJobs = nil
-		task.preparedStandees = prepareMapRenderStandees(task.ctx, jobs, r.game.config.Graphics.Standee.CoreTint, task.queueBudget)
+		task.preparedStandees = prepareMapRenderStandees(task.ctx, jobs, r.game.config.Graphics.Standee.CoreTint, r.standeeGate, task.queueBudget)
 		return true
 	}
 	if task.nextStep < len(task.steps) {
@@ -2495,16 +2587,6 @@ func (r *Renderer) advanceMapRenderPrewarm(deadline time.Time) bool {
 	r.mapRenderResourcePrewarmActive = nil
 	r.mapRenderResourcePrewarmPending = len(r.mapRenderResourcePrewarmMapKeys) > 0
 	return true
-}
-
-const (
-	mapRenderUploadFrameBytes  int64 = 8 << 20
-	mapRenderUploadFrameImages       = 32
-)
-
-func mapRenderUploadFrameFull(imageCount int, frameBytes, nextImageBytes int64) bool {
-	return imageCount > 0 &&
-		(imageCount >= mapRenderUploadFrameImages || frameBytes+nextImageBytes > mapRenderUploadFrameBytes)
 }
 
 func (r *Renderer) queueMapRenderUpload(img *ebiten.Image, task *mapRenderPrewarmTask) {
@@ -2570,7 +2652,8 @@ func (r *Renderer) submitMapRenderPrewarmUploads(dst mapRenderUploadDestination)
 	}
 	consumed := 0
 	var consumedBytes int64
-	for consumed < len(r.mapRenderUploadQueue) && consumed < mapRenderUploadFrameImages {
+	limit := r.uploadLimit()
+	for consumed < len(r.mapRenderUploadQueue) && consumed < limit.images {
 		upload := r.mapRenderUploadQueue[consumed]
 		if upload.image == nil || !r.mapRenderTaskCurrent(upload.task) {
 			delete(r.mapRenderUploadQueued, upload.image)
@@ -2579,7 +2662,7 @@ func (r *Renderer) submitMapRenderPrewarmUploads(dst mapRenderUploadDestination)
 		}
 		bounds := upload.image.Bounds()
 		imageBytes := int64(bounds.Dx()) * int64(bounds.Dy()) * 4
-		if mapRenderUploadFrameFull(consumed, consumedBytes, imageBytes) {
+		if limit.full(consumed, consumedBytes, imageBytes) {
 			break
 		}
 		submitRenderUpload(dst, upload.image, consumed)
@@ -2608,9 +2691,56 @@ func (r *Renderer) drawMapRenderShaderWarm(screen *ebiten.Image) {
 		}
 		r.drawAuraCurtainShaderWarm(screen)
 		r.drawWeaponMaterialWarm(screen)
+		r.game.warmPartyWeaponModels()
 		r.drawWorldMaterialWarm(screen)
 		r.drawMapRenderStandeeShaderWarm(screen, task)
 		return
+	}
+}
+
+// warmPartyWeaponModels compiles every weapon body the active party holds or
+// has quick-slotted, so its first attack builds no geometry. It runs when a
+// party is installed (a load or a new game) and at map prewarm.
+func (g *MMGame) warmPartyWeaponModels() {
+	if g == nil || g.party == nil {
+		return
+	}
+	for _, hero := range g.party.Members {
+		g.warmHeroWeaponModels(hero)
+	}
+}
+
+// warmHeroWeaponModels compiles the melee body and held ranged model of every
+// weapon in a hero's hands or quick slots. It runs with the party prewarm,
+// after an equipment change and when a quick slot is filled; a run without a
+// renderer skips it.
+func (g *MMGame) warmHeroWeaponModels(hero *character.MMCharacter) {
+	if hero == nil || g.gameLoop == nil || g.gameLoop.renderer == nil {
+		return
+	}
+	warm := func(weapon items.Item) {
+		def, key, found := config.WeaponDefOf(weapon) // a shield is no weapon
+		if !found {
+			return
+		}
+		if body, ok := weaponBodyModels[key]; ok {
+			meleeWeaponMeshes.get(body, buildMeleeWeaponMesh)
+		}
+		if def.Graphics != nil {
+			if a, ok := rangedHeldAssets[def.Graphics.HeldModel]; ok {
+				rangedHeldRest(def.Graphics.HeldModel, a)
+			}
+		}
+	}
+	for _, slot := range []items.EquipSlot{items.SlotMainHand, items.SlotOffHand} {
+		if weapon, ok := hero.Equipment[slot]; ok {
+			warm(weapon)
+		}
+	}
+	for _, it := range hero.QuickSlots {
+		if it != nil && it.Type == items.ItemWeapon {
+			warm(*it)
+		}
 	}
 }
 
@@ -2659,6 +2789,12 @@ func (r *Renderer) drawMapRenderStandeeShaderWarm(target *ebiten.Image, task *ma
 		opts := shaderOpts()
 		opts.Uniforms = map[string]any{"Horizon": float32(target.Bounds().Dy()) / 2}
 		target.DrawTrianglesShader32(vertices, indices, r.standeeVolumeShader, opts)
+	}
+	if r.standeeSheetShader != nil {
+		// The pipeline is what warms; any source stands in for a sheet.
+		opts := &ebiten.DrawTrianglesShaderOptions{Uniforms: map[string]any{"Horizon": float32(target.Bounds().Dy()) / 2}}
+		opts.Images[0] = stickerMips.levels[0]
+		target.DrawTrianglesShader32(vertices, indices, r.standeeSheetShader, opts)
 	}
 }
 

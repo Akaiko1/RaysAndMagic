@@ -49,6 +49,7 @@ func TestTopModalLayerIdentifiesEveryLayer(t *testing.T) {
 		{name: "promotion", want: modalLayerPromotion, set: func(g *MMGame, _ *UISystem) { g.promotionPickerOpen = true }, pauses: true},
 		{name: "roster", want: modalLayerRoster, set: func(g *MMGame, _ *UISystem) { g.rosterScreenOpen = true }, pauses: true},
 		{name: "stash", want: modalLayerStash, set: func(g *MMGame, _ *UISystem) { g.stashScreenOpen = true }, pauses: true},
+		{name: "collection", want: modalLayerCollection, set: func(g *MMGame, _ *UISystem) { g.collectionScreenOpen = true }, pauses: true},
 		{name: "stack split", want: modalLayerStackSplit, set: func(g *MMGame, ui *UISystem) {
 			g.stashScreenOpen = true
 			ui.stackSplitPicker.open = true
@@ -58,7 +59,10 @@ func TestTopModalLayerIdentifiesEveryLayer(t *testing.T) {
 			g.levelUpChoiceOpen = true
 		}, pauses: true},
 		{name: "camp", want: modalLayerCamp, set: func(g *MMGame, _ *UISystem) { g.campConfirmOpen = true }, pauses: true},
-		{name: "camp rest", want: modalLayerCampRest, set: func(g *MMGame, _ *UISystem) { g.beginCampRest() }, pauses: true},
+		{name: "camp rest", want: modalLayerCampRest, set: func(g *MMGame, _ *UISystem) { g.beginCampRest(false) }, pauses: true},
+		{name: "story", want: modalLayerStory, set: func(g *MMGame, _ *UISystem) {
+			g.storyScreen = &storyPresentation{event: &StoryEventDef{ID: "x", Pages: []string{"p"}}}
+		}, pauses: true},
 	}
 
 	seen := make(map[modalLayerID]bool, len(tests))
@@ -116,7 +120,12 @@ func TestTopModalLayerUsesDrawPriority(t *testing.T) {
 	g.campConfirmOpen = true
 	g.levelUpChoiceQueue = []levelUpChoiceRequest{{}}
 	g.levelUpChoiceOpen = true
+	g.storyScreen = &storyPresentation{event: &StoryEventDef{ID: "x", Pages: []string{"p"}}}
 
+	if got := ui.topModalLayer(); got != modalLayerStory {
+		t.Fatalf("top modal = %d, want last-drawn story %d", got, modalLayerStory)
+	}
+	g.storyScreen = nil
 	if got := ui.topModalLayer(); got != modalLayerLevelChoice {
 		t.Fatalf("top modal = %d, want last-drawn level choice %d", got, modalLayerLevelChoice)
 	}
@@ -176,6 +185,25 @@ func TestModalIdentityChangeDropsQueuedClicks(t *testing.T) {
 	}
 }
 
+// Switching the Quests tab between the journal and the Chronicle retires the
+// page's registered commands, so a queued second click cannot land on the
+// view the player no longer sees.
+func TestChronicleToggleRetiresDisplayedCommands(t *testing.T) {
+	cfg := loadTestConfig(t)
+	g := newTestGame(cfg, newTestWorldSized(cfg, 4, 4))
+	ui := NewUISystem(g)
+	g.menuOpen, g.currentTab = true, TabQuests
+	ui.beginDisplayedInput()
+	ui.endDisplayedInput()
+	if !ui.displayedInputCurrent() {
+		t.Fatal("control: the page just drawn is not current")
+	}
+	ui.questChronicle = true
+	if ui.displayedInputCurrent() {
+		t.Fatal("the Chronicle view still accepts the journal's commands")
+	}
+}
+
 func TestInputDispatchUsesDrawPriority(t *testing.T) {
 	cfg := loadTestConfig(t)
 	g := newTestGame(cfg, newTestWorldSized(cfg, 4, 4))
@@ -189,11 +217,11 @@ func TestInputDispatchUsesDrawPriority(t *testing.T) {
 	}}
 	g.levelUpChoiceOpen = true
 	req := g.currentLevelUpChoice()
-	popupX, _, popupW, _, startY, rowH := levelUpChoiceLayout(req, cfg.GetScreenWidth(), cfg.GetScreenHeight())
+	row := makeLevelUpChoicePanel(req, cfg.GetScreenWidth(), cfg.GetScreenHeight()).target(0)
 	screen := ebiten.NewImage(cfg.GetScreenWidth(), cfg.GetScreenHeight())
 	defer screen.Deallocate()
 	ui.Draw(screen)
-	g.mouseLeftClicks = []queuedClick{{x: popupX + popupW/2, y: startY + rowH/2}}
+	g.mouseLeftClicks = []queuedClick{{x: row.x + row.w/2, y: row.y + row.h/2}}
 
 	ui.dispatchDisplayedInput()
 	if len(g.levelUpChoiceQueue) != 0 {
@@ -223,6 +251,19 @@ func TestModalContentMutationActivatesRedrawBarrier(t *testing.T) {
 		g.stash = &stash.Stash{}
 		g.stashScreenOpen = true
 	}
+	// A press first reveals what is fading in, the next acts on it.
+	openStory := func(g *MMGame, _ *UISystem) {
+		g.storyScreen = &storyPresentation{event: &StoryEventDef{ID: "x", Pages: []string{"p", "q"}}}
+	}
+	openCamp := func(wordsUp bool) func(*MMGame, *UISystem) {
+		return func(g *MMGame, _ *UISystem) {
+			c := &campRestPresentation{watcherLine: &WatcherLine{ID: "x", Text: "t"}, fadeIn: 10, hold: 10000, fadeOut: 10, elapsed: 10}
+			if wordsUp {
+				c.elapsed = c.watcherWordsAt(g.storyTiming()) + g.storyTiming().textFade
+			}
+			g.campRest = c
+		}
+	}
 	tests := []struct {
 		name    string
 		open    func(*MMGame, *UISystem)
@@ -249,7 +290,6 @@ func TestModalContentMutationActivatesRedrawBarrier(t *testing.T) {
 			}
 		}, true},
 		{"member hired", openDialog, func(_ *testing.T, g *MMGame, _ *UISystem) { g.party.Reserve = g.party.Reserve[:len(g.party.Reserve)-1] }, true},
-		{"embedded stash tab", openDialog, func(_ *testing.T, g *MMGame, _ *UISystem) { g.stashShowCards = true }, true},
 		{"embedded stash page", openDialog, func(_ *testing.T, g *MMGame, _ *UISystem) { g.stashInvPage++ }, true},
 		{"embedded roster selection", openDialog, func(_ *testing.T, g *MMGame, _ *UISystem) { g.rosterSelectedActive = 2 }, true},
 		{"trader character selection", openDialog, func(_ *testing.T, g *MMGame, _ *UISystem) { g.selectedCharIdx = 1 }, true},
@@ -267,6 +307,9 @@ func TestModalContentMutationActivatesRedrawBarrier(t *testing.T) {
 				t.Fatal("stash transfer commit failed in the isolated save dir")
 			}
 		}, true},
+		{"story page revealed", openStory, func(_ *testing.T, g *MMGame, _ *UISystem) { g.advanceStory() }, true},
+		{"captain's words revealed", openCamp(false), func(_ *testing.T, g *MMGame, _ *UISystem) { g.releaseCampWatcher() }, true},
+		{"captain's words read", openCamp(true), func(_ *testing.T, g *MMGame, _ *UISystem) { g.releaseCampWatcher() }, true},
 		{"entry screen over a background dialog", openDialog, func(_ *testing.T, g *MMGame, ui *UISystem) {
 			g.appScreen = AppScreenMainMenu
 			ui.renderedModalSnapshot = modalLayerSnapshot{}
@@ -314,16 +357,16 @@ func TestLayerOwnershipLossCancelsTransientDrags(t *testing.T) {
 
 	t.Run("stash drag cancelled", func(t *testing.T) {
 		g, ui := stage(t)
-		g.stashDragActive, g.stashDragDrop, g.stashDragFrom = true, true, 3
+		g.stashDrag.active, g.stashDragDrop, g.stashDragFrom = true, true, 3
 		ui.updateMouseState()
-		if g.stashDragActive || g.stashDragDrop || g.stashDragFrom != -1 {
+		if g.stashDrag.active || g.stashDragDrop || g.stashDragFrom != -1 {
 			t.Fatalf("frozen stash drag survived ownership loss: active=%v drop=%v from=%d",
-				g.stashDragActive, g.stashDragDrop, g.stashDragFrom)
+				g.stashDrag.active, g.stashDragDrop, g.stashDragFrom)
 		}
 	})
 	t.Run("stash fragment survives", func(t *testing.T) {
 		g, ui := stage(t)
-		g.stashDragActive, g.stashDragPickedUp = true, true
+		g.stashDrag.active, g.stashDragPickedUp = true, true
 		ui.updateMouseState()
 		if !g.stashDragPickedUp {
 			t.Fatal("picked-up stash fragment was discarded by ownership loss")
@@ -332,17 +375,17 @@ func TestLayerOwnershipLossCancelsTransientDrags(t *testing.T) {
 	t.Run("quick drag cancelled", func(t *testing.T) {
 		g, ui := stage(t)
 		g.menuOpen = true
-		g.dragArmed, g.dragActive, g.dragSrc = true, true, dragFromInventory
+		g.drag.armed, g.drag.active, g.dragSrc = true, true, dragFromInventory
 		ui.updateMouseState()
-		if g.dragArmed || g.dragActive || g.dragSrc != dragNone {
+		if g.drag.armed || g.drag.active || g.dragSrc != dragNone {
 			t.Fatalf("frozen inventory drag survived ownership loss: armed=%v active=%v src=%d",
-				g.dragArmed, g.dragActive, g.dragSrc)
+				g.drag.armed, g.drag.active, g.dragSrc)
 		}
 	})
 	t.Run("inventory fragment survives", func(t *testing.T) {
 		g, ui := stage(t)
 		g.menuOpen = true
-		g.dragActive, g.dragPickedUp = true, true
+		g.drag.active, g.dragPickedUp = true, true
 		ui.updateMouseState()
 		if !g.dragPickedUp {
 			t.Fatal("picked-up inventory fragment was discarded by ownership loss")
@@ -545,16 +588,16 @@ func TestVictoryScreenStopsTheWorldClock(t *testing.T) {
 
 	const frames = 30
 	g.gameVictory = true
-	g.spellInputCooldown = frames + 5 // a second clock, decremented once per live frame
-	beforeClock, beforeCooldown := g.dayNightFrames, g.spellInputCooldown
+	g.actionInputStagger = frames + 5 // a second clock, decremented once per live frame
+	beforeClock, beforeCooldown := g.dayNightFrames, g.actionInputStagger
 	runFrames(frames)
 	if g.dayNightFrames != beforeClock {
 		t.Errorf("the day/night clock advanced %d frames behind the victory screen",
 			g.dayNightFrames-beforeClock)
 	}
-	if g.spellInputCooldown != beforeCooldown {
+	if g.actionInputStagger != beforeCooldown {
 		t.Errorf("the action cooldown aged %d frames behind the victory screen",
-			beforeCooldown-g.spellInputCooldown)
+			beforeCooldown-g.actionInputStagger)
 	}
 
 	// Positive control: the same frames with the screen closed DO advance both, or
@@ -564,7 +607,7 @@ func TestVictoryScreenStopsTheWorldClock(t *testing.T) {
 	if g.dayNightFrames == beforeClock {
 		t.Fatal("the day/night clock did not move with no overlay either - the test proves nothing")
 	}
-	if g.spellInputCooldown == beforeCooldown {
+	if g.actionInputStagger == beforeCooldown {
 		t.Fatal("the cooldown did not move with no overlay either - the test proves nothing")
 	}
 }
@@ -633,17 +676,16 @@ func TestPausedOverlayFreezesTheWorldPicture(t *testing.T) {
 func TestPartyCardAnimationReadsTheInterfaceClock(t *testing.T) {
 	cfg := loadTestConfig(t)
 	g := newTestGame(cfg, newTestWorldSized(cfg, 4, 4))
-	ui := NewUISystem(g)
 
 	g.frameCount, g.uiFrameCount = 500, 900
-	if got := ui.cardAnimClock(); got != g.uiFrameCount {
-		t.Fatalf("card animation clock = %d, want the interface clock %d (world clock is %d)",
-			got, g.uiFrameCount, g.frameCount)
+	if got, want := g.uiSeconds(), float64(g.uiFrameCount)/float64(g.tickRate()); got != want {
+		t.Fatalf("card animation clock = %v s, want the interface clock %v s (world clock is frame %d)",
+			got, want, g.frameCount)
 	}
 	// And it keeps moving on a frame the world does not: that is the whole point.
-	before := ui.cardAnimClock()
+	before := g.uiSeconds()
 	g.uiFrameCount++
-	if ui.cardAnimClock() == before {
+	if g.uiSeconds() == before {
 		t.Fatal("the card clock did not follow the interface clock")
 	}
 	if g.frameCount != 500 {
@@ -665,8 +707,8 @@ func TestAWipeClosesTheConversationAndPauses(t *testing.T) {
 	g.dialogActive = true
 	g.dialogNPC = &character.NPC{Name: "Merchant", RenderCategory: "npc"}
 	g.skillTrainerPopup = true
-	g.dragActive, g.dragPickedUp = true, true
-	g.stashDragActive, g.stashDragPickedUp = true, true
+	g.drag.active, g.dragPickedUp = true, true
+	g.stashDrag.active, g.stashDragPickedUp = true, true
 	for _, m := range g.party.Members {
 		m.HitPoints = 0
 	}

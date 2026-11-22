@@ -76,17 +76,17 @@ func TestRT_StackedMeleeExitsToSecondRing(t *testing.T) {
 		x1, y1 := monsterTileCoords(m1, ts)
 		x2, y2 := monsterTileCoords(m2, ts)
 		if x1 == x2 && y1 == y2 {
-			// (dist=0, range=1) is always in reach for melee, so the gate's
-			// answer isolates the transit rule itself.
+			// Both stand in reach of the party, so the gate's answer isolates
+			// the transit rule itself.
 			for _, m := range []*monster.Monster3D{m1, m2} {
 				switch {
 				case m.AttackTransit:
 					gateShutForTransit = true
-					if cs.monsterCanAttackParty(m, 0, 1) {
+					if cs.partyInStrikeReach(m, false) {
 						t.Fatalf("tick %d: stacked transit monster passes the attack gate", i)
 					}
 				case m.AttackPost:
-					if cs.monsterCanAttackParty(m, 0, 1) {
+					if cs.partyInStrikeReach(m, false) {
 						gateOpenForHolder = true
 					}
 				}

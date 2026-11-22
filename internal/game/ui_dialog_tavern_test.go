@@ -118,15 +118,17 @@ func TestTavernServiceCardsStayInsideContent(t *testing.T) {
 
 func TestEmbeddedStashLayoutStaysInsideContent(t *testing.T) {
 	area := tavernContentRect(0, 0, tavernDialogWidth, tavernDialogHeight)
-	layout := computeStashLayoutForArea(area, 46)
-	toggle := stashToggleRect(layout)
-	if toggle.Min.X < area.x || toggle.Max.X > area.right() || toggle.Min.Y < area.y || toggle.Max.Y > area.bottom() {
-		t.Fatalf("stash toggle %v escapes content %+v", toggle, area)
-	}
-	lastChest := stashCellRect(layout.centerX, layout.chestTop, stashInvMaxShown-1)
-	lastBag := stashCellRect(layout.centerX, layout.invTop, stashInvMaxShown-1)
-	if lastChest.Max.Y > area.bottom() || lastBag.Max.Y > area.bottom() || layout.pagerY+20 > area.bottom() {
-		t.Fatalf("embedded stash escapes content: chest=%v bag=%v pagerY=%d area=%+v", lastChest, lastBag, layout.pagerY, area)
+	content := namedLayoutBox("content", area)
+	boxes := stashManagerBoxes(computeStashLayoutForArea(area))
+	for i, b := range boxes {
+		if !content.contains(b) {
+			t.Fatalf("%s %+v escapes content %+v", b.Name, b, area)
+		}
+		for _, o := range boxes[i+1:] {
+			if b.overlaps(o) {
+				t.Fatalf("%s %+v overlaps %s %+v", b.Name, b, o.Name, o)
+			}
+		}
 	}
 }
 
@@ -156,15 +158,14 @@ func TestTavernPendingActionUsesExistingServiceLogic(t *testing.T) {
 func TestSwitchDialogTabClearsTransientTabState(t *testing.T) {
 	g := &MMGame{
 		dialogState: dialogState{
-			dialogTab:            0,
-			pendingTavernAction:  &character.NPCDialogueChoice{Action: "tavern_rest"},
-			pendingBuffService:   &character.NPCDialogueChoice{Action: "cast_buff"},
-			dialogLastClickedIdx: 3,
-			dialogLastClickZone:  "tavern",
+			dialogTab:           0,
+			pendingTavernAction: &character.NPCDialogueChoice{Action: "tavern_rest"},
+			pendingBuffService:  &character.NPCDialogueChoice{Action: "cast_buff"},
+			dialogClicks:        doubleClickTracker[dialogClickKey]{at: 1000, target: dialogClickKey{"tavern", 3}},
 		},
 
 		rosterSelectedActive: 1,
-		stashDragActive:      true,
+		stashDrag:            dragGesture{active: true},
 		stashDragFrom:        2,
 		stashDragItem:        items.Item{Name: "Test"},
 	}
@@ -174,10 +175,10 @@ func TestSwitchDialogTabClearsTransientTabState(t *testing.T) {
 	if g.pendingTavernAction != nil || g.pendingBuffService != nil {
 		t.Fatal("tab transition retained a pending action from the previous tab")
 	}
-	if g.dialogLastClickedIdx != -1 || g.dialogLastClickZone != "" {
+	if g.dialogClicks.pending() {
 		t.Fatal("tab transition retained the previous tab's click tracker")
 	}
-	if g.rosterSelectedActive != -1 || g.stashDragActive || g.stashDragFrom != -1 {
+	if g.rosterSelectedActive != -1 || g.stashDrag.active || g.stashDragFrom != -1 {
 		t.Fatal("tab transition retained embedded manager state")
 	}
 }

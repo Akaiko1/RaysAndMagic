@@ -371,7 +371,7 @@ func TestServiceGateValidation(t *testing.T) {
 			npc: &character.NPCData{
 				Type: character.NPCTypeSkillTrainer, RequiresQuest: "no_such_quest",
 			},
-			wantErr: "unknown requires_quest",
+			wantErr: `requires_quest: unknown quest`,
 		},
 		{
 			name: "dialogue-less giver has nothing to gate",
@@ -461,6 +461,20 @@ func TestServiceGateValidation(t *testing.T) {
 				Type: character.NPCTypeSkillTrainer, RequiresQuest: "pit_standing",
 				Dialogue: &character.NPCDialogue{QuestGreeting: "Win three bouts first."},
 			},
+		},
+		// A stock entry's gate is the same service gate on one shelf entry.
+		{
+			name: "stock gate quest nobody gives",
+			npc: &character.NPCData{Type: character.NPCTypeMerchant, Inventory: []*character.NPCItem{
+				{Key: "health_potion", RequiresQuest: "archive_missing_volumes"},
+			}},
+			wantErr: "could never appear",
+		},
+		{
+			name: "stock gate quest a placed giver hands out",
+			npc: &character.NPCData{Type: character.NPCTypeMerchant, Inventory: []*character.NPCItem{
+				{Key: "health_potion", RequiresQuest: "pit_standing"},
+			}},
 		},
 	}
 	for _, tc := range cases {
@@ -861,7 +875,10 @@ func TestEveryInteractQuestTagHasAProducer(t *testing.T) {
 	if err := ValidateInteractTagProducers(qm); err != nil {
 		t.Fatalf("shipped catalogs: %v", err)
 	}
-	producers := interactTagProducers(character.NPCConfigInstance.NPCs)
+	producers, err := interactTagProducers(character.NPCConfigInstance.NPCs)
+	if err != nil {
+		t.Fatal(err)
+	}
 	// A quest counting a tag nobody produces is refused.
 	qm.Definitions()["typo_errand"] = &quests.QuestDefinition{
 		Name: "Typo", Type: quests.QuestTypeInteract, TargetMonster: "shrine_lantern",
@@ -880,13 +897,42 @@ func TestEveryInteractQuestTagHasAProducer(t *testing.T) {
 		t.Fatalf("the arena tag %q is produced by %v (ok=%v), want a code tag",
 			quests.ArenaDuelTag, source, ok)
 	}
+	// An NPC's talk_tag is credited by every conversation: a repeatable talk
+	// source, never a counted prop. Every other authored tag is a prop.
+	talk := map[string]bool{}
+	for _, npc := range character.NPCConfigInstance.NPCs {
+		if npc != nil && npc.TalkTag != "" {
+			talk[npc.TalkTag] = true
+		}
+	}
+	if len(talk) == 0 {
+		t.Fatal("control: no talk_tag NPC in the catalog")
+	}
 	for tag, source := range producers {
-		if tag != quests.ArenaDuelTag && source != interactTagFromProp {
+		switch {
+		case tag == quests.ArenaDuelTag:
+		case talk[tag] && source != interactTagFromTalk:
+			t.Errorf("talk tag %q is produced by %v, want a talk source", tag, source)
+		case !talk[tag] && source != interactTagFromProp:
 			t.Errorf("authored tag %q is marked code-produced, so its props would never be counted", tag)
 		}
 	}
 	if def := qm.Definitions()["pit_standing"]; def == nil || def.TargetMonster != quests.ArenaDuelTag {
 		t.Fatalf("pit_standing counts %v, want the arena tag %q", def, quests.ArenaDuelTag)
+	}
+	// One tag, one kind of producer: a talk tag that a prop or the pit also
+	// credits would be both counted and repeatable, decided by map order.
+	prop := &character.NPCData{Dialogue: &character.NPCDialogue{Choices: []*character.NPCDialogueChoice{{Prop: &character.NPCPropCopy{Tag: "shared_tag"}}}}}
+	for name, catalog := range map[string]map[string]*character.NPCData{
+		"prop":  {"talker": {TalkTag: "shared_tag"}, "rack": prop},
+		"arena": {"talker": {TalkTag: quests.ArenaDuelTag}},
+	} {
+		if _, err := interactTagProducers(catalog); err == nil {
+			t.Errorf("a talk tag also credited by the %s loaded", name)
+		}
+	}
+	if _, err := interactTagProducers(map[string]*character.NPCData{"talker": {TalkTag: "shared_tag"}}); err != nil {
+		t.Fatalf("control: a lone talk tag was refused: %v", err)
 	}
 }
 
@@ -903,7 +949,7 @@ func TestServicesAreReachable(t *testing.T) {
 	previous := character.NPCConfigInstance
 	t.Cleanup(func() { character.NPCConfigInstance = previous })
 	rows := map[string]*character.NPCSpell{"heal": {Name: "Heal", Cost: 100}}
-	stock := []*character.NPCItem{{Type: "item", Name: "Health Potion"}}
+	stock := []*character.NPCItem{{Key: "health_potion"}}
 	talk := &character.NPCDialogue{Choices: []*character.NPCDialogueChoice{{Text: "Ask", Action: "info", Response: "Yes."}}}
 	rest := &character.NPCDialogue{Choices: []*character.NPCDialogueChoice{{Text: "Rest", Action: "tavern_rest", Cost: 25}}}
 	for _, tc := range []struct {
@@ -949,7 +995,7 @@ func TestServicesAreReachable(t *testing.T) {
 // hand out the very errand that opens it.
 func TestConversationActionsAreNeverGated(t *testing.T) {
 	for _, action := range []string{"info", "leave", "give_quest", "turn_in_quest", "back", "open_door"} {
-		if gatedServiceActions[action] {
+		if dialogActions[action].service {
 			t.Errorf("%q is not a service - a gate must not hide it", action)
 		}
 	}
@@ -2064,15 +2110,6 @@ func TestDialogueActionsMustBeDispatched(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "tavern_resr") {
 		t.Fatalf("a typo'd action was accepted: %v", err)
 	}
-	// Every action the gate withholds must be dispatched too - a paid row the
-	// switch does not know takes the money nowhere.
-	character.NPCConfigInstance = &character.NPCConfig{NPCs: map[string]*character.NPCData{}}
-	gatedServiceActions["polish_boots"] = true
-	t.Cleanup(func() { delete(gatedServiceActions, "polish_boots") })
-	if err := g.validateDialogueActionsAreDispatched(); err == nil ||
-		!strings.Contains(err.Error(), "polish_boots") {
-		t.Fatalf("an undispatched service action was accepted: %v", err)
-	}
 }
 
 // A CODE tag is not credited by assertion. The arena bout advances pit_standing
@@ -2140,5 +2177,56 @@ func TestArenaTagNeedsADuelArenaInTheWorld(t *testing.T) {
 	wm.LoadedMaps = nil
 	if err := ValidateInteractTagProducers(qm); err != nil {
 		t.Fatalf("catalog-only world was treated as a trustworthy empty placement census: %v", err)
+	}
+}
+
+// An authored arrival the travel would refuse fails the boot instead of the
+// moment the party takes the lift; the shipped ones pass in both world modes.
+func TestNPCArrivalTilesValidatedAtBoot(t *testing.T) {
+	g := newTestCombatSystemWithConfig(t).game
+	cfg := loadTestConfig(t)
+	t.Chdir("../..")
+	oldTiles, oldNPC := world.GlobalTileManager, character.NPCConfigInstance
+	t.Cleanup(func() { world.GlobalTileManager, character.NPCConfigInstance = oldTiles, oldNPC })
+	for _, merged := range []bool{false, true} {
+		cfg.World.OpenWorld = &merged
+		world.GlobalTileManager = world.NewTileManager(cfg.Graphics.SizeClasses)
+		if err := world.GlobalTileManager.LoadTileConfig("assets/tiles.yaml"); err != nil {
+			t.Fatal(err)
+		}
+		if err := world.GlobalTileManager.LoadSpecialTileConfig("assets/special_tiles.yaml"); err != nil {
+			t.Fatal(err)
+		}
+		if err := character.LoadNPCConfig("assets/npcs.yaml"); err != nil {
+			t.Fatal(err)
+		}
+		wm := world.NewWorldManager(cfg)
+		if err := wm.LoadMapConfigs("assets/map_configs.yaml"); err != nil {
+			t.Fatal(err)
+		}
+		if merged {
+			ow, err := config.LoadOpenWorldConfig("assets/open_world.yaml")
+			if err != nil {
+				t.Fatal(err)
+			}
+			wm.SetOpenWorldConfig(ow)
+		}
+		if err := wm.LoadAllMaps(); err != nil {
+			t.Fatal(err)
+		}
+		setTestWorldManager(t, wm)
+		if err := g.validateNPCArrivalTiles(); err != nil {
+			t.Fatalf("merged=%v: shipped arrival tiles rejected: %v", merged, err)
+		}
+		shipped := character.NPCConfigInstance
+		for _, tile := range [][2]int{{-1, 3}, {100000, 3}} {
+			character.NPCConfigInstance = &character.NPCConfig{NPCs: map[string]*character.NPCData{"lift": {Dialogue: &character.NPCDialogue{Choices: []*character.NPCDialogueChoice{
+				{Text: "Ride", Action: "enter_map", Map: "solstice_vestibule", ArrivalTile: &tile},
+			}}}}}
+			if err := g.validateNPCArrivalTiles(); err == nil {
+				t.Errorf("merged=%v: arrival %v accepted", merged, tile)
+			}
+		}
+		character.NPCConfigInstance = shipped
 	}
 }

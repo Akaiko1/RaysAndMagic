@@ -30,6 +30,7 @@ type Formula struct {
 	Terms          []ScalingTerm
 	MasteryPerTier int
 	MasteryLadder  []int
+	Divisor        int // Applied once to the complete sum; zero means no division.
 }
 
 type Breakdown struct {
@@ -52,5 +53,8 @@ func (f Formula) Evaluate(values StatBonuses, tier int) Breakdown {
 		out.StatBonus += part.Bonus
 	}
 	out.Total = out.Base + out.StatBonus + out.Mastery
+	if f.Divisor > 1 {
+		out.Total /= f.Divisor
+	}
 	return out
 }

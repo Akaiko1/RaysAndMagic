@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
@@ -20,6 +21,13 @@ import (
 // Membership is the character package's single source of truth.
 func (g *MMGame) npcIsWalkUpProp(npc *character.NPC) bool {
 	return npc != nil && (npc.HarvestOwner != "" || character.IsWalkUpPropType(npc.Type))
+}
+
+// npcPropSpent reports a used walk-up prop that stays in the world (an opened
+// barrel, a campfire already rested at): it takes no interaction
+// (npcTakesInteraction), so no Space prompt, and its map markers turn grey.
+func (g *MMGame) npcPropSpent(npc *character.NPC) bool {
+	return npc != nil && npc.Visited && character.IsWalkUpPropType(npc.Type)
 }
 
 // partyTrapAvoidChancePct is the Disarm Trap mastery table for avoiding a
@@ -43,8 +51,7 @@ func (g *MMGame) partyTrapAvoidChancePct() (int, *character.MMCharacter) {
 // Tier behavior is fully data-driven from loots.yaml `crates:` (by NPC key).
 func (g *MMGame) useLootCrate(npc *character.NPC) {
 	if npc.Visited {
-		g.AddCombatMessage(fmt.Sprintf("The %s is empty.", npc.Name))
-		return
+		return // a used prop takes no interaction; a stale path must not loot it twice
 	}
 	crate := config.GetCrateConfig(npc.Key)
 	if crate == nil {
@@ -53,12 +60,12 @@ func (g *MMGame) useLootCrate(npc *character.NPC) {
 	// Combat lockout: the Space focus is already combat-blocked, but a mouse
 	// click reaches here directly - without this a campfire is a free mid-fight
 	// full rest. Checked BEFORE Visited so the attempt doesn't waste the crate.
-	if g.partyInCombat() {
-		g.AddCombatMessage(fmt.Sprintf("No time to search the %s mid-fight!", npc.Name))
+	if g.interactionBlockedByCombat() {
+		g.AddCombatMessage(uitext.Text("combat.no_time_to_search_the_mid", npc.Name))
 		return
 	}
 	if !g.canReachWorldReward(npc.X, npc.Y) {
-		g.AddCombatMessage(fmt.Sprintf("You can't reach the %s from here.", npc.Name))
+		g.AddCombatMessage(uitext.Text("combat.you_can_t_reach_the_from", npc.Name))
 		return
 	}
 	npc.Visited = true // consumed even if the trap fires - the lid is open
@@ -71,7 +78,7 @@ func (g *MMGame) useLootCrate(npc *character.NPC) {
 		g.springCrateTrap(npc, crate)
 	}
 	g.applyCrateEffects(npc, crate)
-	if loot, ok := g.adventureLoot(currentMapKey(), "crate:"+npc.Key); ok {
+	if loot, ok := g.adventureLoot(currentMapKey(), config.CrateID(npc.Key)); ok {
 		g.grantCrateLoot(npc, loot.Items, loot.Gold, loot.ArenaPoints)
 		return
 	}
@@ -91,13 +98,20 @@ func (g *MMGame) useLootCrate(npc *character.NPC) {
 // effective-stat gain, never a base-stat write; MaxHP/MaxSP re-derive with the
 // gain granted to the current pools too).
 func (g *MMGame) applyCrateEffects(npc *character.NPC, crate *config.CrateConfig) {
+	if b := crate.Buff; b != nil {
+		buff := TimedCombatBuff{ID: config.CrateID(npc.Key)}
+		buff.Clock.Arm(b.DurationSeconds, g.config.GetTPS())
+		applyCrateBuff(&buff, b)
+		g.addCombatBuff(buff)
+		g.AddCombatMessage(uitext.Text("crate.buff_applied", b.Name, strings.Join(b.EffectLines(), uitext.Text("crate.buff_join"))))
+	}
 	if crate.FreeRest {
 		g.restParty()
-		g.AddCombatMessage("The party rests by the warm fire - fully recovered!")
+		g.AddCombatMessage(uitext.Text("combat.the_party_rests_by_the_warm"))
 	}
 	if crate.BonusStat != "" && crate.BonusAmount != 0 {
 		if crate.BonusChancePct > 0 && rand.Intn(100) >= crate.BonusChancePct {
-			g.AddCombatMessage(fmt.Sprintf("The %s turns out to be empty.", npc.Name))
+			g.AddCombatMessage(uitext.Text("combat.the_turns_out_to_be_empty", npc.Name))
 			return
 		}
 		// The draught goes to the SELECTED character - whoever the player has
@@ -111,7 +125,7 @@ func (g *MMGame) applyCrateEffects(npc *character.NPC, crate *config.CrateConfig
 		// Irreversible gain: grant the max-pool delta to CURRENT HP/SP too,
 		// same as spending a stat point (not the reversible keep-current path).
 		m.RecalculateMaxStatsGrantingGain(g.config)
-		g.AddCombatMessage(fmt.Sprintf("%s feels changed forever: %s, permanently!", m.Name, bonus.Summary()))
+		g.AddCombatMessage(uitext.Text("combat.feels_changed_forever_permanently", m.Name, bonus.Summary()))
 	}
 }
 
@@ -119,11 +133,11 @@ func (g *MMGame) applyCrateEffects(npc *character.NPC, crate *config.CrateConfig
 // hand defuses it (40/60/80/100% by mastery tier).
 func (g *MMGame) springCrateTrap(npc *character.NPC, crate *config.CrateConfig) {
 	if chance, hand := g.partyTrapAvoidChancePct(); chance > 0 && rand.Intn(100) < chance {
-		g.AddCombatMessage(fmt.Sprintf("%s disarms the trap on the %s.", hand.Name, npc.Name))
+		g.AddCombatMessage(uitext.Text("combat.disarms_the_trap_on_the", hand.Name, npc.Name))
 		return
 	}
 	if crate.TrapIgnite {
-		g.AddColoredCombatMessage(fmt.Sprintf("The %s spews a gout of flame!", npc.Name), combatMessageOrange)
+		g.AddColoredCombatMessage(uitext.Text("combat.the_spews_a_gout_of_flame", npc.Name), combatMessageOrange)
 		igniteSeconds := crate.TrapIgniteSeconds
 		if igniteSeconds <= 0 {
 			igniteSeconds = config.DefaultTrapIgniteSeconds
@@ -140,11 +154,15 @@ func (g *MMGame) springCrateTrap(npc *character.NPC, crate *config.CrateConfig) 
 		damageType = crate.TrapDamageTypes[rand.Intn(len(crate.TrapDamageTypes))]
 	}
 	damageLabel := strings.ToUpper(damageType[:1]) + damageType[1:]
-	g.AddColoredCombatMessage(fmt.Sprintf("The %s detonates a hidden %s charge!", npc.Name, damageLabel), combatMessageOrange)
+	g.AddColoredCombatMessage(uitext.Text("combat.the_detonates_a_hidden_charge", npc.Name, damageLabel), combatMessageOrange)
 	g.combat.forEachDamageablePartyMember(func(idx int, member *character.MMCharacter) {
 		dealt := g.combat.damagePartyMemberElement(idx, member, crate.TrapDamage, damageType, false) // a crate trap is no spell
-		g.AddCombatMessage(fmt.Sprintf("%s takes %d damage! (HP: %d/%d)",
-			member.Name, dealt, member.HitPoints, member.MaxHitPoints))
+		g.reportDamage(logToneBad, damageLog{
+			Source: logAbility(npc.Name),
+			Target: heroLogTarget(member),
+			Amount: dealt,
+			School: damageType,
+		})
 	})
 }
 
@@ -220,10 +238,28 @@ func pickCrateRollSource(sources []config.CrateRollSource) (config.CrateRollSour
 
 func (g *MMGame) rollCrateSource(src config.CrateRollSource) crateRoll {
 	switch src.Pool {
+	case "item":
+		it, err := items.TryCreateItemFromYAML(src.ItemKey)
+		if err != nil {
+			return crateRoll{}
+		}
+		it.Quantity = max(1, src.QuantityMin)
+		if src.QuantityMax > it.Quantity {
+			it.Quantity += rand.Intn(src.QuantityMax - it.Quantity + 1)
+		}
+		return crateItemRoll(it, true)
+	case "equipment_slot":
+		keys := config.CrateEquipmentSlotKeys(src.EquipSlot, src.RarityTiers())
+		if len(keys) == 0 {
+			return crateRoll{}
+		}
+		it, err := items.TryCreateItemFromYAML(keys[rand.Intn(len(keys))])
+		return crateItemRoll(it, err == nil)
 	case "nothing":
 		return crateRoll{} // weighted empty slot - the crate held nothing this roll
 	case "map":
-		return crateItemRoll(g.rollMapLootEntry(src.RarityTiers()))
+		loot, ok := g.rollMapLootEntry(src.RarityTiers())
+		return crateRoll{items: loot, ok: ok}
 	case "catalog":
 		return crateItemRoll(rollCatalogItem(src.ItemType, src.RarityTiers()))
 	case "loot_table":
@@ -290,8 +326,10 @@ func (g *MMGame) mapLootPool(tiers config.RarityRange) []mapLootEntry {
 				isBoss = def.Boss
 			}
 		}
-		for _, e := range config.GetLootTable(key, isBoss) {
-			if e.Type != "weapon" && config.ValidateOrdinaryItemGrant(e.Key) != nil {
+		for _, e := range nonKillLoot(config.GetLootTable(key, isBoss)) {
+			// Crates draw ordinary items and weapons; set and first_of drops
+			// stay with the kill.
+			if e.Type != "item" && e.Type != "weapon" || e.Type == "item" && config.ValidateOrdinaryItemGrant(e.Key) != nil {
 				continue
 			}
 			if !tiers.Contains(rarityTier(lootEntryRarity(e))) {
@@ -305,15 +343,15 @@ func (g *MMGame) mapLootPool(tiers config.RarityRange) []mapLootEntry {
 	return pool
 }
 
-// rollMapLootEntry picks one mapLootPool entry by weight.
-func (g *MMGame) rollMapLootEntry(tiers config.RarityRange) (items.Item, bool) {
+// rollMapLootEntry picks one mapLootPool entry by weight and drops its units.
+func (g *MMGame) rollMapLootEntry(tiers config.RarityRange) ([]items.Item, bool) {
 	pool := g.mapLootPool(tiers)
 	i := weightedPick(len(pool), func(i int) int { return pool[i].weight })
 	if i < 0 {
-		return items.Item{}, false
+		return nil, false
 	}
-	it, err := createLootItem(pool[i].entry.Type, pool[i].entry.Key)
-	return it, err == nil
+	loot, err := createLootDrops(pool[i].entry)
+	return loot, err == nil && len(loot) > 0
 }
 
 // lootEntryRarity resolves a loot entry's rarity from its definition.
@@ -376,22 +414,27 @@ func rollCatalogItem(itemType string, tiers config.RarityRange) (items.Item, boo
 // grantCrateLoot hands the rolled loot straight to the party.
 func (g *MMGame) grantCrateLoot(npc *character.NPC, loot []items.Item, gold, arenaPoints int) {
 	if len(loot) == 0 && gold <= 0 && arenaPoints <= 0 {
-		g.AddCombatMessage(fmt.Sprintf("The %s holds nothing but dust.", npc.Name))
+		g.AddCombatMessage(uitext.Text("combat.the_holds_nothing_but_dust", npc.Name))
 		return
 	}
 	crate := config.GetCrateConfig(npc.Key)
 	g.recordProfileLootSource(loot, crate != nil && crate.TreasureChest)
 	for _, it := range loot {
+		label := it.Name
+		if n := it.Count(); n > 1 {
+			label = fmt.Sprintf("%s x%d", it.Name, n) // the merchant's stack wording
+		}
 		g.party.AddItem(it)
-		g.AddColoredCombatMessage(fmt.Sprintf("Found %s!", it.Name), lootMessageColor([]items.Item{it}))
+		g.AddColoredCombatMessage(uitext.Text("combat.found_item", label), lootMessageColor([]items.Item{it}))
 	}
+	g.announceLegendaryDrops(loot)
 	if gold > 0 {
 		g.awardGold(gold)
-		g.AddCombatMessage(fmt.Sprintf("Found %d gold!", gold))
+		g.AddCombatMessage(uitext.Text("combat.found_gold", gold))
 	}
 	if arenaPoints > 0 {
 		g.awardArenaPoints(arenaPoints)
-		g.AddCombatMessage(fmt.Sprintf("Found %d arena points!", arenaPoints))
+		g.AddCombatMessage(uitext.Text("combat.found_arena_points", arenaPoints))
 	}
 }
 
@@ -399,15 +442,14 @@ func (g *MMGame) grantCrateLoot(npc *character.NPC, loot []items.Item, gold, are
 // school open who doesn't know it. NOT consumed when nobody can learn.
 func (g *MMGame) useSpellLectern(npc *character.NPC) {
 	if npc.Visited {
-		g.AddCombatMessage("The lectern's pages are blank - its spell has been claimed.")
-		return
+		return // a used prop takes no interaction; a stale path must not teach it twice
 	}
 	lectern := npc.Lectern
 	if lectern == nil {
 		return
 	}
 	if !g.canReachWorldReward(npc.X, npc.Y) {
-		g.AddCombatMessage(fmt.Sprintf("You can't reach the %s from here.", npc.Name))
+		g.AddCombatMessage(uitext.Text("combat.you_can_t_reach_the_from", npc.Name))
 		return
 	}
 	candidates := lectern.Pool
@@ -429,9 +471,28 @@ func (g *MMGame) useSpellLectern(npc *character.NPC) {
 			}
 			member.LearnSpell(spellID)
 			npc.Visited = true
-			g.AddColoredCombatMessage(fmt.Sprintf("%s learns %s from the ancient tome!", member.Name, def.Name), combatMessageYellow)
+			g.AddColoredCombatMessage(uitext.Text("combat.learns_from_the_ancient_tome", member.Name, def.Name), combatMessageYellow)
 			return
 		}
 	}
-	g.AddCombatMessage("The script swims before every eye - no one here can grasp this spell.")
+	g.AddCombatMessage(uitext.Text("combat.the_script_swims_before_every_eye"))
+}
+
+// nonKillLoot is a loot table without its kill_only trophies, also inside
+// first_of groups: what theft and map caches may draw.
+func nonKillLoot(entries []config.LootEntry) []config.LootEntry {
+	var result []config.LootEntry
+	for _, e := range entries {
+		if e.KillOnly {
+			continue
+		}
+		if e.Type == "first_of" {
+			e.Of = nonKillLoot(e.Of)
+			if len(e.Of) == 0 {
+				continue
+			}
+		}
+		result = append(result, e)
+	}
+	return result
 }

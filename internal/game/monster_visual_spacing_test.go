@@ -11,44 +11,35 @@ import (
 func TestMonsterStackCannotMoveTowardParty(t *testing.T) {
 	for _, tb := range []bool{false, true} {
 		for _, angle := range []float64{0, math.Pi / 2, math.Pi, 3 * math.Pi / 2} {
-			for _, stack := range []string{"band", "transit"} {
-				t.Run(fmt.Sprintf("tb=%v/angle=%.2f/%s", tb, angle, stack), func(t *testing.T) {
-					g := deathTestGame(t)
-					g.turnBasedMode = tb
-					ts := g.config.GetTileSize()
-					g.camera.X, g.camera.Y, g.camera.Angle = 3.5*ts, 3.5*ts, angle
-					dx, dy := math.Cos(angle), math.Sin(angle)
-					m := monster.NewMonster3DFromConfig(g.camera.X+dx*ts, g.camera.Y+dy*ts, "goblin", g.config)
-					m.BeginPlayerEngagement()
-					if stack == "transit" {
-						m.TransitStackCount = 8
-					} else {
-						m.BandStackCount = 8
+			t.Run(fmt.Sprintf("tb=%v/angle=%.2f", tb, angle), func(t *testing.T) {
+				g := deathTestGame(t)
+				g.turnBasedMode = tb
+				ts := g.config.GetTileSize()
+				g.camera.X, g.camera.Y, g.camera.Angle = 3.5*ts, 3.5*ts, angle
+				dx, dy := math.Cos(angle), math.Sin(angle)
+				m := monster.NewMonster3DFromConfig(g.camera.X+dx*ts, g.camera.Y+dy*ts, "goblin", g.config)
+				m.BeginPlayerEngagement()
+				r := &Renderer{game: g}
+				for i := 0; i < 8; i++ {
+					m.Fan = settledTileFan(i, 8, ts)
+					m.Fan.Combat = true // an engaged hostile's tile
+					x, y := r.monsterVisualPosition(m)
+					if (x-g.camera.X)*dx+(y-g.camera.Y)*dy < ts-1e-8 {
+						t.Fatal("stack fan moved hostile closer than its attack post")
 					}
-					r := &Renderer{game: g}
-					for i := 0; i < 8; i++ {
-						m.BandStackIndex = i
-						m.TransitStackIndex = i
-						m.TransitStackActive = stack == "transit"
-						m.TransitStackOffsetX, m.TransitStackOffsetY = bandFanOffset(i, 8, ts)
-						x, y := r.monsterVisualPosition(m)
-						if (x-g.camera.X)*dx+(y-g.camera.Y)*dy < ts-1e-8 {
-							t.Fatal("stack fan moved hostile closer than its attack post")
-						}
-						m.HitPoints = 0
-						g.monsterCorpses = nil
-						g.beginMonsterDeath(m)
-						if len(g.monsterCorpses) != 1 {
-							t.Fatal("missing death fixture")
-						}
-						c := g.monsterCorpses[0]
-						if math.Hypot(c.x-x, c.y-y) > 1e-8 {
-							t.Fatal("death capture moved the sprite toward the party")
-						}
-						m.HitPoints = m.MaxHitPoints
+					m.HitPoints = 0
+					g.monsterCorpses = nil
+					g.beginMonsterDeath(m)
+					if len(g.monsterCorpses) != 1 {
+						t.Fatal("missing death fixture")
 					}
-				})
-			}
+					c := g.monsterCorpses[0]
+					if math.Hypot(c.x-x, c.y-y) > 1e-8 {
+						t.Fatal("death capture moved the sprite toward the party")
+					}
+					m.HitPoints = m.MaxHitPoints
+				}
+			})
 		}
 	}
 }
@@ -99,4 +90,10 @@ func TestHostileApproachKeepsPartyTileClear(t *testing.T) {
 			})
 		}
 	}
+}
+
+// settledTileFan is slot idx of count, already eased in.
+func settledTileFan(idx, count int, ts float64) monster.TileFan {
+	x, y := monster.TileFanSlot(idx, count, ts)
+	return monster.TileFan{Index: idx, Count: count, Active: true, X: x, Y: y}
 }

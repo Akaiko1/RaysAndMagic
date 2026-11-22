@@ -23,7 +23,7 @@ func TestMonsterVsMonsterUsesTargetArmorAndDodge(t *testing.T) {
 		target.PerfectDodge = 0
 
 		cs.monsterStrikeMonster(source, target)
-		want := applyMonsterArmor(100, monsterPkg.DamagePhysical.String(), target.EffectiveArmorClass(), false)
+		want := cs.applyMonsterArmor(100, monsterPkg.DamagePhysical.String(), target.EffectiveArmorClass(), false, false)
 		if got := 1000 - target.HitPoints; got != want {
 			t.Fatalf("melee dealt %d through target armor, want %d", got, want)
 		}
@@ -54,11 +54,11 @@ func TestMonsterVsMonsterUsesTargetArmorAndDodge(t *testing.T) {
 		bolt := &Arrow{
 			ID: "armor_bolt", Active: true, LifeTime: 1, Damage: 100,
 			DamageType: monsterPkg.DamageFire.String(),
-			Owner:      ProjectileOwnerBoundUndead, SourceMonster: source, SourceName: source.Name,
+			Owner:      ProjectileOwnerPartyAlly, SourceMonster: source, SourceName: source.Name,
 		}
 
-		cs.resolveMonsterProjectileVsMonster(bolt, "arrow", target, bolt.ID)
-		want := applyMonsterArmor(100, monsterPkg.DamageFire.String(), target.EffectiveArmorClass(), true)
+		cs.resolveMonsterProjectileVsMonster(bolt, target, bolt.ID)
+		want := cs.applyMonsterArmor(100, monsterPkg.DamageFire.String(), target.EffectiveArmorClass(), true, false)
 		if got := 1000 - target.HitPoints; got != want {
 			t.Fatalf("ranged fire dealt %d through target armor, want %d", got, want)
 		}
@@ -71,7 +71,7 @@ func TestMonsterDamagePacketMitigationOrder(t *testing.T) {
 	target.ArmorClass = 100
 	target.Resistances[monsterPkg.DamagePhysical] = 50
 	target.SoakDamage = 5
-	target.SoakFrames = 1
+	target.Soak.Frames = 1
 
 	packet := singleMonsterDamagePacket(
 		damagecalc.Parts{Normal: 100, True: 20},
@@ -82,7 +82,7 @@ func TestMonsterDamagePacketMitigationOrder(t *testing.T) {
 		PostArmorNormal: func(damage int) int { return damage * 2 },
 	})
 
-	afterArmor := applyMonsterArmor(100, monsterPkg.DamagePhysical.String(), target.ArmorClass, false)
+	afterArmor := cs.applyMonsterArmor(100, monsterPkg.DamagePhysical.String(), target.ArmorClass, false, false)
 	wantNormal := afterArmor*2*50/100 - target.SoakDamage
 	wantTrue := 20 * 50 / 100
 	if wantNormal < 0 {
@@ -107,13 +107,13 @@ func TestPartyConversionKeepsModifiersAndOneSoakInAoe(t *testing.T) {
 	ts := float64(g.config.GetTileSize())
 	center := mkTestMonster("Center", 1000)
 	center.X, center.Y = 10*ts, 10*ts
-	center.SoakDamage, center.SoakFrames = 10, 1
+	center.SoakDamage, center.Soak.Frames = 10, 1
 	near := mkTestMonster("Near", 1000)
 	near.X, near.Y = center.X+ts, center.Y
-	near.SoakDamage, near.SoakFrames = 10, 1
+	near.SoakDamage, near.Soak.Frames = 10, 1
 	g.world.Monsters = []*monsterPkg.Monster3D{center, near}
 
-	cs.ApplyDamageToMonster(center, 100, "Idol-Breaker, the Warlord's Maul", false)
+	cs.ApplyDamageToMonster(center, 100, testWeapon("Idol-Breaker, the Warlord's Maul"), false)
 	// 80 physical + 20 dark; +20% applies to both => 96 + 24. One hit pays
 	// Stone Skin once: 120 - 10 = 110 for primary and splash alike.
 	for _, target := range []*monsterPkg.Monster3D{center, near} {
@@ -188,9 +188,9 @@ func TestBanditBoltDoesNotInheritFallbackBowCombatRules(t *testing.T) {
 		t.Fatalf("bonus bolt spawned %d projectiles, want 1", len(g.arrows))
 	}
 	bolt := &g.arrows[0]
-	if bolt.Crit || bolt.TrueDamage != 0 || bolt.IgnoresDodge {
+	if bolt.Crit || bolt.TrueDamage != 0 || bolt.GrazesDodge {
 		t.Fatalf("bonus bolt inherited weapon rules: crit=%v true=%d ignore_dodge=%v",
-			bolt.Crit, bolt.TrueDamage, bolt.IgnoresDodge)
+			bolt.Crit, bolt.TrueDamage, bolt.GrazesDodge)
 	}
 	if bolt.DamageType != monsterPkg.DamagePhysical.String() {
 		t.Fatalf("bonus bolt school = %q, want physical", bolt.DamageType)
@@ -198,7 +198,7 @@ func TestBanditBoltDoesNotInheritFallbackBowCombatRules(t *testing.T) {
 
 	target := mkTestMonster("Dodger", 100)
 	target.PerfectDodge = 100
-	cs.applyProjectileDamage(bolt, "arrow", target, bolt.ID)
+	cs.applyProjectileDamage(bolt, target, bolt.ID)
 	if target.HitPoints != target.MaxHitPoints {
 		t.Fatalf("Bandit Bolt pierced dodge via fallback bow mastery: HP %d/%d", target.HitPoints, target.MaxHitPoints)
 	}
@@ -234,7 +234,7 @@ func TestDamageTooltipsUseLiveSourceFormula(t *testing.T) {
 	g.cardSlots = [MaxCardSlots]cardSlot{}
 	g.cardSlots[0].key = "samurai_card"
 	g.cardSlots[1].key = "masked_serpent_dancer_card"
-	g.addCombatBuff(TimedCombatBuff{SpellID: "test", Frames: 600, OutBonus: 5, OutDamageType: "all"})
+	g.addCombatBuff(TimedCombatBuff{ID: "test", Clock: framesClock(600), OutBonus: 5, OutDamageType: "all"})
 
 	weapon, err := items.TryCreateWeaponFromYAML("idol_breakers_maul")
 	if err != nil {

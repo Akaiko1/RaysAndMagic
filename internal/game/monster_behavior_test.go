@@ -57,18 +57,18 @@ func TestTurnBased_MoveAfterActionGrantsExtraMonsterAction(t *testing.T) {
 		m.ActionsRemaining = 1
 	}
 
-	game.consumeSelectedCharAction()
+	game.commitHeroAction(game.selectedChar, 0)
 	if !game.turnBasedMode || game.partyActionsUsed != 1 {
 		t.Fatalf("test setup failed: turnBased=%v partyActionsUsed=%d", game.turnBasedMode, game.partyActionsUsed)
 	}
 	if got := game.combatAuraMoveSteps(mob); got != 2 {
 		t.Fatalf("action then retreat preview=%d, want 2 before handoff", got)
 	}
-	game.partyTechniqueActionsUsed = 1
+	game.partyPenaltyFreeActionsUsed = 1
 	if got := game.combatAuraMoveSteps(mob); got != 1 {
 		t.Fatalf("technique-only preview=%d, want 1", got)
 	}
-	game.partyTechniqueActionsUsed = 0
+	game.partyPenaltyFreeActionsUsed = 0
 
 	game.endPartyTurnAfterMovement()
 
@@ -332,13 +332,13 @@ func TestTurnBased_PounceLandsAdjacentAndStrikes(t *testing.T) {
 			game.currentTurn = 0
 			switch state {
 			case "last-cooldown":
-				puma.PounceCDTurns = 1
+				puma.PounceCD.Turns = 1
 			case "cooldown":
-				puma.PounceCDTurns = 2
+				puma.PounceCD.Turns = 2
 			case "root":
-				puma.RootTurnsRemaining = 2
+				puma.Root.Turns = 2
 			case "stun":
-				puma.StunTurnsRemaining = 2
+				puma.Stun.Turns = 2
 			case "wall":
 				game.world.Tiles[10][12] = world.TileWall
 			case "no-landing":
@@ -362,7 +362,7 @@ func TestTurnBased_PounceLandsAdjacentAndStrikes(t *testing.T) {
 				if dx > 1 || dy > 1 || dx+dy == 0 {
 					t.Fatalf("invalid pounce landing %d,%d", tx, ty)
 				}
-				if puma.PounceCDTurns != TurnBasedPounceCooldownTurns {
+				if puma.PounceCD.Turns != TurnBasedPounceCooldownTurns {
 					t.Fatal("pounce did not spend cooldown")
 				}
 			}
@@ -434,14 +434,14 @@ func TestDarkness_StunsMonstersInRadiusOnly(t *testing.T) {
 		t.Fatalf("darkness cast failed")
 	}
 
-	if near.StunFramesRemaining <= 0 || near.StunTurnsRemaining <= 0 {
-		t.Errorf("monster inside the radius should be stunned (RT %d, TB %d)", near.StunFramesRemaining, near.StunTurnsRemaining)
+	if near.Stun.Frames <= 0 || near.Stun.Turns <= 0 {
+		t.Errorf("monster inside the radius should be stunned (RT %d, TB %d)", near.Stun.Frames, near.Stun.Turns)
 	}
-	if edge.StunFramesRemaining <= 0 {
-		t.Errorf("monster at exactly the radius (%.1f tiles) should be stunned, got %d", r, edge.StunFramesRemaining)
+	if edge.Stun.Frames <= 0 {
+		t.Errorf("monster at exactly the radius (%.1f tiles) should be stunned, got %d", r, edge.Stun.Frames)
 	}
-	if far.StunFramesRemaining != 0 || far.StunTurnsRemaining != 0 {
-		t.Errorf("monster outside the radius must NOT be stunned, got RT %d TB %d", far.StunFramesRemaining, far.StunTurnsRemaining)
+	if far.Stun.Frames != 0 || far.Stun.Turns != 0 {
+		t.Errorf("monster outside the radius must NOT be stunned, got RT %d TB %d", far.Stun.Frames, far.Stun.Turns)
 	}
 	if partyHPSum(game) != hp0 {
 		t.Errorf("darkness should deal no damage to the party")
@@ -464,6 +464,30 @@ func TestDisintegrate_TypeImmunity(t *testing.T) {
 		if got := monsterImmuneToDisintegrate(m); got != tc.immune {
 			t.Errorf("type %q: immune = %v, want %v", tc.monsterType, got, tc.immune)
 		}
+	}
+	// A certain proc: immune types shrug it off, a boss of any other type is
+	// seared instead of erased, anything else is killed. The classification
+	// decides, not the formless type.
+	for _, tc := range []struct {
+		monsterType string
+		boss        bool
+		want        instakillOutcome
+	}{
+		{monster.TypeUndead, false, instakillNone},
+		{monster.TypeDragon, false, instakillNone},
+		{monster.TypeUndead, true, instakillNone},
+		{monster.TypeFormless, true, instakillSear},
+		{"beast", true, instakillSear},
+		{monster.TypeFormless, false, instakillKill},
+		{"", false, instakillKill},
+	} {
+		m := &monster.Monster3D{MonsterType: tc.monsterType, Boss: tc.boss, HitPoints: 10, MaxHitPoints: 10}
+		if got := rollMonsterDisintegrate(m, 1); got != tc.want {
+			t.Errorf("type %q boss=%v: outcome %v, want %v", tc.monsterType, tc.boss, got, tc.want)
+		}
+	}
+	if got := rollMonsterDisintegrate(&monster.Monster3D{HitPoints: 10, MaxHitPoints: 10}, 0); got != instakillNone {
+		t.Errorf("zero chance rolled %v", got)
 	}
 }
 
@@ -524,8 +548,8 @@ func TestDayOfTheGods_ResistBuff(t *testing.T) {
 		t.Errorf("100 incoming with %d%% resist should be %d, got %d", cast.resistPct, want, got)
 	}
 	buff, ok := game.combatBuffByID("day_of_the_gods")
-	if want := cast.def.Duration * game.config.GetTPS(); !ok || buff.Frames != want {
-		t.Errorf("duration frames: got %d (ok=%v), want %d (%ds x TPS)", buff.Frames, ok, want, cast.def.Duration)
+	if want := cast.def.DurationByMastery[0] * game.config.GetTPS(); !ok || buff.Clock.Frames != want {
+		t.Errorf("duration frames: got %d (ok=%v), want %d (%ds x TPS)", buff.Clock.Frames, ok, want, cast.def.DurationByMastery[0])
 	}
 }
 
@@ -580,8 +604,8 @@ func TestBindUndead_BindsUndeadOnly(t *testing.T) {
 	if !skel.Bound {
 		t.Errorf("undead skeleton should be bound")
 	}
-	if skel.BoundFramesRemaining != 300*cfg.GetTPS() {
-		t.Errorf("bind frames: got %d, want %d", skel.BoundFramesRemaining, 300*cfg.GetTPS())
+	if skel.BoundClock.Frames != 300*cfg.GetTPS() {
+		t.Errorf("bind frames: got %d, want %d", skel.BoundClock.Frames, 300*cfg.GetTPS())
 	}
 	if gob.Bound {
 		t.Errorf("living goblin must NOT be bindable by bind_undead")
@@ -865,7 +889,7 @@ func TestBindUndead_RangedLichFiresBoundProjectile(t *testing.T) {
 		t.Fatalf("bound lich should have fired exactly one projectile (was %d, now %d)", n0, projCount())
 	}
 	bolt := game.magicProjectiles[len(game.magicProjectiles)-1]
-	if bolt.Owner != ProjectileOwnerBoundUndead {
+	if bolt.Owner != ProjectileOwnerPartyAlly {
 		t.Errorf("lich bolt should be charmed-owned, got %v", bolt.Owner)
 	}
 	if bolt.VelX <= 0 {
@@ -901,19 +925,19 @@ func TestCrossfire_MonsterProjectileVsMonster(t *testing.T) {
 		t.Fatalf("bandit should be a ranged mob")
 	}
 
-	// Mob fires an anti-undead bolt; it is tagged so it can only hit the undead.
-	if !game.combat.spawnMonsterRangedAttackAtMonster(bandit, undead, ProjectileOwnerMonsterAtBound) {
+	// Mob fires at the bound undead; its owner lets it hit only what the mob may attack.
+	if !game.combat.spawnMonsterRangedAttackAtMonster(bandit, undead, ProjectileOwnerMonsterAtActor) {
 		t.Fatalf("mob should have spawned a bolt")
 	}
 	bolt := &game.arrows[len(game.arrows)-1]
-	if bolt.Owner != ProjectileOwnerMonsterAtBound {
-		t.Errorf("mob bolt should be owner MonsterAtBound, got %v", bolt.Owner)
+	if bolt.Owner != ProjectileOwnerMonsterAtActor {
+		t.Errorf("mob bolt should be owner MonsterAtActor, got %v", bolt.Owner)
 	}
 
 	// Resolve the bolt on the bound undead -> it dies and, as a former enemy,
 	// gives its normal XP and gold bag.
 	xp0, bags0 := game.party.Members[0].Experience, len(game.groundContainers)
-	game.combat.resolveMonsterProjectileVsMonster(bolt, "arrow", undead, bolt.ID)
+	game.combat.resolveMonsterProjectileVsMonster(bolt, undead, bolt.ID)
 	if undead.IsAlive() {
 		t.Error("bound undead should die to the lethal bolt")
 	}
@@ -928,12 +952,12 @@ func TestCrossfire_MonsterProjectileVsMonster(t *testing.T) {
 	markCardAlly(ally)
 	game.world.Monsters = []*monster.Monster3D{bandit, ally}
 	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
-	if !game.combat.spawnMonsterRangedAttackAtMonster(bandit, ally, ProjectileOwnerMonsterAtBound) {
+	if !game.combat.spawnMonsterRangedAttackAtMonster(bandit, ally, ProjectileOwnerMonsterAtActor) {
 		t.Fatal("mob should fire at a card ally")
 	}
 	cardBolt := &game.arrows[len(game.arrows)-1]
 	xpCard, bagsCard := game.party.Members[0].Experience, len(game.groundContainers)
-	game.combat.resolveMonsterProjectileVsMonster(cardBolt, "arrow", ally, cardBolt.ID)
+	game.combat.resolveMonsterProjectileVsMonster(cardBolt, ally, cardBolt.ID)
 	if ally.IsAlive() {
 		t.Error("card ally should die to the lethal bolt")
 	}
@@ -948,12 +972,12 @@ func TestCrossfire_MonsterProjectileVsMonster(t *testing.T) {
 	game.world.Monsters = append(game.world.Monsters, enemy, lich)
 	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
 	game.combat.applyBindUndead(lich, 300, "Bind Undead")
-	if !game.combat.spawnMonsterRangedAttackAtMonster(lich, enemy, ProjectileOwnerBoundUndead) {
+	if !game.combat.spawnMonsterRangedAttackAtMonster(lich, enemy, ProjectileOwnerPartyAlly) {
 		t.Fatalf("lich should have spawned a bolt")
 	}
 	mbolt := &game.magicProjectiles[len(game.magicProjectiles)-1]
 	xp1 := game.party.Members[0].Experience
-	game.combat.resolveMonsterProjectileVsMonster(mbolt, "magic_projectile", enemy, mbolt.ID)
+	game.combat.resolveMonsterProjectileVsMonster(mbolt, enemy, mbolt.ID)
 	if enemy.IsAlive() {
 		t.Fatalf("1-HP enemy should die to the charmed bolt")
 	}

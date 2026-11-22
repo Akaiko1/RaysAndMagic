@@ -52,4 +52,10 @@ build_target windows amd64 "${OUT_DIR}/windows_amd64" "${APP_NAME}.exe" "-H=wind
 build_target windows amd64 "${OUT_DIR}/windows_amd64" "${VIEWER_NAME}.exe" "-H=windowsgui" 0 ./assets/map_viewer
 bundle_runtime_files "${OUT_DIR}/windows_amd64"
 
+# Linux: pure Go as well (Ebitengine 2.10 loads X11, GL and audio at run time),
+# one folder like the Windows one.
+build_target linux amd64 "${OUT_DIR}/linux_amd64" "${APP_NAME}" "" 0 .
+build_target linux amd64 "${OUT_DIR}/linux_amd64" "${VIEWER_NAME}" "" 0 ./assets/map_viewer
+bundle_runtime_files "${OUT_DIR}/linux_amd64"
+
 echo "Done. Bundled builds in ${OUT_DIR}/"

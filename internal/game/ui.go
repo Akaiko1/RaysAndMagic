@@ -2,7 +2,6 @@ package game
 
 import (
 	"image/color"
-	"time"
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
@@ -23,6 +22,43 @@ func withinDoubleClickWindow(current, previous int64) bool {
 	return previous > 0 && current >= previous && current-previous <= doubleClickWindowMs
 }
 
+// doubleClickTracker pairs two clicks on one target inside the double-click
+// window: the ONE tracker behind every double-click gesture. A completed pair
+// resets it, so a third quick click starts a new pair.
+type doubleClickTracker[K comparable] struct {
+	at     int64 // the pending click's time in ms; 0 = none
+	target K
+}
+
+// click records a click on target at now and reports whether it completes a
+// double-click.
+func (t *doubleClickTracker[K]) click(target K, now int64) bool {
+	if t.at > 0 && t.target == target && withinDoubleClickWindow(now, t.at) {
+		t.reset()
+		return true
+	}
+	*t = doubleClickTracker[K]{at: now, target: target}
+	return false
+}
+
+func (t *doubleClickTracker[K]) reset() { *t = doubleClickTracker[K]{} }
+
+// pending reports a first click waiting for its pair.
+func (t *doubleClickTracker[K]) pending() bool { return t.at > 0 }
+
+type (
+	bagClickKey struct {
+		index int
+		owner *character.MMCharacter
+	}
+	bookClickKey   struct{ group, index int }
+	quickClickKey  struct{ char, slot int }
+	dialogClickKey struct {
+		zone  string
+		index int
+	}
+)
+
 // UI Dimension constants
 const (
 	UIRowHeight  = 20
@@ -33,7 +69,14 @@ const (
 type UISystem struct {
 	modeDomainIcons      map[string]modeDomainIconCache
 	modeDomainIconShader *ebiten.Shader
-	atlas                worldAtlas
+	// The Storage Clerk's collections screen: the surface shader and its
+	// reused draw state, catalog items per key, and the bag's filed indices.
+	collectionShader    *ebiten.Shader
+	collectionDraw      collectionDraw
+	collectionTemplates map[string]items.Item
+	collectionBag       []collectionBagEntry
+	atlas               worldAtlas
+	hudIconSilhouettes  uiColorBake // white hover rims of action-rail icons
 
 	journalRewardItems      map[string]items.Item
 	journalItemsCatalog     *config.ItemSystemConfig
@@ -67,13 +110,12 @@ type UISystem struct {
 	// statHoldStat is the name of the stat whose +button the user is
 	// currently holding the mouse on. Empty means no hold in progress.
 	// Single clicks go through consumeLeftClickIn; hold-to-repeat kicks in
-	// after statHoldInitialDelay frames and fires every statHoldRepeatRate
-	// frames thereafter so points pour out at a controllable rate.
+	// after statHoldDelaySeconds and fires every statHoldRepeatSeconds
+	// thereafter so points pour out at a controllable rate.
 	statHoldStat          string
 	statHoldFrames        int
-	lastClickTime         time.Time
-	lastClickedItem       int
-	lastClickedBagOwner   *character.MMCharacter
+	statPlan              statPlanMemo // AUTO's preview in the stat popup
+	bagClicks             doubleClickTracker[bagClickKey]
 	inventoryContextOpen  bool
 	inventoryContextX     int
 	inventoryContextY     int
@@ -82,12 +124,12 @@ type UISystem struct {
 	stackSplitPicker      stackSplitPickerState
 	personalInventoryTab  int
 	personalInventoryPage int
-	inventoryPage         int // current inventory grid page (0-based)
-	inventoryTab          int // active inventory category filter (index into inventoryTabs)
-	questPage             int // current quest log page (0-based)
-	spellPage             int // current spell/trap book spread (0-based)
-	lastEquipClickTime    time.Time
-	lastClickedSlot       items.EquipSlot
+	inventoryPage         int  // current inventory grid page (0-based)
+	inventoryTab          int  // active inventory category filter (index into inventoryTabs)
+	questPage             int  // current quest log page (0-based)
+	questChronicle        bool // the Quests tab shows the story Chronicle
+	spellPage             int  // current spell/trap book spread (0-based)
+	equipClicks           doubleClickTracker[items.EquipSlot]
 	hubInteractionOpen    bool
 	hubInteractionChar    int
 	hubInteractionTab     MenuTab
@@ -133,9 +175,9 @@ type UISystem struct {
 func NewUISystem(game *MMGame) *UISystem {
 	ui := &UISystem{
 		game:               game,
-		lastClickedItem:    -1,
-		lastClickedSlot:    items.EquipSlot(-1),
 		hubInteractionChar: -1,
+		atlas:              worldAtlas{greyIcons: uiColorBake{cm: &atlasGreyInk}},
+		hudIconSilhouettes: uiColorBake{cm: &hudIconWhite},
 	}
 	ui.initRadarDots()
 	return ui
@@ -203,6 +245,7 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 	defer func() { ui.renderedModalSnapshot = ui.topModalSnapshot() }()
 	// Draw base game UI elements
 	ui.drawGameplayUI(screen)
+	ui.drawWatcherCard(screen)
 
 	// Draw debug/info elements
 	ui.drawDebugInfo(screen)
@@ -227,8 +270,9 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 		ui.drawCombatLogOverlay(screen)
 	}
 
-	// Draw Victory overlay if active
-	if ui.game.gameVictory && !ui.game.showHighScores {
+	// Draw Victory overlay if active. The ending plate opens over it and owns
+	// the screen until it closes: none of the panel shows around the plate.
+	if ui.game.gameVictory && !ui.game.showHighScores && ui.game.storyScreen == nil {
 		ui.drawVictoryOverlay(screen)
 	}
 
@@ -267,6 +311,9 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 	if ui.game.stashScreenOpen {
 		ui.drawStashScreen(screen)
 	}
+	if ui.game.collectionScreenOpen {
+		ui.drawCollectionScreen(screen)
+	}
 	if ui.stackSplitPicker.open {
 		ui.drawStackSplitPicker(screen)
 	}
@@ -281,6 +328,11 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 	if ui.game.currentLevelUpChoice() != nil {
 		ui.drawLevelUpChoicePopup(screen)
 	}
+	// A story event covers every layer below it.
+	if ui.game.storyScreen != nil {
+		ui.discardLowerHoverText()
+		ui.drawStoryScreen(screen)
+	}
 
 	// Full card art: while SHIFT is held over a card (Cards tab, collector,
 	// stash) its full art replaces the tooltip, fitted to the screen. Cards
@@ -293,6 +345,14 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 	}
 
 	ui.drawQueuedTooltips(screen)
+	ui.drawIdentifyCursor(screen)
+}
+
+// discardLowerHoverText is for an overlay that covers every layer below it:
+// their queued tooltips and cut labels no longer answer the pointer.
+func (ui *UISystem) discardLowerHoverText() {
+	ui.clearQueuedTooltips()
+	uiClippedLabels = uiClippedLabels[:0]
 }
 
 // clearQueuedTooltips starts a frame with no tooltip queued.
@@ -316,9 +376,9 @@ func (ui *UISystem) drawQueuedTooltips(screen *ebiten.Image) {
 	// Draw tooltip last so it stays above other UI. NPC dialogs (dialogActive)
 	// are no longer suppressed - the spell trader UI surfaces spell details on
 	// hover and that's the only path that queues a tooltip there. Other modal
-	// states (stat popup, revival picker) still suppress. The map clears lower
-	// layers' queued tips before offering its own marker descriptions.
-	if ui.tooltipLines != nil && !ui.game.campConfirmOpen && ui.game.campRest == nil && !ui.game.statPopupOpen && !ui.game.revivalPickerOpen && !ui.game.healPickerOpen && !ui.game.combatLogOpen && !ui.stackSplitPicker.open {
+	// states (revival picker) still suppress. The map and the stat popup clear
+	// lower layers' queued tips before offering their own.
+	if ui.tooltipLines != nil && !ui.game.campConfirmOpen && ui.game.campRest == nil && !ui.game.revivalPickerOpen && !ui.game.healPickerOpen && !ui.game.combatLogOpen && !ui.stackSplitPicker.open {
 		screenW := uiBounds(screen).Dx()
 		screenH := uiBounds(screen).Dy()
 		if ui.tooltipCompareLines == nil {

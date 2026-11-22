@@ -3,8 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
-
-	"gopkg.in/yaml.v3"
+	"ugataima/internal/strictyaml"
 )
 
 // OpenWorldConfig is the data-driven rule set for stitching the outdoor maps
@@ -100,7 +99,7 @@ func LoadOpenWorldConfig(path string) (*OpenWorldConfig, error) {
 		return nil, fmt.Errorf("failed to read open world config: %w", err)
 	}
 	var cfg OpenWorldConfig
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
+	if err := strictyaml.Decode(data, &cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse open world config: %w", err)
 	}
 	if err := cfg.validate(); err != nil {

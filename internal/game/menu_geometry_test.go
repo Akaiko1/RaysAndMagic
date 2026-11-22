@@ -119,16 +119,15 @@ func TestAudioSettingsPanelLayoutVariants(t *testing.T) {
 	}
 }
 
-// TestMenuRowRectContract pins the shared row geometry: rows step by exactly
-// `pitch`, keep the constant height, share x-bounds inset symmetrically inside
-// the panel, and the text baseline sits inside the box. This is the single source the draw highlight, hover tooltip,
-// hover-select and right-click rename all consume, so a drift like the old
-// hard-coded pitch in hover-select can't return.
+// TestMenuRowRectContract pins the Main menu's row geometry: rows step by
+// exactly `pitch`, keep the constant height, share x-bounds inset
+// symmetrically inside the panel, and the text baseline sits inside the box.
+// The draw highlight, hover-select and clicks all consume it.
 func TestMenuRowRectContract(t *testing.T) {
-	const px, py, panelW, startY, pitch = 100, 50, saveMenuPanelW, saveMenuListTopY, saveMenuRowPitch
+	const px, py, panelW, startY, pitch = 100, 50, mainMenuPanelW, mainMenuListTopY, mainMenuRowPitch
 
 	var prev pagerRect
-	for i := 0; i < saveRowsPerPage; i++ {
+	for i := 0; i < len(mainMenuOptions); i++ {
 		box, tx, ty := menuRowRect(px, py, panelW, startY, pitch, i)
 		if got := box.y2 - box.y1; got != menuRowHeight {
 			t.Errorf("row %d height = %d, want %d", i, got, menuRowHeight)

@@ -9,10 +9,12 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"ugataima/internal/status"
 
-	"github.com/hajimehoshi/ebiten/v2"
 	"ugataima/internal/character"
 	"ugataima/internal/game/keytracker"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 func heldOnly(keys ...ebiten.Key) func(ebiten.Key) bool {
@@ -44,7 +46,7 @@ func TestSpatialStepInputReadsHeldKeysThroughSeam(t *testing.T) {
 				t.Fatal("setup Fold rejected")
 			}
 			foldX, foldY := g.camera.X, g.camera.Y
-			g.spatialReuseFrames = 0
+			g.spatialReuse = status.DualClock{}
 			c.RTCooldown = 0
 			c.ActionsRemaining = 2
 			sp := c.SpellPoints
@@ -180,7 +182,7 @@ func TestInputHandlerHeldKeysThroughSeam(t *testing.T) {
 		}{
 			{"R", ebiten.KeyR, rtActWeapon},
 			{"Space", ebiten.KeySpace, rtActSmart},
-			{"F", ebiten.KeyF, rtActCast},
+			{"F", ebiten.KeyF, rtActSlotted},
 			{"C", ebiten.KeyC, rtActHeal},
 			{"H", ebiten.KeyH, rtActHeal},
 		}
@@ -190,10 +192,10 @@ func TestInputHandlerHeldKeysThroughSeam(t *testing.T) {
 				ih := NewInputHandler(g)
 				ih.heldKeys = heldOnly(tc.key)
 				ih.keys = keytracker.NewWithSource(func(ebiten.Key) bool { return false })
-				for frame := 1; frame <= rtHoldRepeatDelay; frame++ {
+				for frame := 1; frame <= g.framesForSeconds(rtHoldRepeatSeconds); frame++ {
 					ih.keys.BeginFrame()
 					ih.handleCombatInput()
-					if frame < rtHoldRepeatDelay && ih.pendingRepeat != rtActNone {
+					if frame < g.framesForSeconds(rtHoldRepeatSeconds) && ih.pendingRepeat != rtActNone {
 						t.Fatalf("hold repeated after %d frames", frame)
 					}
 				}

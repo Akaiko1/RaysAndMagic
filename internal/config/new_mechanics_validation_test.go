@@ -29,9 +29,22 @@ func TestValidateWeaponConfigRejectsIncompleteNewMechanics(t *testing.T) {
 		{"poison duration without chance", func(w *WeaponDefinitionConfig) { w.PoisonSeconds = 5 }},
 		{"slow over one hundred", func(w *WeaponDefinitionConfig) { w.SlowPct, w.SlowSeconds = 101, 5 }},
 		{"weaken without duration", func(w *WeaponDefinitionConfig) { w.WeakenPct = 25 }},
-		{"partial death burst", func(w *WeaponDefinitionConfig) { w.DeathBurstDamage = 10 }},
-		{"negative true damage", func(w *WeaponDefinitionConfig) { w.TrueDamage = -1 }},
+		{"stun chance without duration", func(w *WeaponDefinitionConfig) { w.StunChance = 0.1 }},
+		{"root for part of a round", func(w *WeaponDefinitionConfig) { w.RootChance, w.RootSeconds = 0.1, 4 }},
+		{"shred for part of a round", func(w *WeaponDefinitionConfig) { w.ArmorShredPct, w.ArmorShredSeconds = 20, 10 }},
+		{"poison for part of a round", func(w *WeaponDefinitionConfig) { w.PoisonChance, w.PoisonSeconds = 0.2, 20 }},
+		{"slow off the skip step", func(w *WeaponDefinitionConfig) { w.SlowPct, w.SlowSeconds = 30, 6 }},
+		{"partial death burst", func(w *WeaponDefinitionConfig) { w.DeathBurstMaxHPPct = 10 }},
+		{"death burst over one hundred", func(w *WeaponDefinitionConfig) { w.DeathBurstMaxHPPct, w.DeathBurstRadiusTiles = 101, 2 }},
+		{"true share over one hundred", func(w *WeaponDefinitionConfig) { w.TrueDamagePct = 101 }},
+		{"skirmish on a melee weapon", func(w *WeaponDefinitionConfig) {
+			w.Signature = &WeaponSignatureConfig{Kind: SignatureSkirmish, ChargeLimit: 1, ChargeMoveTiles: 1}
+		}},
 		{"echo over one hundred", func(w *WeaponDefinitionConfig) { w.SpellEchoPct = 101 }},
+		{"fresh-target multiplier alone", func(w *WeaponDefinitionConfig) { w.FreshTargetMultiplier = 0.5 }},
+		{"hour strike that weakens", func(w *WeaponDefinitionConfig) { w.HourStrikeMarks, w.HourStrikeMultiplier = 12, 0.5 }},
+		{"jam off the round", func(w *WeaponDefinitionConfig) { w.JamSeconds = 2 }},
+		{"jam of a whole round", func(w *WeaponDefinitionConfig) { w.JamSeconds = CombatRoundSeconds }},
 		{"ricochet without range", func(w *WeaponDefinitionConfig) { w.RicochetTargets = 1 }},
 		{"ricochet on melee", func(w *WeaponDefinitionConfig) {
 			w.RicochetTargets, w.RicochetRangeTiles = 1, 6
@@ -51,15 +64,21 @@ func TestValidateWeaponConfigRejectsIncompleteNewMechanics(t *testing.T) {
 
 func TestValidateWeaponConfigAcceptsCompleteNewMechanics(t *testing.T) {
 	weapon := validMechanicTestWeapon()
-	weapon.IgniteChance, weapon.IgniteSeconds = 0.25, 5
-	weapon.PoisonChance, weapon.PoisonSeconds = 0.2, 10
+	weapon.IgniteChance, weapon.IgniteSeconds = 0.25, 6
+	weapon.PoisonChance, weapon.PoisonSeconds = 0.2, 12
+	weapon.StunChance, weapon.StunSeconds = 0.1, 9
+	weapon.RootChance, weapon.RootSeconds = 0.1, 6
+	weapon.ArmorShredPct, weapon.ArmorShredSeconds = 20, 15
 	weapon.ExecuteBelowPct = 15
-	weapon.DeathBurstDamage, weapon.DeathBurstRadiusTiles = 20, 2
-	weapon.TrueDamage = 5
-	weapon.SlowPct, weapon.SlowSeconds = 20, 4
-	weapon.WeakenPct, weapon.WeakenSeconds = 25, 5
+	weapon.DeathBurstMaxHPPct, weapon.DeathBurstRadiusTiles = 20, 2
+	weapon.TrueDamagePct = 5
+	weapon.SlowPct, weapon.SlowSeconds = 20, 9
+	weapon.WeakenPct, weapon.WeakenSeconds = 25, 6
 	weapon.SpellEchoPct = 10
 	weapon.TBActionsPerRound = 3
+	weapon.FreshTargetMinHPPct, weapon.FreshTargetMultiplier = 90, 5
+	weapon.HourStrikeMarks, weapon.HourStrikeMultiplier = 12, 3
+	weapon.JamSeconds = 1
 
 	cfg := &WeaponSystemConfig{Weapons: map[string]*WeaponDefinitionConfig{"test": weapon}}
 	if err := validateWeaponConfig(cfg); err != nil {
@@ -67,26 +86,36 @@ func TestValidateWeaponConfigAcceptsCompleteNewMechanics(t *testing.T) {
 	}
 }
 
-func TestWeaponStatusTurnsMatchesSharedTooltipFormula(t *testing.T) {
-	previous := GlobalConfig
-	t.Cleanup(func() { GlobalConfig = previous })
-	if _, err := LoadConfig("../../config.yaml"); err != nil {
-		t.Fatal(err)
-	}
-	if got := WeaponStatusTurns(5); got != 3 {
-		t.Fatalf("WeaponStatusTurns(5) = %d, want 3", got)
-	}
-	weapon := &WeaponDefinitionConfig{SlowPct: 30, SlowSeconds: 5}
+// A weapon's status lasts its seconds in RT and the same span in TB turns,
+// written the one shared way.
+func TestWeaponStatusTooltipUsesSharedDuration(t *testing.T) {
+	weapon := &WeaponDefinitionConfig{SlowPct: 30, SlowSeconds: 9, StunChance: 0.1, StunSeconds: 3}
 	lines := strings.Join(weapon.CoreEffectLines(), "\n")
-	if !strings.Contains(lines, "5s RT / 3 turns TB") {
-		t.Fatalf("weapon status tooltip does not use shared duration formula:\n%s", lines)
+	if want := fmt.Sprintf("by 30%% for 9s / 3 TB turns (TB: skips one turn in %d)", SlowSkipEveryTurns()); !strings.Contains(lines, want) {
+		t.Fatalf("slow tooltip does not state the shared duration and TB skip cadence %q:\n%s", want, lines)
 	}
-	if want := fmt.Sprintf("by 30%% for 5s RT / 3 turns TB (TB: skips one turn in %d)", SlowSkipEveryTurns()); !strings.Contains(lines, want) {
-		t.Fatalf("slow tooltip does not state the TB skip cadence %q:\n%s", want, lines)
+	if !strings.Contains(lines, "Stun Chance: 10% (3s / 1 TB turn)") {
+		t.Fatalf("stun tooltip does not use the shared duration:\n%s", lines)
 	}
 }
 
 func TestValidateItemConfigRejectsIncompleteNewMechanics(t *testing.T) {
+	// A complete reusable flask device: valid only with no recharge of its own.
+	flaskDevice := func(recharge int) *ItemDefinitionConfig {
+		return &ItemDefinitionConfig{Type: "device", UseAction: "throw_flask", UseCooldownSeconds: recharge, BrewColor: [3]int{1, 2, 3},
+			Flask: &FlaskDefinition{Reusable: true, ProjectileFx: "fx", Element: "water", Damage: [4]int{1, 2, 3, 4}, RangeTiles: 6, RadiusTiles: 2, CooldownSeconds: 3}}
+	}
+	// Controls: each device action validates when complete, so the rows below
+	// fail on the field they break.
+	for name, control := range map[string]*ItemDefinitionConfig{
+		"flask device without a recharge": flaskDevice(0),
+		"jump device with a recharge":     {Type: "device", UseAction: "jump", UseSpell: "jump", UseJumpExtraTiles: 1, UseCooldownSeconds: 10},
+		"summon device with a recharge":   {Type: "device", UseAction: "summon", SummonDistanceTiles: 3, UseCooldownSeconds: 10},
+	} {
+		if err := validateItemConfig(&ItemSystemConfig{Items: map[string]*ItemDefinitionConfig{"test": control}}); err != nil {
+			t.Fatalf("control: a complete %s must validate: %v", name, err)
+		}
+	}
 	tests := []struct {
 		name string
 		item *ItemDefinitionConfig
@@ -95,8 +124,15 @@ func TestValidateItemConfigRejectsIncompleteNewMechanics(t *testing.T) {
 		{"device without reference", &ItemDefinitionConfig{Type: "device", UseAction: "jump", UseCooldownSeconds: 10}},
 		{"device unsupported action", &ItemDefinitionConfig{Type: "device", UseAction: "missing", UseSpell: "jump", UseCooldownSeconds: 10}},
 		{"device without recharge", &ItemDefinitionConfig{Type: "device", UseAction: "jump", UseSpell: "jump", UseJumpExtraTiles: 1}},
+		{"summon device without recharge", &ItemDefinitionConfig{Type: "device", UseAction: "summon", SummonDistanceTiles: 3}},
+		{"thrown flask with a recharge", flaskDevice(6)},
+		{"thrown flask with a negative recharge", flaskDevice(-1)},
+		{"jump device with a negative recharge", &ItemDefinitionConfig{Type: "device", UseAction: "jump", UseSpell: "jump", UseJumpExtraTiles: 1, UseCooldownSeconds: -1}},
+		{"summon device with a negative recharge", &ItemDefinitionConfig{Type: "device", UseAction: "summon", SummonDistanceTiles: 3, UseCooldownSeconds: -1}},
 		{"device with negative range", &ItemDefinitionConfig{Type: "device", UseAction: "jump", UseSpell: "jump", UseJumpExtraTiles: -1, UseCooldownSeconds: 10}},
 		{"device behavior on potion", &ItemDefinitionConfig{Type: "consumable", UseAction: "jump", UseSpell: "jump", UseJumpExtraTiles: 1, UseCooldownSeconds: 10}},
+		{"base damage without equipment or collection", &ItemDefinitionConfig{Type: "trinket", WeaponBaseDamageBonus: 15}},
+		{"negative card base damage", &ItemDefinitionConfig{Type: "card", WeaponBaseDamageBonus: -1}},
 		{"reflect over one hundred", &ItemDefinitionConfig{ProjectileReflectPct: 101}},
 		{"status below floor", &ItemDefinitionConfig{StatusDurationPct: MinHostileStatusDurationPct - 1}},
 		{"scale stack without cap", &ItemDefinitionConfig{ScaleStackAC: 1}},
@@ -284,6 +320,60 @@ func TestTurnBasedMouseHoldValidation(t *testing.T) {
 					t.Fatal("invalid mouse hold timing accepted")
 				}
 			})
+		}
+	}
+}
+
+// Slot pools share the existing rarity grammar, preserve explicit boss rewards,
+// and reject authored gates with no candidates before gameplay can roll them.
+func TestEquipmentSlotRarityValidation(t *testing.T) {
+	old := GlobalItems
+	t.Cleanup(func() { GlobalItems = old })
+	GlobalItems = &ItemSystemConfig{Items: map[string]*ItemDefinitionConfig{
+		"common":     {Type: "accessory", EquipSlot: "ring", Rarity: "common"},
+		"rare":       {Type: "accessory", EquipSlot: "ring", Rarity: "rare"},
+		"boss":       {Type: "accessory", EquipSlot: "ring", Rarity: "legendary", NoLoot: true},
+		"crafted":    {Type: "accessory", EquipSlot: "ring", Rarity: "unique", CraftedOnly: true},
+		"other_slot": {Type: "accessory", EquipSlot: "amulet", Rarity: "unique"},
+	}}
+	for _, tc := range []struct {
+		rarity, want string
+		valid        bool
+	}{
+		{"", "boss,common,rare", true}, {"rare", "rare", true},
+		{"common-rare", "common,rare", true}, {"rare+", "boss,rare", true},
+		{"unique", "", false}, {"ultra", "", false}, {"rare-common", "", false},
+	} {
+		src := CrateRollSource{Pool: "equipment_slot", EquipSlot: "ring", Weight: 100, Rarity: tc.rarity}
+		err := validateCrateRollSource(nil, "test_cache", 0, src)
+		if (err == nil) != tc.valid {
+			t.Fatalf("rarity=%q: %v", tc.rarity, err)
+		}
+		if !tc.valid {
+			if !strings.Contains(err.Error(), "test_cache") {
+				t.Fatal("error lost its content location", err)
+			}
+			continue
+		}
+		if got := strings.Join(CrateEquipmentSlotKeys(src.EquipSlot, src.RarityTiers()), ","); got != tc.want {
+			t.Errorf("rarity=%q: keys=%q want %q", tc.rarity, got, tc.want)
+		}
+	}
+}
+
+// A returning weapon's return leg carries no weapon effects, so a true share
+// authored on one would silently vanish on the way back.
+func TestValidateWeaponConfigRejectsTrueShareOnReturningWeapon(t *testing.T) {
+	weapons, err := LoadWeaponConfig("../../assets/weapons.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, pct := range []int{0, 10} {
+		weapon := *weapons.Weapons["solstice_returning_gale"]
+		weapon.TrueDamagePct = pct
+		cfg := &WeaponSystemConfig{Weapons: map[string]*WeaponDefinitionConfig{"solstice_returning_gale": &weapon}}
+		if err := validateWeaponConfig(cfg); (err != nil) != (pct > 0) || err != nil && !strings.Contains(err.Error(), "true_damage_pct") {
+			t.Fatalf("true_damage_pct %d on a returning weapon: validation error = %v", pct, err)
 		}
 	}
 }

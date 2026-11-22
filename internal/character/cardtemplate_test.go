@@ -12,7 +12,7 @@ func TestFilteredItemEffectLinesRemovesStructuredArmorRows(t *testing.T) {
 	def := &config.ItemDefinitionConfig{
 		ArmorClassBase:          7,
 		EnduranceScalingDivisor: 5,
-		BonusMight:              3,
+		StatBonus:               config.ItemStatBonuses{Might: 3},
 	}
 
 	filtered := FilteredItemEffectLines(def)

@@ -1,25 +1,24 @@
 package game
 
-import (
-	"ugataima/internal/spells"
-)
+import "ugataima/internal/status"
 
-// Generic plumbing shared by every spell-keyed timed buff list (combat buffs,
-// stat buffs): find / upsert / remove / tick all live here once, so the typed
+// Generic plumbing shared by every timed buff list keyed by source id (combat
+// buffs, stat buffs): find / upsert / remove / tick all live here once, so the typed
 // registries can't drift in behaviour (replace-on-recast, HUD status refresh,
 // expiry filtering).
 
-// spellKeyedBuff is any timed buff entry keyed by its source spell id.
-type spellKeyedBuff interface {
-	buffSpellID() string
+// keyedBuff is any timed buff entry keyed by its source id: a spell,
+// config.TechniqueID, config.CrateID or a draught item key.
+type keyedBuff interface {
+	buffKey() string
 	buffSourceID() string
 }
 
-// upsertBuff replaces the existing entry from the same spell (recast refreshes
+// upsertBuff replaces the existing entry from the same source (recast refreshes
 // duration/values rather than stacking duplicates) or appends a new one.
-func upsertBuff[T spellKeyedBuff](list []T, b T) []T {
+func upsertBuff[T keyedBuff](list []T, b T) []T {
 	for i := range list {
-		if list[i].buffSpellID() == b.buffSpellID() {
+		if list[i].buffKey() == b.buffKey() {
 			list[i] = b
 			return list
 		}
@@ -31,17 +30,17 @@ func upsertBuff[T spellKeyedBuff](list []T, b T) []T {
 // casts are owned by their spell id. A system-granted cast can use a distinct
 // source id, so later cleanup cannot remove a player's refreshed cast of the
 // same spell.
-func buffRegistryID[T spellKeyedBuff](b T) string {
+func buffRegistryID[T keyedBuff](b T) string {
 	if sourceID := b.buffSourceID(); sourceID != "" {
 		return sourceID
 	}
-	return b.buffSpellID()
+	return b.buffKey()
 }
 
 // buffByID returns the active entry for a spell, if any.
-func buffByID[T spellKeyedBuff](list []T, spellID string) (T, bool) {
+func buffByID[T keyedBuff](list []T, spellID string) (T, bool) {
 	for i := range list {
-		if list[i].buffSpellID() == spellID {
+		if list[i].buffKey() == spellID {
 			return list[i], true
 		}
 	}
@@ -51,51 +50,39 @@ func buffByID[T spellKeyedBuff](list []T, spellID string) (T, bool) {
 
 // removeBuffByID drops the entry owned by buffID and clears the actual spell's
 // HUD status. Reports whether anything was removed.
-func removeBuffByID[T spellKeyedBuff](g *MMGame, list []T, buffID string) ([]T, bool) {
+func removeBuffByID[T keyedBuff](g *MMGame, list []T, buffID string) ([]T, bool) {
 	for i := range list {
 		if buffRegistryID(list[i]) == buffID {
-			g.updateUtilityStatus(spells.SpellID(list[i].buffSpellID()), 0, false)
+			g.updateBuffStatus(list[i].buffKey(), 0, false)
 			return append(list[:i], list[i+1:]...), true
 		}
 	}
 	return list, false
 }
 
-// tickBuffList decrements every entry's frames, refreshes its HUD status, and
-// filters out the expired ones. Reports whether any entry expired so callers
-// can re-derive aggregates.
-func tickBuffList[T spellKeyedBuff](g *MMGame, list []T, elapsed int, advance func(*T, int) int) ([]T, bool) {
+// tickBuffList spends one tick of every entry's clock, refreshes its HUD
+// status, and filters out the expired ones. advance returns the frames left
+// (0: expired). Reports whether any entry expired so callers can re-derive
+// aggregates.
+func tickBuffList[T keyedBuff](g *MMGame, list []T, turn bool, advance func(*T, bool) int) ([]T, bool) {
 	if len(list) == 0 {
 		return list, false
 	}
 	w := 0
 	expired := false
 	for i := range list {
-		left := advance(&list[i], elapsed)
+		left := advance(&list[i], turn)
 		b := list[i]
-		if left > 0 {
-			g.updateUtilityStatus(spells.SpellID(b.buffSpellID()), left, true)
+		if left != 0 {
+			g.updateBuffStatus(b.buffKey(), left, true)
 			list[w] = b
 			w++
 		} else {
-			g.updateUtilityStatus(spells.SpellID(b.buffSpellID()), 0, false)
+			g.updateBuffStatus(b.buffKey(), 0, false)
 			expired = true
 		}
 	}
 	return list[:w], expired
-}
-
-// Budgets remain in frames across mode switches and saves. A thinking frame
-// spends nothing in TB; a resolved round spends the existing periodic budget.
-func (g *MMGame) combatFrameElapsed() int {
-	if g.turnBasedMode {
-		return 0
-	}
-	return 1
-}
-
-func (g *MMGame) combatRoundFrames() int {
-	return turnBasedPeriodicEffectFrames(g.config.GetTPS())
 }
 
 func (g *MMGame) phaseOwnsBuff(id string) bool {
@@ -108,21 +95,23 @@ func (g *MMGame) phaseOwnsBuff(id string) bool {
 	return false
 }
 
-// Providence belongs to the calendar phase, regardless of combat mode. Its
+// tickBuffClock spends one tick of a buff's clock. Providence belongs to the
+// calendar phase, regardless of combat mode: its clock follows the phase. Its
 // source already survives saves and is replaced by an ordinary same-spell cast.
-func (g *MMGame) remainingBuffFrames(source string, remaining, elapsed int) int {
+func (g *MMGame) tickBuffClock(source string, clock *status.DualClock, turn bool) {
 	if source == celestialProvidenceSourceID {
-		return g.celestialProvidenceFramesLeft()
+		*clock = status.FromFrames(g.celestialProvidenceFramesLeft(), g.config.GetTPS())
+		return
 	}
-	return max(0, remaining-elapsed)
+	clock.Tick(turn)
 }
 
+// tickPartyBuffsTurn spends a turn of the party's buffs and device recharges.
 func (g *MMGame) tickPartyBuffsTurn() {
-	frames := g.combatRoundFrames()
-	g.tickDeviceCooldowns(frames)
-	g.tickCombatBuffsTurn(frames)
-	g.advanceStatBuffs(frames)
-	g.advanceUtilityBuffs(frames)
+	g.tickDeviceCooldowns(true)
+	g.advanceCombatBuffs(true)
+	g.advanceStatBuffs(true)
+	g.advanceUtilityBuffs(true)
 }
 
 // resetTimedEffects drops every timed party effect family at once: stat buffs
@@ -131,12 +120,14 @@ func (g *MMGame) tickPartyBuffsTurn() {
 // game must not trigger the underwater return teleport). The ONE reset for
 // new game; save load overwrites these via their restore* counterparts.
 func (g *MMGame) resetTimedEffects() {
-	g.partyRoot = PartyRootState{}
+	g.partyRoot = status.DualClock{}
 	g.partyHinder = PartyHinderState{}
 	g.alchemy = AlchemyState{}
 	g.harvestRuntime = harvestRuntime{}
-	g.spatialReuseFrames = 0
-	g.spatialStepThisTurn = false
+	g.spatialReuse = status.DualClock{}
+	// Clock Tower: a fresh run starts out of any fight, standing, no clocks.
+	g.partyWasInFight = false
+	g.openerCooldown, g.partyMoveClock = status.DualClock{}, status.DualClock{}
 	g.rareBookMessage = ""
 	g.brewAnimation = nil
 	g.statBuffs = nil
@@ -144,10 +135,12 @@ func (g *MMGame) resetTimedEffects() {
 	g.recomputeStatBonuses()
 	g.celestialBuffSpellID = ""
 	g.persistentDamageZones = nil
+	g.replaceFrozenWater(nil)
+	g.identifiedMonster = nil
 	g.nextPersistentDamageZoneFieldID = 0
 	for _, b := range g.timedBuffs() {
 		*b.active = false
-		*b.duration = 0
+		*b.clock = status.DualClock{}
 	}
 	g.torchLightRadius = 0
 	g.underwaterReturnX = 0

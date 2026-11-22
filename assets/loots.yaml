@@ -5,35 +5,70 @@
 #   crates:      placed chests and props (npcs.yaml loot_crate NPCs, by key)
 #   loot_tables: named weighted pools (sword racks, encounter reward chests,
 #                crate slots)
-#   loot_groups: shared material groups for monster drops
+#   loot_groups: shared groups for monster drops: `type: table` merges one in,
+#                `type: first_of` rolls it in order and keeps the first success
+#
+# A monster table entry is an item, weapon, harvest, `set` (one random piece of
+# an items.yaml item set), table, first_of or `gold` (min..max coin, rolled at
+# spawn, at most one per table) entry. An item-like entry may add min/max: how
+# many units drop when it lands (one stack, or separate pieces for gear).
+
+# Cards roll independently once. Named boss overrides replace the ordinary
+# boss rate; kill_only trophies never enter theft or map-cache pools.
+card_drop_chance:
+  boss: 0.03
+  monster: 0.01
+  boss_overrides: {solstice_aureth: 0.01, solstice_neressa: 0.01, solstice_talura: 0.01, solstice_vaelith: 0.01}
 
 loots:
-  solstice_ember_elemental: [{"type": "item", "key": "solstice_living_ember", "chance": 0.4}]
-  solstice_cinder_hound: [{"type": "item", "key": "solstice_heat_resistant_fang", "chance": 0.4}]
-  solstice_kiln_automaton: [{"type": "item", "key": "solstice_furnace_ceramic", "chance": 0.4}]
-  solstice_tide_elemental: [{"type": "item", "key": "solstice_condensed_tideglass", "chance": 0.4}]
-  solstice_cistern_eel: [{"type": "item", "key": "solstice_coldwater_gland", "chance": 0.4}]
-  solstice_flow_automaton: [{"type": "item", "key": "solstice_circulation_membrane", "chance": 0.4}]
-  solstice_jade_elemental: [{"type": "item", "key": "solstice_anchor_crystal", "chance": 0.4}]
-  solstice_shardback_burrower: [{"type": "item", "key": "solstice_mineral_plate", "chance": 0.4}]
-  solstice_anchor_automaton: [{"type": "item", "key": "solstice_petrified_conductor", "chance": 0.4}]
-  solstice_gale_elemental: [{"type": "item", "key": "solstice_bound_breath", "chance": 0.4}]
-  solstice_storm_kite: [{"type": "item", "key": "solstice_charged_quill", "chance": 0.4}]
-  solstice_transfer_automaton: [{"type": "item", "key": "solstice_resonance_coil", "chance": 0.4}]
+  solstice_ember_elemental: [{type: gold, min: 15, max: 40}, {"type": "item", "key": "solstice_living_ember", "chance": 0.4}]
+  solstice_cinder_hound: [{type: gold, min: 15, max: 40}, {"type": "item", "key": "solstice_heat_resistant_fang", "chance": 0.4}]
+  solstice_kiln_automaton: [{type: gold, min: 15, max: 40}, {"type": "item", "key": "solstice_furnace_ceramic", "chance": 0.4}]
+  solstice_aureth:
+    - {type: gold, min: 15, max: 40}
+    - {type: item, key: solstice_aureth_card, chance: 0.01, kill_only: true}
+    - {type: weapon, key: solstice_sun_crucible, chance: 0.03, kill_only: true}
+  solstice_tide_elemental: [{type: gold, min: 15, max: 40}, {"type": "item", "key": "solstice_condensed_tideglass", "chance": 0.4}]
+  solstice_cistern_eel: [{type: gold, min: 15, max: 40}, {"type": "item", "key": "solstice_coldwater_gland", "chance": 0.4}]
+  solstice_flow_automaton: [{type: gold, min: 15, max: 40}, {"type": "item", "key": "solstice_circulation_membrane", "chance": 0.4}]
+  solstice_neressa:
+    - {type: gold, min: 15, max: 40}
+    - {type: item, key: solstice_neressa_card, chance: 0.01, kill_only: true}
+    - {type: item, key: solstice_everflow_retort, chance: 0.03, kill_only: true}
+  solstice_jade_elemental: [{type: gold, min: 15, max: 40}, {"type": "item", "key": "solstice_anchor_crystal", "chance": 0.4}]
+  solstice_shardback_burrower: [{type: gold, min: 15, max: 40}, {"type": "item", "key": "solstice_mineral_plate", "chance": 0.4}]
+  solstice_anchor_automaton: [{type: gold, min: 15, max: 40}, {"type": "item", "key": "solstice_petrified_conductor", "chance": 0.4}]
+  solstice_talura:
+    - {type: gold, min: 15, max: 40}
+    - {type: item, key: solstice_talura_card, chance: 0.01, kill_only: true}
+    - {type: weapon, key: solstice_stone_script, chance: 0.03, kill_only: true}
+  solstice_gale_elemental: [{type: gold, min: 15, max: 40}, {"type": "item", "key": "solstice_bound_breath", "chance": 0.4}]
+  solstice_storm_kite: [{type: gold, min: 15, max: 40}, {"type": "item", "key": "solstice_charged_quill", "chance": 0.4}]
+  solstice_transfer_automaton: [{type: gold, min: 15, max: 40}, {"type": "item", "key": "solstice_resonance_coil", "chance": 0.4}]
+  solstice_vaelith:
+    - {type: gold, min: 15, max: 40}
+    - {type: item, key: solstice_vaelith_card, chance: 0.01, kill_only: true}
+    - {type: weapon, key: solstice_returning_gale, chance: 0.03, kill_only: true}
+
   solstice_sunscarab:
+    - {type: gold, min: 10, max: 25}
     - {type: harvest, key: solstice_sun_resin, chance: 0.23}
     - {type: item, key: scarab_amber_marrow, chance: 0.23}
     - {type: item, key: scarab_serrated_chitin, chance: 0.23}
     - {type: weapon, key: shellknocker, chance: 0.04}
     - {type: item, key: sunscarab_card, chance: 0.01}
+
   solstice_rain_serpent:
+    - {type: gold, min: 10, max: 25}
     - {type: harvest, key: solstice_rain_pearl, chance: 0.23}
     - {type: item, key: serpent_restorative_mucus, chance: 0.23}
     - {type: item, key: serpent_crystal_fang, chance: 0.23}
     - {type: weapon, key: rainfang, chance: 0.04}
     - {type: item, key: rain_serpent_card, chance: 0.01}
-  solstice_rootbound_sentinel: [{"type": "harvest", "key": "solstice_calendar_jade", "chance": 0.45}]
+  solstice_rootbound_sentinel: [{type: gold, min: 10, max: 25}, {"type": "harvest", "key": "solstice_calendar_jade", "chance": 0.45}]
+
   solstice_dusk_moth:
+    - {type: gold, min: 10, max: 25}
     - {type: harvest, key: solstice_whisper_silk, chance: 0.23}
     - {type: item, key: moth_velvet_down, chance: 0.23}
     - {type: item, key: moth_wing_dust, chance: 0.23}
@@ -42,27 +77,35 @@ loots:
 
   common_carp:
     - {type: item, key: carp_scale, chance: 1}
+
   koi:
     - {type: item, key: koi_scale, chance: 1}
+
   rainbow_salmon:
     - {type: item, key: rainbow_salmon_scale, chance: 1}
+
   ring_tailed_lemur:
     - type: "item"
       key: "lemur_fur"
       chance: 0.20
+
   red_ruffed_lemur:
     - type: "item"
       key: "lemur_fur"
       chance: 0.20
+
   desert_rabbit:
     - type: "item"
       key: "rabbit_pelt"
       chance: 0.70
+
   fennec:
     - type: "item"
       key: "fennec_pelt"
       chance: 0.70
+
   pixie:
+    - {type: gold, min: 5, max: 25}
     - {type: item, key: fairy_dust, chance: 0.23}
     - type: "item"
       key: "magic_ring"
@@ -75,6 +118,7 @@ loots:
       chance: 0.01
 
   dragon:
+    - {type: gold, min: 500, max: 1500}
     - type: "item"
       key: "flame_ward_draught"
       chance: 0.12
@@ -95,6 +139,7 @@ loots:
       chance: 0.01
 
   desert_dervish:
+    - {type: gold, min: 80, max: 160}
     - type: "item"
       key: "health_potion"
       chance: 0.10
@@ -115,6 +160,7 @@ loots:
       chance: 0.01
 
   bandit:
+    - {type: gold, min: 8, max: 25}
     - type: "item"
       key: "leather_helmet"
       chance: 0.10
@@ -129,6 +175,7 @@ loots:
       chance: 0.01
 
   orc:
+    - {type: gold, min: 5, max: 25}
     - type: "item"
       key: "iron_armor"
       chance: 0.05
@@ -137,6 +184,7 @@ loots:
       chance: 0.01
 
   forest_orc:
+    - {type: gold, min: 8, max: 33}
     - type: "item"
       key: "iron_armor"
       chance: 0.05
@@ -154,6 +202,7 @@ loots:
       chance: 0.01
 
   treant:
+    - {type: gold, min: 50, max: 100}
     - type: "item"
       key: "dead_branch"
       chance: 0.10
@@ -165,6 +214,7 @@ loots:
       chance: 0.01
 
   troll:
+    - {type: gold, min: 20, max: 70}
     - type: "item"
       key: "revival_potion"
       chance: 0.10
@@ -176,6 +226,7 @@ loots:
       chance: 0.01
 
   goblin:
+    - {type: gold, min: 1, max: 10}
     - type: "item"
       key: "goblin_hide_gauntlets"
       chance: 0.05
@@ -184,6 +235,7 @@ loots:
       chance: 0.01
 
   spider:
+    - {type: gold, min: 0, max: 5}
     - {type: table, key: spider_material}
     - {type: harvest, key: mooncap, chance: 0.23}
     - type: "item"
@@ -191,6 +243,7 @@ loots:
       chance: 0.01
 
   bear:
+    - {type: gold, min: 5, max: 20}
     - type: "item"
       key: "belt_of_strength"
       chance: 0.07
@@ -202,6 +255,7 @@ loots:
       chance: 0.01
 
   wolf:
+    - {type: gold, min: 0, max: 5}
     - {type: table, key: wolf_material}
     - type: "item"
       key: "lucky_paw"
@@ -214,15 +268,18 @@ loots:
       chance: 0.01
 
   dire_wolf:
+    - {type: gold, min: 50, max: 500}
     - {type: table, key: wolf_material, rolls: 5}
     - {type: table, key: gathered_reagents}
     - {type: item, key: dire_wolf_card, chance: 0.01}
 
   giant_spider:
+    - {type: gold, min: 50, max: 500}
     - {type: table, key: spider_material, rolls: 5}
     - {type: table, key: gathered_reagents}
 
   alien:
+    - {type: gold, min: 60, max: 180}
     - type: "weapon"
       key: "alien_blaster"
       chance: 0.06
@@ -231,21 +288,24 @@ loots:
       chance: 0.01
 
   forest_spider:
+    - {type: gold, min: 1, max: 9}
     - {type: table, key: spider_material}
     - {type: harvest, key: mooncap, chance: 0.23}
     - type: "item"
       key: "forest_spider_card"
       chance: 0.01
 
-  medusa:
+  jellyfish:
+    - {type: gold, min: 25, max: 80}
     - type: "item"
-      key: "medusa_card"
-      chance: 0.03
+      key: "jellyfish_card"
+      chance: 0.01
     - type: "item"
       key: "serpentscale_gauntlets"
       chance: 0.05
 
   octopus:
+    - {type: gold, min: 20, max: 65}
     - type: "item"
       key: "belt_of_speed"
       chance: 0.03
@@ -257,6 +317,7 @@ loots:
       chance: 0.01
 
   skeleton:
+    - {type: gold, min: 2, max: 10}
     - type: "item"
       key: "chain_armor"
       chance: 0.07
@@ -272,6 +333,7 @@ loots:
 
   # Culverts (Seabright sewers) mobs.
   rat:
+    - {type: gold, min: 2, max: 10}
     - type: "weapon"
       key: "culvert_pike"
       chance: 0.06
@@ -286,6 +348,7 @@ loots:
       chance: 0.01
 
   bat:
+    - {type: gold, min: 1, max: 6}
     - type: "item"
       key: "batwing_cloak"
       chance: 0.06
@@ -300,6 +363,7 @@ loots:
       chance: 0.01
 
   thief_bug:
+    - {type: gold, min: 10, max: 40}
     - type: "item"
       key: "ruby"
       chance: 0.06
@@ -314,9 +378,10 @@ loots:
       chance: 0.04
     - type: "item"
       key: "thief_bug_card"
-      chance: 0.03
+      chance: 0.01
 
   golden_thief_bug:
+    - {type: gold, min: 1500, max: 3000}
     - type: "item"
       key: "golden_thiefbug_carapace"
       chance: 0.01
@@ -328,10 +393,11 @@ loots:
       chance: 0.08
     - type: "item"
       key: "golden_thief_bug_card"
-      chance: 0.01
+      chance: 0.03
 
   # Pyramid dungeon mobs.
   mummy:
+    - {type: gold, min: 15, max: 55}
     - type: "item"
       key: "ancient_linen_wrap"
       chance: 0.10
@@ -343,6 +409,7 @@ loots:
       chance: 0.01
 
   minotaur:
+    - {type: gold, min: 60, max: 160}
     - type: "weapon"
       key: "steel_axe"
       chance: 0.08
@@ -360,6 +427,7 @@ loots:
       chance: 0.01
 
   isis:
+    - {type: gold, min: 120, max: 260}
     - type: "item"
       key: "isis_feather"
       chance: 0.07
@@ -372,6 +440,7 @@ loots:
 
   # Lich Nexus mobs.
   revenant:
+    - {type: gold, min: 80, max: 180}
     - type: "item"
       key: "revenant_blade_shard"
       chance: 0.08
@@ -383,6 +452,7 @@ loots:
       chance: 0.01
 
   lich_king:
+    - {type: gold, min: 400, max: 900}
     - type: "item"
       key: "lich_king_crown"
       chance: 0.06
@@ -398,6 +468,7 @@ loots:
 
   # Highlands mid-tier mobs (L6-12) - gear + monster-trophy cards.
   puma:
+    - {type: gold, min: 5, max: 25}
     - type: "weapon"
       key: "agility_katar"
       chance: 0.06
@@ -406,9 +477,10 @@ loots:
       chance: 0.08
     - type: "item"
       key: "puma_card"
-      chance: 0.03
+      chance: 0.01
 
   elf_archer:
+    - {type: gold, min: 30, max: 70}
     - type: "weapon"
       key: "long_bow"
       chance: 0.08
@@ -423,6 +495,7 @@ loots:
       chance: 0.01
 
   elf_swordsman:
+    - {type: gold, min: 40, max: 100}
     - type: "item"
       key: "elven_shield"
       chance: 0.20
@@ -437,6 +510,7 @@ loots:
       chance: 0.01
 
   mountain_troll:
+    - {type: gold, min: 50, max: 150}
     - type: "item"
       key: "granite"
       chance: 0.12
@@ -454,6 +528,7 @@ loots:
       chance: 0.01
 
   archmage:
+    - {type: gold, min: 100, max: 250}
     - type: "item"
       key: "archmage_robe"
       chance: 0.08
@@ -465,9 +540,10 @@ loots:
       chance: 0.03
     - type: "item"
       key: "archmage_card"
-      chance: 0.03
+      chance: 0.01
 
   lich:
+    - {type: gold, min: 200, max: 500}
     - type: "item"
       key: "lich_phylactery"
       chance: 0.12
@@ -479,10 +555,11 @@ loots:
       chance: 0.03
     - type: "item"
       key: "lich_card"
-      chance: 0.03
+      chance: 0.01
 
   # Elemental dragons - each hoards a signature gem (base dragon: ruby, above).
   dragon_red:
+    - {type: gold, min: 500, max: 1500}
     - type: "item"
       key: "gloom_ward_draught"
       chance: 0.12
@@ -500,6 +577,7 @@ loots:
       chance: 0.01
 
   dragon_green:
+    - {type: gold, min: 500, max: 1500}
     - type: "item"
       key: "stoneskin_draught"
       chance: 0.12
@@ -523,6 +601,7 @@ loots:
       chance: 0.01
 
   dragon_gold:
+    - {type: gold, min: 500, max: 1500}
     - type: "item"
       key: "storm_ward_draught"
       chance: 0.12
@@ -546,6 +625,7 @@ loots:
       chance: 0.01
 
   elder_dragon:
+    - {type: gold, min: 1000, max: 2500}
     - type: "item"
       key: "black_dragon_scale"
       chance: 1.0
@@ -554,6 +634,7 @@ loots:
       chance: 0.01
 
   elder_dragon_red:
+    - {type: gold, min: 1000, max: 2500}
     - type: "item"
       key: "red_dragon_scale"
       chance: 1.0
@@ -562,6 +643,7 @@ loots:
       chance: 0.01
 
   elder_dragon_green:
+    - {type: gold, min: 1000, max: 2500}
     - type: "item"
       key: "green_dragon_scale"
       chance: 1.0
@@ -570,6 +652,7 @@ loots:
       chance: 0.01
 
   elder_dragon_gold:
+    - {type: gold, min: 1000, max: 2500}
     - type: "item"
       key: "gold_dragon_scale"
       chance: 1.0
@@ -579,6 +662,7 @@ loots:
 
   # --- Japanese Castle (eastern islands) mobs (L12-18) ---
   ashigaru_firelock:
+    - {type: gold, min: 80, max: 180}
     - type: "weapon"
       key: "tanegashima"
       chance: 0.06
@@ -599,6 +683,7 @@ loots:
       chance: 0.01
 
   ronin_marksman:
+    - {type: gold, min: 220, max: 450}
     - type: "weapon"
       key: "tanegashima"
       chance: 0.08
@@ -619,6 +704,7 @@ loots:
       chance: 0.01
 
   ningyo:
+    - {type: gold, min: 120, max: 280}
     - type: "item"
       key: "jade_netsuke"
       chance: 0.05
@@ -627,12 +713,13 @@ loots:
       chance: 0.12
     - type: "item"
       key: "ningyo_card"
-      chance: 0.03
+      chance: 0.01
     - type: "item"
       key: "haori_cloak"
       chance: 0.05
 
   vengeful_ningyo:
+    - {type: gold, min: 260, max: 560}
     - type: "item"
       key: "onmyoji_talisman"
       chance: 0.06
@@ -650,6 +737,7 @@ loots:
       chance: 0.01
 
   old_samurai:
+    - {type: gold, min: 4000, max: 6000}
     - type: "weapon"
       key: "muramasa"
       chance: 0.08
@@ -677,6 +765,7 @@ loots:
 
   # --- Sakura Garden mobs (L18-24) ---
   kappa:
+    - {type: gold, min: 40, max: 140}
     - type: "item"
       key: "kappa_shell_guard"
       chance: 0.06
@@ -691,6 +780,7 @@ loots:
       chance: 0.01
 
   kasa_obake:
+    - {type: gold, min: 60, max: 160}
     - type: "item"
       key: "lacquered_umbrella_rib"
       chance: 0.16
@@ -705,6 +795,7 @@ loots:
       chance: 0.01
 
   karasu_tengu:
+    - {type: gold, min: 70, max: 170}
     - type: "item"
       key: "tengu_feather"
       chance: 0.18
@@ -719,6 +810,7 @@ loots:
       chance: 0.01
 
   kitsune_onmyoji:
+    - {type: gold, min: 90, max: 200}
     - type: "item"
       key: "foxfire_ofuda"
       chance: 0.06
@@ -733,6 +825,7 @@ loots:
       chance: 0.01
 
   sakura_jorogumo:
+    - {type: gold, min: 4500, max: 7000}
     - type: "item"
       key: "moonspun_silk"
       chance: 0.30
@@ -751,14 +844,16 @@ loots:
 
   # --- Deep Jungle (Amazon) drops ---
   ocelot:
+    - {type: gold, min: 30, max: 110}
     - type: "item"
       key: "ocelot_pelt"
       chance: 0.18
     - type: "item"
       key: "ocelot_card"
-      chance: 0.03
+      chance: 0.01
 
   jungle_goblin:
+    - {type: gold, min: 30, max: 90}
     - type: "weapon"
       key: "jungle_machete"
       chance: 0.04
@@ -767,6 +862,7 @@ loots:
       chance: 0.01
 
   masked_huntress:
+    - {type: gold, min: 60, max: 160}
     - type: "weapon"
       key: "blowgun"
       chance: 0.05
@@ -778,9 +874,10 @@ loots:
       chance: 0.04
     - type: "item"
       key: "masked_huntress_card"
-      chance: 0.03
+      chance: 0.01
 
   masked_serpent_dancer:
+    - {type: gold, min: 80, max: 180}
     - type: "item"
       key: "serpent_skin"
       chance: 0.15
@@ -795,6 +892,7 @@ loots:
       chance: 0.01
 
   masked_hexer_girl:
+    - {type: gold, min: 100, max: 220}
     - type: "item"
       key: "serpent_idol_amulet"
       chance: 0.05
@@ -812,6 +910,7 @@ loots:
       chance: 0.01
 
   gorilla_titan:
+    - {type: gold, min: 300, max: 700}
     - type: "item"
       key: "gorilla_heart"
       chance: 0.30
@@ -840,6 +939,7 @@ loots:
       chance: 0.01
 
   orc_hero_boss:
+    - {type: gold, min: 5000, max: 8000}
     - type: "item"
       key: "mantle_of_the_idol_king"
       chance: 0.60
@@ -861,6 +961,7 @@ loots:
 
   # --- Clock Tower (2026-07-16): every tower horror can shed a clock hand ---
   dust_slime:
+    - {type: gold, min: 30, max: 80}
     - type: "item"
       key: "stoneskin_draught"
       chance: 0.12
@@ -875,6 +976,7 @@ loots:
       chance: 0.06
 
   possessed_tome:
+    - {type: gold, min: 40, max: 110}
     - type: "item"
       key: "clock_hand"
       chance: 0.35
@@ -889,6 +991,7 @@ loots:
       chance: 0.03
 
   alarm_clock:
+    - {type: gold, min: 60, max: 150}
     - type: "item"
       key: "storm_ward_draught"
       chance: 0.12
@@ -909,6 +1012,7 @@ loots:
       chance: 0.03
 
   grandfather_clock:
+    - {type: gold, min: 90, max: 220}
     - type: "item"
       key: "flame_ward_draught"
       chance: 0.12
@@ -932,6 +1036,7 @@ loots:
   # The Brood Mother: 3 black scales guaranteed (the Scalewright's top coin)
   # + a 25% roll on each other colour.
   dragon_brood_mother:
+    - {type: gold, min: 3000, max: 6000}
     - type: "item"
       key: "black_dragon_scale"
       chance: 1.0
@@ -951,6 +1056,7 @@ loots:
 
   # The Ancient God of Death: the Still Court regalia (independent rolls).
   ancient_god_of_death:
+    - {type: gold, min: 5000, max: 8000}
     - type: "item"
       key: "deathgod_helm"
       chance: 0.6
@@ -966,6 +1072,7 @@ loots:
 
   # The Alien Enforcer: the Pursuer arsenal (blasters need no skill).
   alien_enforcer:
+    - {type: gold, min: 6000, max: 9000}
     - type: "weapon"
       key: "suppressor_gun"
       chance: 0.15
@@ -981,6 +1088,12 @@ loots:
     - type: "item"
       key: "diamond"
       chance: 0.4
+
+  # Champions drop the arena trophy: at most one set piece per kill.
+  hobbit_archer: [{type: first_of, key: champion_trophies}]
+  weapon_master: [{type: first_of, key: champion_trophies}]
+  dark_elf_sorceress: [{type: first_of, key: champion_trophies}]
+  wild_druid: [{type: first_of, key: champion_trophies}]
 
 # Boss loot is appended to the normal loot table of every monsters.yaml entry
 # authored with boss: true. Every ordinary loot consumer uses the same resolved
@@ -1006,18 +1119,140 @@ boss_loot:
 # Traps: trap_damage blasts every hero (element from trap_damage_types),
 # trap_ignite burns them; Disarm Trap avoids either at 40/60/80/100%.
 crates:
+  forest_hollow_stump:
+    rolls: 1
+    roll_sources:
+      - {pool: item, item: dawnleaf, weight: 40}
+      - {pool: item, item: mooncap, weight: 40}
+      - {pool: item, item: fairy_dust, weight: 20}
+
+  forest_hunters_bag:
+    rolls: 1
+    roll_sources:
+      - {pool: item, item: health_potion, weight: 40, quantity_min: 1, quantity_max: 5}
+      - {pool: item, item: mana_potion, weight: 40, quantity_min: 1, quantity_max: 5}
+      - {pool: gold, amount: 120, weight: 20}
+
+  highlands_traveler_cairn:
+    rolls: 1
+    roll_sources:
+      - {pool: loot_table, loot_table: outdoor_highlands_gear, weight: 40}
+      - {pool: item, item: health_potion, weight: 25, quantity_min: 1, quantity_max: 5}
+      - {pool: item, item: mana_potion, weight: 25, quantity_min: 1, quantity_max: 5}
+      - {pool: gold, amount: 250, weight: 10}
+
+  cliffs_shed_scales:
+    rolls: 1
+    roll_sources:
+      - {pool: item, item: black_dragon_scale, weight: 25}
+      - {pool: item, item: red_dragon_scale, weight: 25}
+      - {pool: item, item: green_dragon_scale, weight: 25}
+      - {pool: item, item: gold_dragon_scale, weight: 25}
+
+  cliffs_scorched_pack:
+    rolls: 1
+    roll_sources:
+      - {pool: loot_table, loot_table: outdoor_cliffs_gear, weight: 50}
+      - {pool: item, item: health_potion, weight: 25, quantity_min: 1, quantity_max: 5}
+      - {pool: item, item: mana_potion, weight: 25, quantity_min: 1, quantity_max: 5}
+
+  desert_buried_saddlebags:
+    rolls: 1
+    roll_sources:
+      - {pool: gold, amount: 220, weight: 40}
+      - {pool: item, item: mirage_salt, weight: 30}
+      - {pool: item, item: health_potion, weight: 15, quantity_min: 1, quantity_max: 5}
+      - {pool: item, item: mana_potion, weight: 15, quantity_min: 1, quantity_max: 5}
+
+  jungle_pitcher_plant:
+    rolls: 1
+    roll_sources:
+      - {pool: loot_table, loot_table: outdoor_jungle_gear, weight: 30}
+      - {pool: item, item: bitterroot, weight: 35}
+      - {pool: item, item: solstice_rain_pearl, weight: 35}
+
+  jungle_silk_cocoon:
+    rolls: 1
+    roll_sources:
+      - {pool: item, item: spider_silk, weight: 60}
+      - {pool: loot_table, loot_table: outdoor_jungle_gear, weight: 40}
+
+  approach_resin_growth:
+    rolls: 1
+    roll_sources:
+      - {pool: item, item: solstice_sun_resin, weight: 77}
+      - {pool: item, item: raw_amber, weight: 20}
+      - {pool: item, item: amber_talisman, weight: 3}
+
+  approach_calendar_disc:
+    rolls: 1
+    roll_sources:
+      - {pool: item, item: solstice_calendar_jade, weight: 97}
+      - {pool: item, item: ancient_calendar, weight: 3}
+
+  castle_medicine_cabinet:
+    rolls: 1
+    roll_sources:
+      - {pool: item, item: health_potion, weight: 30, quantity_min: 1, quantity_max: 5}
+      - {pool: item, item: mana_potion, weight: 25, quantity_min: 1, quantity_max: 5}
+      - {pool: item, item: antivenom, weight: 22, quantity_min: 1, quantity_max: 5}
+      - {pool: item, item: sake_flask, weight: 20, quantity_min: 1, quantity_max: 5}
+      - {pool: item, item: personal_medical_kit, weight: 3}
+
+  castle_armor_stand:
+    rolls: 1
+    roll_sources:
+      - {pool: item, item: o_yoroi, weight: 24}
+      - {pool: item, item: kabuto, weight: 24}
+      - {pool: item, item: silk_hakama, weight: 24}
+      - {pool: item, item: haori_cloak, weight: 24}
+      - {pool: item, item: scarlet_crane_do, weight: 1}
+      - {pool: item, item: night_heron_do, weight: 1}
+      - {pool: item, item: jade_tortoise_do, weight: 1}
+      - {pool: item, item: white_fox_do, weight: 1}
+
+  sakura_offering_bundle:
+    rolls: 1
+    roll_sources:
+      - {pool: item, item: sake_flask, weight: 48.5, quantity_min: 1, quantity_max: 5}
+      - {pool: gold, amount: 350, weight: 48.5}
+      - {pool: equipment_slot, equip_slot: ring, weight: 3}
+
+  sakura_collectible_leaves:
+    rolls: 1
+    roll_sources:
+      - {pool: item, item: sakura_leaf, weight: 97}
+      - {pool: item, item: spider_lily_obi, weight: 3}
+
+  highlands_mist_collector:
+    buff:
+      name: "Highland Mist"
+      status_icon: highland_mist
+      duration_seconds: 900
+      mana_regen_pct: 5
+
+  desert_solar_condenser:
+    buff:
+      name: "Desert Renewal"
+      status_icon: desert_renewal
+      duration_seconds: 600
+      hp_regen_pct: 5
+
   solstice_fire_cache:
     interaction_sound: "chest_open"
     loot_table: "solstice_fire_archive"
     treasure_chest: true
+
   solstice_water_cache:
     interaction_sound: "chest_open"
     loot_table: "solstice_water_archive"
     treasure_chest: true
+
   solstice_earth_cache:
     interaction_sound: "chest_open"
     loot_table: "solstice_earth_archive"
     treasure_chest: true
+
   solstice_air_cache:
     interaction_sound: "chest_open"
     loot_table: "solstice_air_archive"
@@ -1035,6 +1270,7 @@ crates:
         item_type: "trinket"
         rarity: "common-rare"   # roadside junk never hides a legendary
         weight: 50
+
   campfire:
     rolls: 1
     free_rest: true
@@ -1042,14 +1278,17 @@ crates:
       - pool: "gold"
         amount: 500
         weight: 100
+
   barrel_red:
     bonus_stat: "might"
     bonus_amount: 1
     bonus_chance_pct: 50
+
   barrel_green:
     bonus_stat: "speed"
     bonus_amount: 1
     bonus_chance_pct: 50
+
   barrel_blue:
     bonus_stat: "intellect"
     bonus_amount: 1
@@ -1083,6 +1322,7 @@ crates:
       - pool: "gold"
         amount: 1000
         weight: 1.7
+
   chest_iron:
     treasure_chest: true
     interaction_sound: "chest_open"
@@ -1109,7 +1349,8 @@ crates:
         amount: 1500
         weight: 1.7
     trap_ignite: true
-    trap_ignite_seconds: 10
+    trap_ignite_seconds: 12
+
   chest_golden:
     treasure_chest: true
     interaction_sound: "chest_open"
@@ -1146,6 +1387,7 @@ crates:
       - pool: "catalog"
         item_type: "consumable"
         weight: 15
+
   chest_chrono:
     treasure_chest: true
     interaction_sound: "chest_open"
@@ -1165,7 +1407,8 @@ crates:
         rarity: "rare"
         weight: 10.6   # about 20% a chest
     trap_ignite: true
-    trap_ignite_seconds: 8
+    trap_ignite_seconds: 9
+
   chest_regal:
     treasure_chest: true
     interaction_sound: "chest_open"
@@ -1196,36 +1439,72 @@ crates:
 # Named weighted pools (config.WeightedLootTable). Sword racks roll castle_armory:
 # one random ZONE item + a little gold, never a unique (uniques aren't listed).
 loot_tables:
+  outdoor_highlands_gear:
+    rolls: 1
+    entries:
+      - {type: weapon, key: steel_axe, weight: 1}
+      - {type: weapon, key: battle_staff, weight: 1}
+      - {type: weapon, key: long_bow, weight: 1}
+      - {type: item, key: belt_of_strength, weight: 1}
+      - {type: item, key: belt_of_speed, weight: 1}
+
+  outdoor_cliffs_gear:
+    rolls: 1
+    entries:
+      - {type: weapon, key: silver_sword, weight: 1}
+      - {type: weapon, key: gold_sword, weight: 1}
+      - {type: weapon, key: elven_bow, weight: 1}
+      - {type: weapon, key: archmage_staff, weight: 1}
+
+  outdoor_jungle_gear:
+    rolls: 1
+    entries:
+      - {type: weapon, key: jungle_machete, weight: 1}
+      - {type: weapon, key: obsidian_spear, weight: 1}
+      - {type: weapon, key: bone_warclub, weight: 1}
+      - {type: weapon, key: blowgun, weight: 1}
+      - {type: item, key: vinewoven_cloak, weight: 1}
+      - {type: item, key: jaguar_pelt_jerkin, weight: 1}
+      - {type: item, key: feathered_headdress, weight: 1}
+      - {type: item, key: serpent_idol_amulet, weight: 1}
+
   solstice_fire_signature:
     rolls: 1
     entries: [{"type": "weapon", "key": "solstice_thermal_lance", "weight": 1}, {"type": "item", "key": "solstice_heatshield_mantle", "weight": 1}, {"type": "item", "key": "solstice_ember_regulator_ring", "weight": 1}]
+
   solstice_water_signature:
     rolls: 1
     entries: [{"type": "weapon", "key": "solstice_flowstaff", "weight": 1}, {"type": "item", "key": "solstice_circulation_vestment", "weight": 1}, {"type": "item", "key": "solstice_tideglass_signet", "weight": 1}]
+
   solstice_earth_signature:
     rolls: 1
     entries: [{"type": "weapon", "key": "solstice_anchor_hammer", "weight": 1}, {"type": "item", "key": "solstice_deepstone_aegis", "weight": 1}, {"type": "item", "key": "solstice_loadbearer_girdle", "weight": 1}]
+
   solstice_air_signature:
     rolls: 1
     entries: [{"type": "weapon", "key": "solstice_transfer_blade", "weight": 1}, {"type": "item", "key": "solstice_vector_boots", "weight": 1}, {"type": "item", "key": "solstice_resonance_diadem", "weight": 1}]
+
   solstice_fire_archive:
     rolls: 1
     items: ["health_potion", "mana_potion"]
     gold_min: 150
     gold_max: 250
     entries: [{"type": "weapon", "key": "steel_axe", "weight": 1}, {"type": "item", "key": "iron_armor", "weight": 1}]
+
   solstice_water_archive:
     rolls: 1
     items: ["health_potion", "mana_potion"]
     gold_min: 150
     gold_max: 250
     entries: [{"type": "weapon", "key": "battle_staff", "weight": 1}, {"type": "item", "key": "chain_armor", "weight": 1}]
+
   solstice_earth_archive:
     rolls: 1
     items: ["health_potion", "mana_potion"]
     gold_min: 150
     gold_max: 250
     entries: [{"type": "weapon", "key": "steel_mace", "weight": 1}, {"type": "item", "key": "iron_armor", "weight": 1}]
+
   solstice_air_archive:
     rolls: 1
     items: ["health_potion", "mana_potion"]
@@ -1353,15 +1632,23 @@ loot_tables:
       - {type: weapon, key: chime_maul, weight: 1}
       - {type: weapon, key: minute_hand, weight: 1}
       - {type: weapon, key: mainspring_pike, weight: 1}
-      - {type: weapon, key: escapement_mace, weight: 1}
+      - {type: weapon, key: escapement_staff, weight: 1}
       - {type: weapon, key: clockwork_pistol, weight: 1}
 
 # Material groups keep ordinary and five-roll elite drops on the same chance.
 loot_groups:
   wolf_material:
     - {type: item, key: wolf_pelt, chance: 0.17}
+
   spider_material:
     - {type: item, key: spider_silk, chance: 0.17}
+
+  # The champion trophy: the sets roll in this order and the first success is
+  # the one piece the champion drops.
+  champion_trophies:
+    - {type: set, key: padded, chance: 0.10}
+    - {type: set, key: ringmail, chance: 0.05}
+
   # One independent 6% attempt for each herb or mushroom that grows in the world.
   gathered_reagents:
     - {type: harvest, key: dawnleaf, chance: 0.06}

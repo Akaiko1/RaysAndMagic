@@ -24,7 +24,9 @@ func (g *MMGame) monsterFrameContext() monsterFrameContext {
 	}
 	frame := monsterFrameContext{tick: g.frameCount}
 	if g.camera != nil {
-		frame.partyX, frame.partyY, frame.hasParty = g.camera.X, g.camera.Y, true
+		// The logical position: Draw shakes the camera (the TB overlay reads this).
+		frame.partyX, frame.partyY = g.partyFightPos()
+		frame.hasParty = true
 	}
 	return frame
 }
@@ -119,9 +121,7 @@ func (mw *MonsterWrapper) ApplyCollisionUpdate() {
 	mw.traceMovement()
 }
 
-func (mw *MonsterWrapper) IsAlive() bool                   { return mw.Monster != nil && mw.Monster.IsAlive() }
-func (mw *MonsterWrapper) GetPosition() (float64, float64) { return mw.Monster.X, mw.Monster.Y }
-func (mw *MonsterWrapper) SetPosition(x, y float64)        { mw.Monster.X, mw.Monster.Y = x, y }
+func (mw *MonsterWrapper) IsAlive() bool { return mw.Monster != nil && mw.Monster.IsAlive() }
 
 // Debug probes read the live system only during serial publication.
 func (mw *MonsterWrapper) traceMovement() {

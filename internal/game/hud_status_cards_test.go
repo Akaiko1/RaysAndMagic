@@ -34,7 +34,7 @@ func TestBuffStatusCardStatesLiveEffectThroughTheHover(t *testing.T) {
 		}},
 		{"stone_skin", "per hit", func(g *MMGame, _ spells.SpellDefinition) string {
 			b, _ := g.combatBuffByID("stone_skin")
-			return fmt.Sprintf("-%d damage per hit", b.InReduce)
+			return fmt.Sprintf("Flat damage reduction: %d per hit (party)", b.InReduce)
 		}},
 		{"day_of_the_gods", "less damage", func(g *MMGame, _ spells.SpellDefinition) string {
 			b, _ := g.combatBuffByID("day_of_the_gods")
@@ -60,7 +60,7 @@ func TestBuffStatusCardStatesLiveEffectThroughTheHover(t *testing.T) {
 				}
 				g.turnBasedMode = tb
 				rail, ok := g.spellStatusRail()
-				if !ok || len(rail.statuses) != 1 || rail.statuses[0].SpellID != def.ID {
+				if !ok || len(rail.statuses) != 1 || rail.statuses[0].ID != string(def.ID) {
 					t.Fatalf("rail = %+v, want only %s", rail.statuses, row.key)
 				}
 				icon, status := rail.icons[0], rail.statuses[0]
@@ -81,8 +81,8 @@ func TestBuffStatusCardStatesLiveEffectThroughTheHover(t *testing.T) {
 					t.Fatalf("card lacks the live effect %q:\n%s", live, text)
 				}
 				tps, round := g.config.GetTPS(), g.combatRoundFrames()
-				remaining := fmt.Sprintf("Remaining: %ds (TB: %s)", (status.Duration+tps-1)/tps,
-					pluralizeCount((status.Duration+round-1)/round, "round", "rounds"))
+				remaining := fmt.Sprintf("Remaining: %ds / %s", (status.Duration+tps-1)/tps,
+					pluralizeCount((status.Duration+round-1)/round, "TB turn", "TB turns"))
 				if !slices.Contains(card, remaining) || !slices.Contains(card, uitext.Text("buff.double_click_dispel")) {
 					t.Fatalf("card lacks %q or the dispel hint:\n%s", remaining, text)
 				}
@@ -173,7 +173,7 @@ func TestBuffStatusCardNamesNonSpellSources(t *testing.T) {
 			}
 			g.turnBasedMode = tb
 			g.tickCombatBuffs() // the frame tick puts the draught on the rail
-			status := g.utilitySpellStatuses["flame_ward_draught"]
+			status := g.buffStatuses["flame_ward_draught"]
 			if status == nil {
 				t.Fatal("drunk draught never reached the status rail")
 			}
@@ -197,7 +197,7 @@ func TestBuffStatusCardNamesNonSpellSources(t *testing.T) {
 			}
 			d := config.Technique("quickening")
 			tier := c.SkillTier(character.SkillTranslocation)
-			status := g.utilitySpellStatuses["quickening"]
+			status := g.buffStatuses[config.TechniqueID("quickening")]
 			if status == nil {
 				t.Fatal("quickening never reached the status rail")
 			}
@@ -257,9 +257,9 @@ func TestBuffStatusCardFollowsTheCastersMastery(t *testing.T) {
 				if !cs.CastEquippedSpell() {
 					t.Fatalf("%s cast failed", key)
 				}
-				rows, _ := g.buffStatusCardRows(g.utilitySpellStatuses[def.ID])
+				rows, _ := g.buffStatusCardRows(g.buffStatuses[string(def.ID)])
 				card := rows.Lines()
-				seconds := character.SpellDurationAtTier(def, int(tier)).Seconds
+				seconds := def.DurationSeconds(int(tier))
 				for _, want := range []string{ladders[key](def, int(tier)), "Remaining: " + strconv.Itoa(seconds) + "s"} {
 					if !slices.ContainsFunc(card, func(line string) bool { return strings.HasPrefix(line, want) }) {
 						t.Fatalf("tier %d card lacks %q:\n%s", tier, want, strings.Join(card, "\n"))
@@ -267,5 +267,25 @@ func TestBuffStatusCardFollowsTheCastersMastery(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// A monster's dispel names what it strips the way the status rail does: a
+// draught by its item name, not its key.
+func TestMonsterDispelNamesNonSpellBuffs(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	g := cs.game
+	def, _ := config.GetItemDefinition("flame_ward_draught")
+	g.party.Inventory = []items.Item{items.CreateItemFromYAML("flame_ward_draught")}
+	if !g.UseConsumableFromInventory(0, 0) {
+		t.Fatal("draught not consumed")
+	}
+	hero := g.party.Members[0]
+	hero.Luck = 0
+	m := mkTestMonster("Dispeller", 100)
+	m.Abilities.Dispel.Chance = 1
+	cs.monsterHitCharacter(m, hero, m.Name, hitFromMonster(m, 1, "physical", false, 0, true, false))
+	if countCombatLog(g, "rips "+def.Name+" from the party") != 1 {
+		t.Fatalf("dispel did not name the draught %q: %v", def.Name, g.combatLogHistory)
 	}
 }

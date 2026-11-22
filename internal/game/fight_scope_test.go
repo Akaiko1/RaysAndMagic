@@ -97,10 +97,10 @@ func TestFightScopeIsReachNotTheWholeMap(t *testing.T) {
 				t.Fatalf("brew = %v %q, want refusal %q", brewed, g.rareBookMessage, wantBrew)
 			}
 
-			if got := g.anyMonsterEngagingParty(); got != tc.wantSheddingHold {
+			if got := g.partyEngaged(); got != tc.wantSheddingHold {
 				t.Fatalf("scale shedding held = %v, want %v", got, tc.wantSheddingHold)
 			}
-			if got := g.automaticTechniqueTrigger("quickening"); got != tc.wantCombat {
+			if got := g.techniqueAutocastFires(config.Technique("quickening")); got != tc.wantCombat {
 				t.Fatalf("automatic Quickening = %v, want %v", got, tc.wantCombat)
 			}
 		})

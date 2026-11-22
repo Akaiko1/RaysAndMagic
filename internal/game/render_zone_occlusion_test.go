@@ -103,9 +103,9 @@ func TestWorldFieldOcclusionWithScenery(t *testing.T) {
 								case "telegraph-warning", "telegraph-active":
 									m := &monster.Monster3D{HitPoints: 1, Telegraph: monster.TelegraphState{Tiles: [][2]int{{tx, ty}}}}
 									if effectKind == "telegraph-warning" {
-										m.Telegraph.Warning = 1
+										m.Telegraph.Warning = roundClock()
 									} else {
-										m.Telegraph.Remaining = 1
+										m.Telegraph.Remaining = roundClock()
 									}
 									g.world.Monsters = []*monster.Monster3D{m}
 								case "impassable":

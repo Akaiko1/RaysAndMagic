@@ -3,6 +3,7 @@ package game
 import (
 	"fmt"
 	"reflect"
+	"slices"
 	"testing"
 
 	"ugataima/internal/character"
@@ -10,15 +11,29 @@ import (
 	"ugataima/internal/world"
 )
 
+// Every class at every level milestone earns its choices through XP and keeps
+// them over a save. A choice survives a hero's time in the reserve or the
+// captives whatever the class, so those rosters run for one class, at a choice
+// level and at a level without one.
 func TestRareProgressionEveryClassThroughXPAndSave(t *testing.T) {
+	if _, err := config.LoadLevelUpConfig("../../assets/level_up.yaml"); err != nil {
+		t.Fatal(err)
+	}
+	levels := []int{2, 3, 4, 6, 9, 12, 15, 18, 21}
+	choiceAt := slices.IndexFunc(levels, func(l int) bool { return l%LevelUpChoiceInterval == 0 })
+	plainAt := slices.IndexFunc(levels, func(l int) bool { return l%LevelUpChoiceInterval != 0 })
+	if choiceAt < 0 || plainAt < 0 {
+		t.Fatalf("fixture: levels %v need a choice level and a plain one", levels)
+	}
+	choice, plain := levels[choiceAt], levels[plainAt]
 	for _, class := range character.PlayableClasses {
-		for _, level := range []int{2, 3, 4, 6, 9, 12, 15, 18, 21} {
+		for _, level := range levels {
 			for _, roster := range []string{"active", "reserve", "captive"} {
+				if roster != "active" && (class != character.PlayableClasses[0] || level != choice && level != plain) {
+					continue
+				}
 				t.Run(fmt.Sprintf("%s/L%d/%s", class.Key(), level, roster), func(t *testing.T) {
 					g, c := rareClassGame(t, class, false)
-					if _, err := config.LoadLevelUpConfig("../../assets/level_up.yaml"); err != nil {
-						t.Fatal(err)
-					}
 					g.party.Reserve, g.party.Captive = nil, nil
 					if roster != "active" {
 						g.party.Members = g.party.Members[1:]

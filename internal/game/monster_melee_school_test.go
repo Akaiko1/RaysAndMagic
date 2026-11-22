@@ -65,7 +65,7 @@ func TestElementalMeleeDeliveryCells(t *testing.T) {
 							foe.Y = 0
 							m.Bound = target == "enemy"
 							foe.Bound = target == "bound"
-							cs.performMonsterAttackAgainstMonster(m, foe, ProjectileOwnerMonsterAtBound)
+							cs.performMonsterAttackAgainstMonster(m, foe, ProjectileOwnerMonsterAtActor)
 							if got := 1000 - foe.HitPoints; got != want {
 								t.Fatalf("monster damage=%d, want %d", got, want)
 							}

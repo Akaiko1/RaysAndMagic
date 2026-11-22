@@ -17,7 +17,7 @@ biome declaration for validation; in the real catalog keep the existing, richer
 maps:
   herb_clearing:
     name: "Herb Clearing"
-    file: "assets/herb_clearing.map"
+    file: "herb_clearing.map"
     biome: forest
     sky_color: [100, 150, 220]
     default_floor_color: [55, 85, 40]
@@ -35,6 +35,11 @@ travel. Merely registering a file does not make it reachable.
 
 For terrain blending, beach layers, and directional chasm art, configure biome
 `floor_transitions` using the [floor transition guide](floor-transitions.md).
+
+A map with water lists every body of water tiles under `water_bodies`, each
+as `{at: [x, y], kind: lake}` with a kind of `river`, `lake`, `sea`, `pool` or
+`stream`; waves break on lakes and seas only. The boot fails on a body you
+missed and names its first cell. See [Surf](floor-transitions.md#surf).
 
 ## Map syntax
 

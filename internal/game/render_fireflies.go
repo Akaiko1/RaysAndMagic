@@ -55,7 +55,7 @@ func (r *Renderer) drawFireflySwarmEffect(screen *ebiten.Image, s UnifiedSpriteR
 	ts := r.game.config.GetTileSize()
 	wx, wy := TileCenterFromTile(s.tileX, s.tileY, ts)
 	seed := fireflySwarmSeed(s.tileX, s.tileY)
-	seconds := r.weaponMaterialClock()
+	seconds := r.game.worldSeconds()
 	for i, mote := range fireflySwarmMotes {
 		phase := auraHash(seed, i, 41, 0) * 2 * math.Pi
 		x := wx + ts*((mote.u-.5)*.8+.055*math.Sin(seconds*.7+phase)+.025*math.Sin(seconds*1.3+phase*2))

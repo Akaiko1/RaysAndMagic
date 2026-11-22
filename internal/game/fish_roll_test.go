@@ -24,12 +24,12 @@ func TestFishIndependentTileRolls(t *testing.T) {
 					if count != 2 {
 						t.Fatalf("expected two connected water cells, got %d", count)
 					}
-					for i := 0; i < f.RollEveryFrames-1; i++ {
+					for i := 0; i < g.framesForSeconds(f.RollEverySeconds)-1; i++ {
 						g.frameCount++
 						g.updateFish()
 					}
 					if len(g.world.Monsters) != 0 {
-						t.Fatalf("fish spawned before frame %d", f.RollEveryFrames)
+						t.Fatalf("fish spawned before frame %d", g.framesForSeconds(f.RollEverySeconds))
 					}
 					g.frameCount++
 					g.updateFish()
@@ -37,7 +37,7 @@ func TestFishIndependentTileRolls(t *testing.T) {
 					if len(g.world.Monsters) != want {
 						t.Fatalf("first roll: got %d, want %d", len(g.world.Monsters), want)
 					}
-					for i := 0; i < f.RollEveryFrames; i++ {
+					for i := 0; i < g.framesForSeconds(f.RollEverySeconds); i++ {
 						g.frameCount++
 						g.updateFish()
 					}

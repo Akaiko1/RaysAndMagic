@@ -36,7 +36,7 @@ func (g *MMGame) addElementalAttackFX(x, y float64, target *character.MMCharacte
 	}
 	g.elementalAttackEffects = append(g.elementalAttackEffects, elementalAttackEffect{
 		X: x, Y: y, PartyTarget: target, School: school,
-		Frames:      max(1, int(math.Round(cfg.DurationSeconds*float64(g.config.GetTPS())))),
+		Frames:      g.framesForSeconds(cfg.DurationSeconds),
 		RadiusTiles: cfg.RadiusTiles, Particles: cfg.ParticleCount,
 	})
 	return &g.elementalAttackEffects[len(g.elementalAttackEffects)-1]

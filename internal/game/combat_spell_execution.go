@@ -1,10 +1,10 @@
 package game
 
 import (
-	"fmt"
 	"math"
 	"strings"
 
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/collision"
 	"ugataima/internal/config"
@@ -22,24 +22,18 @@ func (cs *CombatSystem) CastEquippedSpell() bool {
 		return false
 	}
 
-	spell, hasSpell := caster.Equipment[items.SlotSpell]
+	spell, hasSpell := caster.Equipment[items.SlotQuickAction]
 	if !hasSpell {
 		return false // No spell equipped
 	}
-	if spell.Type == items.ItemTrap {
-		// Thief quick slot: F arms the slotted trap exactly like a quick
-		// spell - explicit cast, so refusal messages stay on.
-		_, placed := cs.tryPlaceQuickTrap(caster, true)
-		return placed
-	}
 	if spell.Type != items.ItemBattleSpell && spell.Type != items.ItemUtilitySpell {
-		return false // SlotSpell should only contain spells
+		return false // a technique, trap or flask: not cast here
 	}
 
 	spellID := spells.SpellID(spell.SpellEffect)
 	spellDef, err := spells.GetSpellDefinitionByID(spellID)
 	if err != nil {
-		cs.game.AddCombatMessage("Spell failed: " + err.Error())
+		cs.game.AddCombatMessage(uitext.Text("combat.spell_failed", err.Error()))
 		return false
 	}
 
@@ -75,7 +69,7 @@ func (cs *CombatSystem) CastSelectedSpell() (bool, spells.SpellID) {
 	selectedSpellID := availableSpells[cs.game.selectedSpell]
 	selectedSpellDef, err := spells.GetSpellDefinitionByID(selectedSpellID)
 	if err != nil {
-		cs.game.AddCombatMessage("Spell failed: " + err.Error())
+		cs.game.AddCombatMessage(uitext.Text("combat.spell_failed", err.Error()))
 		return false, ""
 	}
 
@@ -93,26 +87,28 @@ func (cs *CombatSystem) castResolvedSpell(spellID spells.SpellID, def spells.Spe
 
 func (cs *CombatSystem) castPlayerSpell(spellID spells.SpellID, def spells.SpellDefinition, caster *character.MMCharacter, announce bool) bool {
 	return cs.castSpell(spellCastRequest{ID: spellID, Definition: def, Caster: caster,
-		Cost: cs.effectiveSpellCost(caster, def.SpellPointsCost), Announce: announce,
+		Cost: caster.MeditatedSPCost(def.SpellPointsCost), Announce: announce,
 		PlayerInitiated: true, ActionProcs: true}).handled()
 }
 
-// weaponSpellEchoPct is the strongest spell_echo_pct across the caster's
-// equipped weapons (Verdant Eye scepter - either hand counts).
+// weaponSpellEchoPct is the caster's spell_echo_pct (Verdant Eye scepter).
 func weaponSpellEchoPct(caster *character.MMCharacter) int {
-	if caster == nil {
-		return 0
+	if def := strongestWeaponPerk(caster, func(d *config.WeaponDefinitionConfig) float64 { return float64(d.SpellEchoPct) }); def != nil {
+		return def.SpellEchoPct
 	}
-	best := 0
-	for _, def := range equippedWeaponDefinitions(caster) {
-		if def != nil && def.SpellEchoPct > best {
-			best = def.SpellEchoPct
-		}
-	}
-	return best
+	return 0
 }
 
 func (cs *CombatSystem) applySpellEffect(spellID spells.SpellID, spellDef spells.SpellDefinition, caster *character.MMCharacter, announce bool) spellCastOutcome {
+	if result := cs.tryCastAdvancedSupport(spellID, spellDef, caster); result != castNotHandled {
+		return result
+	}
+	if result := cs.tryCastAdvancedOffense(spellID, spellDef, caster); result != castNotHandled {
+		if result == castCommitted {
+			cs.playSpellBuffFx(spellID)
+		}
+		return result
+	}
 	if result := cs.tryCastSpecialEffect(spellID, spellDef, caster); result != castNotHandled {
 		if result == castCommitted {
 			cs.playSpellBuffFx(spellID)
@@ -132,66 +128,30 @@ func (cs *CombatSystem) applySpellEffect(spellID spells.SpellID, spellDef spells
 	}
 
 	if spellDef.IsProjectile {
-		projectile, err := castingSystem.CreateProjectile(spellID, cs.game.camera.X, cs.game.camera.Y, cs.partyAttackAngle())
+		mp, err := cs.newSpellProjectile(spellID, "", cs.game.camera.X, cs.game.camera.Y, cs.partyAttackAngle())
 		if err != nil {
-			cs.game.AddCombatMessage("Spell failed: " + err.Error())
+			cs.game.AddCombatMessage(uitext.Text("combat.spell_failed", err.Error()))
 			return castRejected
 		}
-		speed := math.Hypot(projectile.VelX, projectile.VelY)
-		launch := cs.partyProjectileLaunch(cs.partyAttackAngle(), speed*float64(projectile.LifeTime), false)
-		projectile.VelX, projectile.VelY = launch.dx*speed, launch.dy*speed
-		// CreateProjectile carries physics only; damage is authored HERE
-		// (effective stats + mastery), once.
+		speed := math.Hypot(mp.VelX, mp.VelY)
+		mp.Launch = cs.partyProjectileLaunch(cs.partyAttackAngle(), speed*float64(mp.LifeTime), false)
+		mp.VelX, mp.VelY = mp.Launch.dx*speed, mp.Launch.dy*speed
+		// The bolt carries physics only; damage is authored HERE (effective
+		// stats + mastery), once. Luck-based spell crit doubles the normal and
+		// typed-true components together; Elemental GM converts only the
+		// regular mastery bonus.
 		_, _, totalDamage := cs.CalculateSpellDamage(spellID, caster)
-
-		// Resolve spell config before spawning anything so a config error
-		// can't leave a projectile without a collision entity.
-		spellConfig, err := cs.game.config.GetSpellConfig(string(spellID))
-		if err != nil {
-			cs.game.AddCombatMessage("Spell config error: " + err.Error())
+		parts, isCrit := cs.rollSpellCritParts(spellID, caster, cs.spellDamageParts(spellID, caster, totalDamage))
+		mp.Attacker, mp.Owner = caster, ProjectileOwnerPlayer
+		mp.Damage, mp.TrueDamage, mp.Crit = parts.Normal, parts.True, isCrit
+		mp.DisintegrateChance = cs.game.partyDisintegrateChance(mp.DisintegrateChance)
+		if err := cs.launchSpellProjectile(mp); err != nil {
+			cs.game.AddCombatMessage(uitext.Text("combat.spell_config_error", err.Error()))
 			return castRejected
 		}
-		disintegrateChance := 0.0
-		if spellDefConfig, exists := config.GetSpellDefinition(string(spellID)); exists && spellDefConfig != nil {
-			disintegrateChance = spellDefConfig.DisintegrateChance
-		}
-		disintegrateChance = cs.game.partyDisintegrateChance(disintegrateChance)
-
-		// Luck-based spell crit doubles the normal and typed-true components
-		// together. Elemental GM converts only the regular mastery bonus.
-		parts := cs.spellDamageParts(spellID, caster, totalDamage)
-		var isCrit bool
-		parts, isCrit = cs.rollSpellCritParts(spellID, caster, parts)
-		projectile.Damage = parts.Normal
-
-		magicProjectile := MagicProjectile{
-			Launch:             launch,
-			ID:                 cs.game.GenerateProjectileID(string(spellID)),
-			Attacker:           caster,
-			X:                  projectile.X,
-			Y:                  projectile.Y,
-			VelX:               projectile.VelX,
-			VelY:               projectile.VelY,
-			Damage:             projectile.Damage,
-			TrueDamage:         parts.True,
-			LifeTime:           projectile.LifeTime,
-			Active:             projectile.Active,
-			SpellType:          string(spellID),
-			Size:               projectile.Size,
-			Crit:               isCrit,
-			DisintegrateChance: disintegrateChance,
-			Owner:              ProjectileOwnerPlayer,
-			AoeTiles:           spellDef.AoeRadiusTiles,
-		}
-		cs.game.magicProjectiles = append(cs.game.magicProjectiles, magicProjectile)
-
-		tileSize := cs.game.config.GetTileSize()
-		collisionSize := cs.game.config.ProjectileHitboxTiles(spellConfig) * tileSize
-		projectileEntity := collision.NewEntity(magicProjectile.ID, magicProjectile.X, magicProjectile.Y, collisionSize, collisionSize, collision.CollisionTypeProjectile, false)
-		cs.game.collisionSystem.RegisterEntity(projectileEntity)
 
 		if announce {
-			cs.game.AddCombatMessage(fmt.Sprintf("Casting %s!", spellDef.Name))
+			cs.game.AddCombatMessage(uitext.Text("combat.casting", spellDef.Name))
 		}
 		return castCommitted
 	}
@@ -201,28 +161,23 @@ func (cs *CombatSystem) applySpellEffect(spellID spells.SpellID, spellDef spells
 		// (heal total, duration, stat bonuses) is computed here, once.
 		result, err := castingSystem.ApplyUtilitySpell(spellID)
 		if err != nil {
-			cs.game.AddCombatMessage("Spell failed: " + err.Error())
+			cs.game.AddCombatMessage(uitext.Text("combat.spell_failed", err.Error()))
 			return castRejected
 		}
 		if !result.Success {
 			return castRejected
 		}
 
-		duration := 0
-		if spellDef.Duration > 0 {
-			duration = cs.CalculateSpellDurationFrames(spellID, caster)
-		}
+		duration := cs.CalculateSpellDurationFrames(spellID, caster)
 		timedBuffActivated := cs.activateUtilityTimedBuff(spellID, spellDef, result, duration) == timedBuffApplied
 
 		// Stat-buff spells (Bless, ...) announce the ACTUAL granted bonus -
 		// mastery-scaled and caster-dependent - so the chat can never drift from
 		// the number really applied (e.g. Bless is +5 base, +10 only at GM).
-		isStatBuff := spellDef.StatBonus > 0 || len(spellDef.StatBonuses) > 0
-		var statBuff character.StatBonuses
+		isStatBuff := spellDef.GrantsStatBuff()
 		msg, summary := result.Message, logStyled{"", keywordColors["buff"]}
 		if isStatBuff {
-			statBuff = cs.spellStatBuffBonuses(spellID, caster)
-			if suffix := statBuff.Summary(); suffix != "" {
+			if suffix := cs.grantSpellPartyBuff(spellID, spellDef, caster, duration, "").Summary(); suffix != "" {
 				msg, summary.text = strings.TrimSpace(result.Message), " ("+suffix+")"
 			}
 		}
@@ -235,13 +190,14 @@ func (cs *CombatSystem) applySpellEffect(spellID spells.SpellID, spellDef spells
 				// Mass Heal: restore every party member.
 				cs.healWholeParty(totalHeal)
 			} else {
-				// Mouse-targeted heals go via CastEquippedHealOnTarget. Cast without a
-				// pointer target, an ally heal takes the most wounded ally, else the caster.
-				target := -1
-				if !spellDef.TargetSelf {
+				// The quick bar and the book: handHealTarget, skipping a hero
+				// at 0 HP for the most wounded, else the caster; a self-only
+				// heal stays on the caster.
+				target := cs.handHealTarget(spellDef, cs.castHovered)
+				if target >= 0 && !cs.game.party.Members[target].IsLiving() {
 					target = cs.mostWoundedHealTarget(spellDef, 1)
 				}
-				if target < 0 {
+				if spellDef.TargetSelf || target < 0 {
 					target = cs.findCharacterIndex(caster)
 				}
 				cs.healMember(target, totalHeal)
@@ -252,18 +208,49 @@ func (cs *CombatSystem) applySpellEffect(spellID spells.SpellID, spellDef spells
 		// any spell authored with a bonus block applies it; different buff
 		// spells stack, recasting one refreshes it. Reuses the block already
 		// resolved for the announcement above (this cast only, not the aggregate).
-		if isStatBuff {
-			cs.applyStatBuffSpell(spellID, duration, statBuff)
-		}
-
-		if !timedBuffActivated {
-			cs.game.setUtilityStatus(spellID, duration)
+		if !isStatBuff && !timedBuffActivated {
+			cs.game.setBuffStatus(string(spellID), duration)
 		}
 		cs.playSpellBuffFx(spellID)
 		return castCommitted
 	}
 
 	return castRejected
+}
+
+// newSpellProjectile is the one spell-bolt constructor for every caster:
+// spells.yaml physics from (x, y) heading angle, the blast radius and the
+// disintegrate chance snapshotted. Callers add damage, owner and launch, then
+// launchSpellProjectile.
+func (cs *CombatSystem) newSpellProjectile(spellID spells.SpellID, idPrefix string, x, y, angle float64) (MagicProjectile, error) {
+	p, err := spells.NewCastingSystem(cs.game.config).CreateProjectile(spellID, x, y, angle)
+	if err != nil {
+		return MagicProjectile{}, err
+	}
+	def, err := spells.GetSpellDefinitionByID(spellID)
+	if err != nil {
+		return MagicProjectile{}, err
+	}
+	return MagicProjectile{
+		ID: cs.game.GenerateProjectileID(idPrefix + string(spellID)),
+		X:  p.X, Y: p.Y, VelX: p.VelX, VelY: p.VelY,
+		LifeTime: p.LifeTime, Active: p.Active, SpellType: string(spellID), Size: p.Size,
+		AoeTiles:           def.AoeRadiusTiles,
+		DisintegrateChance: def.DisintegrateChance,
+	}, nil
+}
+
+// launchSpellProjectile puts a built bolt in flight: listed, its hitbox
+// registered at the spell's authored size.
+func (cs *CombatSystem) launchSpellProjectile(mp MagicProjectile) error {
+	physics, err := cs.game.config.GetSpellConfig(mp.SpellType)
+	if err != nil {
+		return err
+	}
+	cs.game.magicProjectiles = append(cs.game.magicProjectiles, mp)
+	size := cs.game.config.ProjectileHitboxTiles(physics) * cs.game.config.GetTileSize()
+	cs.game.collisionSystem.RegisterEntity(collision.NewEntity(mp.ID, mp.X, mp.Y, size, size, collision.CollisionTypeProjectile, false))
+	return nil
 }
 
 // playSpellBuffFx plays the spell's buff overlay animation if it defines one
@@ -332,10 +319,10 @@ func (cs *CombatSystem) EquipSelectedSpell() {
 	// Use centralized spell item creation - no fallbacks, no hardcoded mappings
 	item, err := spells.CreateSpellItem(selectedSpellID)
 	if err != nil {
-		cs.game.AddCombatMessage("Failed to create spell item: " + err.Error())
+		cs.game.AddCombatMessage(uitext.Text("combat.failed_to_create_spell_item", err.Error()))
 		return
 	}
 
-	// Equip the spell item in the unified spell slot
-	currentChar.Equipment[items.SlotSpell] = item
+	// Ready the spell as the quick action
+	currentChar.Equipment[items.SlotQuickAction] = item
 }

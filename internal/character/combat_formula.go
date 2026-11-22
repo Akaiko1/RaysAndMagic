@@ -11,8 +11,7 @@ func EffectiveCombatStats(c *MMCharacter) stats.StatBonuses {
 	if c == nil {
 		return stats.StatBonuses{}
 	}
-	m, i, p, e, a, s, l := c.GetEffectiveStats()
-	return stats.StatBonuses{Might: m, Intellect: i, Personality: p, Endurance: e, Accuracy: a, Speed: s, Luck: l}
+	return c.EffectiveStatBlock()
 }
 
 func SpellMasteryTier(c *MMCharacter, def spells.SpellDefinition) int {
@@ -64,10 +63,14 @@ type WeaponBreakdown struct {
 	OrcishFury   int
 }
 
-// WeaponDamageAtNight changes only authored base damage; all additions retain
-// their normal order. Both gameplay and the live tooltip use this calculation.
+// WeaponDamageAtNight changes only base damage (authored plus item/card base
+// bonuses, which a night multiplier scales by design); all
+// additions retain their normal order. Gameplay and the live tooltip share it.
 func WeaponDamageAtNight(def *config.WeaponDefinitionConfig, c *MMCharacter, night bool) WeaponBreakdown {
 	f := WeaponDamageFormula(def)
+	if def != nil && c != nil {
+		f.Base += c.WeaponBaseDamageBonus()
+	}
 	if night && def != nil && def.NightBaseDamageMultiplier > 0 {
 		f.Base *= def.NightBaseDamageMultiplier
 	}
@@ -86,24 +89,9 @@ func WeaponDamageAtNight(def *config.WeaponDefinitionConfig, c *MMCharacter, nig
 	return out
 }
 
-// DurationBreakdown preserves authored seconds and the applied mastery bonus.
-type DurationBreakdown struct {
-	Base       int
-	MasteryPct int
-	Seconds    int
-}
-
-func SpellDurationBreakdown(def spells.SpellDefinition, c *MMCharacter) DurationBreakdown {
-	return SpellDurationAtTier(def, SpellMasteryTier(c, def))
-}
-
-func SpellDurationAtTier(def spells.SpellDefinition, tier int) DurationBreakdown {
-	if def.Duration <= 0 {
-		return DurationBreakdown{}
-	}
-	out := DurationBreakdown{Base: def.Duration, MasteryPct: tier * SpellMasteryDurationBonusPct}
-	out.Seconds = out.Base * (100 + out.MasteryPct) / 100
-	return out
+// SpellDurationSeconds resolves the caster's school mastery against authored seconds.
+func SpellDurationSeconds(def spells.SpellDefinition, c *MMCharacter) int {
+	return def.DurationSeconds(SpellMasteryTier(c, def))
 }
 
 // SpellFormulaTiers evaluates a spell formula for a statless caster at every

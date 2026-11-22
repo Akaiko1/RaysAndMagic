@@ -10,12 +10,12 @@ XXX........XXXXXXXXXX........XXX
 XXXXXX.XXYXXXXXXXXXXXXXXX.XYXXXX
 XXXXXX~XXXXXXXXXXXXXXXXXX.XXYXXX
 XXXXXX.XXXXXXXXXXXXXXX........XX
-XXX.......XXYXXXXXXXXY.ca.....YX
-XXX.ab....XX.......XXX....@...XX  >[npc:solstice_air_hub_vane]
-XXX....@..XX.bc....XXX........XX  >[npc:solstice_air_gallery_vane]
+XXX......@XXYXXXXXXXXY.ca.....YX  >[npc:solstice_air_gallery_vane]
+XXX.ab....XX.......XXX........XX
+XXX.......XX.bc....XXX........XX
 XXX........~.......~~~........XX
 XXX....ca.XX.......XXX.....bc.XX
-XXX.......XX....ab.XXX........XX
+XXX.......XX....ab.XXX.......@XX  >[npc:solstice_air_hub_vane]
 XXXXXX~XXYXX.......XXXXXXXXYXXXX
 XXXXXX.XXXXXXXXXXXXXXXXXXXXXXXXX
 XXYXXX.XXXXXXXXXXXXXXXXXXXXXXXXX

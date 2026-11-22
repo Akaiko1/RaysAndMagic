@@ -168,7 +168,7 @@ func TestLevelUpKeepsResourcesAcrossAwardsAndRosters(t *testing.T) {
 								t.Fatal(err)
 							}
 							g.questManager.MarkCompleted("test")
-							if !g.claimQuestReward("test") {
+							if !g.claimQuestReward("test", nil) {
 								t.Fatal("quest reward refused")
 							}
 						case "encounter":
@@ -323,7 +323,7 @@ func TestRebalancedEncounterRewardsSurviveSaveLoad(t *testing.T) {
 						t.Fatalf("encounter quest not reconstructed from content/progress: %+v", q)
 					}
 					if completed {
-						if g.claimQuestReward(tc.id) {
+						if g.claimQuestReward(tc.id, nil) {
 							t.Fatal("claimed quest can be claimed twice after load")
 						}
 						return

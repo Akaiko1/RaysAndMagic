@@ -11,6 +11,7 @@ import (
 	"ugataima/internal/config"
 	"ugataima/internal/monster"
 	"ugataima/internal/spells"
+	"ugataima/internal/status"
 	"ugataima/internal/world"
 )
 
@@ -22,19 +23,20 @@ type AdventureState struct {
 	Occupied string                     `json:"occupied,omitempty"`
 }
 type AdventureVisit struct {
-	VictoryAt   float64                      `json:"victory_at,omitempty"`
-	ArenaLocked bool                         `json:"arena_locked,omitempty"`
-	Loot        map[string]AdventureLoot     `json:"loot,omitempty"`
-	Opening     string                       `json:"opening"`
-	Element     string                       `json:"element"`
-	Level       int                          `json:"level"`
-	Generation  int                          `json:"generation"`
-	Controls    map[string]bool              `json:"controls,omitempty"`
-	Effects     map[string]*EnvironmentState `json:"effects,omitempty"`
-	BossGranted bool                         `json:"boss_granted,omitempty"`
-	BossActions int                          `json:"boss_actions,omitempty"`
-	BossHealed  int                          `json:"boss_healed,omitempty"`
-	HealCarry   float64                      `json:"heal_carry,omitempty"`
+	VictoryAt    float64                      `json:"victory_at,omitempty"`
+	ArenaLocked  bool                         `json:"arena_locked,omitempty"`
+	Loot         map[string]AdventureLoot     `json:"loot,omitempty"`
+	Opening      string                       `json:"opening"`
+	Element      string                       `json:"element"`
+	Level        int                          `json:"level"`
+	Generation   int                          `json:"generation"`
+	Controls     map[string]bool              `json:"controls,omitempty"`
+	Effects      map[string]*EnvironmentState `json:"effects,omitempty"`
+	BossGranted  bool                         `json:"boss_granted,omitempty"`
+	LanePatterns int                          `json:"lane_patterns,omitempty"` // patterns the boss has had its turn at, for the rotation
+	HealClock    status.DualClock             `json:"heal_clock,omitzero"`     // the round between boss heals
+	// LegacyHealCarry is an old save's seconds toward the next heal.
+	LegacyHealCarry float64 `json:"heal_carry,omitempty"`
 }
 
 // Old saves stored a deadline using the original policy. Convert it once at
@@ -69,13 +71,45 @@ type EnvironmentState struct {
 	DamageCarry       float64            `json:"damage_carry,omitempty"`
 	Activated         bool               `json:"activated,omitempty"`
 	Disarmed          bool               `json:"disarmed,omitempty"`
-	Carry             float64            `json:"carry,omitempty"`
-	Warning           float64            `json:"warning,omitempty"`
-	Remaining         float64            `json:"remaining,omitempty"`
-	Rearm             float64            `json:"rearm,omitempty"`
+	Carry             float64            `json:"carry,omitempty"` // seconds toward the next field pulse
+	Warning           status.DualClock   `json:"warning_clock,omitzero"`
+	Remaining         status.DualClock   `json:"remaining_clock,omitzero"` // a fired lane's field
+	Rearm             status.DualClock   `json:"rearm_clock,omitzero"`
 	WasInside         bool               `json:"was_inside,omitempty"`
 	Triggered         bool               `json:"triggered,omitempty"`
 	Suppressed        bool               `json:"suppressed,omitempty"`
+	// Legacy saves: the part of each span left.
+	LegacyWarning   float64 `json:"warning,omitempty"`
+	LegacyRemaining float64 `json:"remaining,omitempty"`
+	LegacyRearm     float64 `json:"rearm,omitempty"`
+}
+
+// migrateLegacy reads an old save's spans left into the clocks.
+func (v *AdventureVisit) migrateLegacy(a *config.AdventureConfig, tps int) {
+	if v.LegacyHealCarry > 0 {
+		left := max(0, float64(config.CombatRoundSeconds)-v.LegacyHealCarry)
+		v.HealClock = status.FromSeconds(left, tps)
+		v.LegacyHealCarry = 0
+	}
+	if a == nil {
+		return
+	}
+	for _, e := range a.Effects {
+		s := v.Effects[e.ID]
+		if s == nil {
+			continue
+		}
+		if s.LegacyWarning > 0 {
+			s.Warning = status.PairClock(e.WarningSeconds, e.WarningRounds, tps, s.LegacyWarning)
+		}
+		if s.LegacyRemaining > 0 {
+			s.Remaining = status.PairClock(float64(e.DurationSeconds), config.CombatRounds(e.DurationSeconds), tps, s.LegacyRemaining)
+		}
+		if s.LegacyRearm > 0 {
+			s.Rearm = status.PairClock(e.RearmSeconds, e.RearmRounds, tps, s.LegacyRearm)
+		}
+		s.LegacyWarning, s.LegacyRemaining, s.LegacyRearm = 0, 0, 0
+	}
 }
 
 func cloneAdventureState(s AdventureState) AdventureState {
@@ -125,10 +159,7 @@ func (g *MMGame) canPrepareSpell(id string) bool {
 		if c == nil || !c.CanUseCombatAction() || !c.KnowsSpell(def.ID) {
 			continue
 		}
-		cost := def.SpellPointsCost
-		if g.combat != nil {
-			cost = g.combat.effectiveSpellCost(c, cost)
-		}
+		cost := c.MeditatedSPCost(def.SpellPointsCost)
 		if c.SpellPoints >= cost {
 			return true
 		}
@@ -137,7 +168,7 @@ func (g *MMGame) canPrepareSpell(id string) bool {
 }
 func (g *MMGame) canPrepareAdventureTechnique(key string) bool {
 	d := config.Technique(key)
-	if d == nil || key != "fold_step" || g.party == nil || g.partyRooted() {
+	if d == nil || d.Kind != config.TechniqueFoldStep || g.party == nil || g.partyRooted() {
 		return false
 	}
 	for _, c := range g.party.Members {
@@ -157,8 +188,7 @@ func (g *MMGame) enterAdventureSchedule(source string) error {
 		return fmt.Errorf("Use the receiving threshold to enter.")
 	}
 	s := a.Schedule
-	q := g.questManager.GetQuest(s.RequiresQuest)
-	if q == nil || !q.RewardsClaimed {
+	if !g.questManager.Concluded(s.RequiresQuest) {
 		return fmt.Errorf("Restore the receiving anchor and report back first.")
 	}
 	if !g.canPrepareSpell(s.RequiresSpell) && !g.canPrepareAdventureTechnique(s.AlternativeTechnique) && !g.canPrepareJumpDevice(s.RequiresSpell) {
@@ -187,9 +217,9 @@ func (g *MMGame) enterAdventureSchedule(source string) error {
 		if v != nil {
 			generation = v.Generation + 1
 		}
-		next := &AdventureVisit{Opening: opening, Element: g.adventureConfig(dest).Element, Level: g.party.AverageLevel() + 5, Generation: generation}
+		next := &AdventureVisit{Opening: opening, Element: g.adventureConfig(dest).Element, Level: g.party.AverageLevel() + g.config.AdventureScaling.VisitLevelBonus, Generation: generation}
 		for _, m := range w.Monsters {
-			scaleAdventureMonster(m, next.Level)
+			scaleAdventureMonster(g.config.AdventureScaling, m, next.Level)
 		}
 		request.adventureWorld = w
 		request.adventureVisit = next
@@ -213,7 +243,7 @@ func (g *MMGame) adventureScheduleText(source string) string {
 		status = "cleared"
 	}
 	if o.next != "" {
-		seconds := int(math.Ceil((o.nextAt - now) * float64(g.dayNightCycleFrames()) / float64(max(1, g.config.GetTPS()))))
+		seconds := int(math.Ceil((o.nextAt - now) * float64(g.dayNightCycleFrames()) / float64(g.config.GetTPS())))
 		hours := math.Ceil((o.nextAt-now)*24*10) / 10
 		return fmt.Sprintf("Now: %s (%s). Next available: %s in %d:%02d (%.1f game hours). Each chamber resets %d game days after victory.", name(o.current), status, name(o.next), seconds/60, seconds%60, hours, g.adventureConfig(o.next).ResetDays)
 	}
@@ -302,17 +332,56 @@ func (g *MMGame) commitAdventureVisit(key string, v *AdventureVisit) {
 	g.harvestRuntime = harvestRuntime{}
 	g.terrainChanges = slices.DeleteFunc(g.terrainChanges, func(c TerrainChange) bool { return c.Map == key })
 }
-func regularMonsterHP(level int) float64 {
-	return math.Exp(4.181 + .1255*float64(min(level, 25)) + .04*float64(max(0, level-25)))
+
+// AdventureMonsterStats is a monster's combat numbers at an adventure level.
+type AdventureMonsterStats struct {
+	HP, DamageMin, DamageMax, ArmorClass, Experience int
 }
 
-// Preserve the established early curve, then add a fixed HP budget per level.
-func bossMonsterHP(level int) float64 {
-	return math.Exp(5.333+.101*float64(min(level, 35))) + 500*float64(max(0, level-35))
+// AdventureCurve is what a monster authored on its side's curve has at level:
+// HP, average hit and experience.
+func AdventureCurve(s config.AdventureScalingConfig, boss bool, level int) (hp, hit, xp int) {
+	c := s.Side(boss)
+	return int(math.Round(c.HP.At(level))), int(math.Round(c.Hit.At(level))), adventureExperience(s, boss, level)
+}
+
+// adventureExperience is a percent of the next level's cost for a hero of the
+// party's level, the visit level less its bonus.
+func adventureExperience(s config.AdventureScalingConfig, boss bool, level int) int {
+	return xpStepCost(max(1, level-s.VisitLevelBonus)) * s.Side(boss).ExperienceLevelPercent / 100
+}
+
+// AdventureScaledStats is an authored monster moved to an adventure level by
+// its side's curve ratio; the chambers and the editor preview share it.
+func AdventureScaledStats(s config.AdventureScalingConfig, d monster.MonsterDefinition, boss bool, level int) AdventureMonsterStats {
+	if d.Level < 1 || level < 1 { // no level to scale from: the game leaves it as authored
+		return AdventureMonsterStats{HP: d.MaxHitPoints, DamageMin: d.DamageMin, DamageMax: d.DamageMax, ArmorClass: d.ArmorClass, Experience: d.Experience}
+	}
+	hp := s.Side(boss).HP
+	lo, hi := adventureDamageRange(s, d, boss, level)
+	return AdventureMonsterStats{
+		HP:         max(1, int(math.Round(float64(d.MaxHitPoints)*hp.At(level)/hp.At(d.Level)))),
+		DamageMin:  lo,
+		DamageMax:  hi,
+		ArmorClass: adventureArmorClass(s, d, level),
+		Experience: adventureExperience(s, boss, level),
+	}
+}
+
+// adventureDamageRange is the authored attack moved to an adventure level by
+// its side's hit curve; abilities authored as a percent of the attack follow.
+func adventureDamageRange(s config.AdventureScalingConfig, d monster.MonsterDefinition, boss bool, level int) (int, int) {
+	hit := s.Side(boss).Hit
+	return monster.ScaleDamageBand(d.DamageMin, d.DamageMax, hit.At(level)/hit.At(d.Level))
+}
+
+// adventureArmorClass is the authored armor scaled to an adventure level.
+func adventureArmorClass(s config.AdventureScalingConfig, d monster.MonsterDefinition, level int) int {
+	return max(0, int(math.Round(float64(d.ArmorClass)*math.Pow(float64(level)/float64(d.Level), s.ArmorExponent))))
 }
 
 // Scale from the authored archetype, never from already-scaled runtime values.
-func scaleAdventureMonster(m *monster.Monster3D, level int) {
+func scaleAdventureMonster(s config.AdventureScalingConfig, m *monster.Monster3D, level int) {
 	if m == nil || level < 1 || monster.MonsterConfig == nil {
 		return
 	}
@@ -320,40 +389,23 @@ func scaleAdventureMonster(m *monster.Monster3D, level int) {
 	if !ok || d.Level < 1 {
 		return
 	}
-	ratio := regularMonsterHP(level) / regularMonsterHP(d.Level)
-	if m.IsBoss() {
-		ratio = bossMonsterHP(level) / bossMonsterHP(d.Level)
-	}
+	stats := AdventureScaledStats(s, d, m.IsBoss(), level)
 	m.AdventureScaleLevel = level
 	m.Level = level
-	m.MaxHitPoints = max(1, int(math.Round(float64(d.MaxHitPoints)*ratio)))
+	m.MaxHitPoints = stats.HP
 	m.HitPoints = m.MaxHitPoints
-	damageRatio := math.Exp(.057 * float64(level-d.Level))
-	m.DamageMin = max(1, int(math.Round(float64(d.DamageMin)*damageRatio)))
-	m.DamageMax = max(m.DamageMin, int(math.Round(float64(d.DamageMax)*damageRatio)))
-	m.ArmorClass = max(0, int(math.Round(float64(d.ArmorClass)*math.Sqrt(float64(level)/float64(d.Level)))))
-	xp := 4 * max(100*level, 8*level*level) / 15
-	if m.IsBoss() {
-		xp *= 3
-	} else {
-		xp = xp * 3 / 2
-	}
-	m.Experience = xp
-	if d.EnrageAtHP > 0 {
-		m.EnrageAtHP = max(1, int(math.Round(float64(m.MaxHitPoints)*float64(d.EnrageAtHP)/float64(d.MaxHitPoints))))
+	m.DamageMin, m.DamageMax = stats.DamageMin, stats.DamageMax
+	m.ArmorClass = stats.ArmorClass
+	m.Experience = stats.Experience
+	if d.Abilities.Enrage.AtHP > 0 {
+		m.Abilities.Enrage.AtHP = max(1, int(math.Round(float64(m.MaxHitPoints)*float64(d.Abilities.Enrage.AtHP)/float64(d.MaxHitPoints))))
 	}
 }
 func (g *MMGame) restoreAdventureMonster(m *monster.Monster3D, level int) {
-	scaleAdventureMonster(m, level)
+	scaleAdventureMonster(g.config.AdventureScaling, m, level)
 	if m != nil {
 		if v := g.adventure.Visits[m.HomeMap]; v != nil {
-			if a := g.adventureConfig(m.HomeMap); a != nil && a.Boss != nil && a.Boss.Monster == m.Key {
-				for _, c := range a.Controls {
-					if v.Controls[c.ID] {
-						m.ArmorClass = max(a.Boss.ArmorFloor, m.ArmorClass-c.ArmorReduction)
-					}
-				}
-			}
+			g.applyAdventureBossArmor(m, g.adventureConfig(m.HomeMap), v)
 		}
 	}
 }

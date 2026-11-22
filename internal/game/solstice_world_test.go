@@ -35,7 +35,7 @@ func TestSolsticeWorldConnections(t *testing.T) {
 				}
 				for _, choice := range npc.DialogueData.Choices {
 					if choice.Action == "enter_map" {
-						dialogActions[choice.Action](&InputHandler{game: g}, npc, choice)
+						dialogActions[choice.Action].run(&InputHandler{game: g}, npc, choice)
 						if wm.CurrentMapKey != destination {
 							t.Fatalf("%s arrived in %s, want %s", key, wm.CurrentMapKey, destination)
 						}

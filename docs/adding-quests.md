@@ -55,6 +55,12 @@ For an authored interaction prop instead, pair its `action: prop` choice with a
 Use a shipped valve or lamp as the complete prop example. `target_map` is not
 supported for `interact` quests; the event/prop establishes the objective.
 
+A delivery prop on the quest's own giver (Tovan's commissions) is the
+quest's turn-in, with or without an activity token: its row shows only while
+the quest is active, and the delivery that completes it pays the reward on
+the spot (if the payout is refused, the journal still pays it). Such a giver
+must not also author a `turn_in_quest` row for that quest; the load rejects it.
+
 ## Connect an NPC
 
 Install this entry together with the quest above, then place it using

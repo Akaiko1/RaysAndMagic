@@ -49,6 +49,10 @@ func LoadDirectory(path string) error {
 	return nil
 }
 
+// Slot marks where a rendered line takes a styled part: pass it for each
+// styled %s, and the renderer fills the slots with the parts in order.
+const Slot = "\x00"
+
 // Text formats a known template. Wording is never used as a content key.
 func Text(key string, args ...any) string {
 	spec, known := contract[key]

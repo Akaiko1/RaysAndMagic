@@ -1,22 +1,19 @@
 package config
 
 import (
-	"bytes"
 	"fmt"
 	"os"
 	"sort"
-
-	"gopkg.in/yaml.v3"
+	"ugataima/internal/strictyaml"
 )
 
 // Ecology is campaign content. Runtime populations and deliveries live in saves.
 var GlobalEcology *EcologyConfig
 
 type EcologyConfig struct {
-	Fish          *FishSpawnConfig     `yaml:"fish,omitempty"`
-	TurnStepSpeed float64              `yaml:"turn_step_speed"`
-	Populations   []WildlifePopulation `yaml:"populations"`
-	Caravan       CaravanConfig        `yaml:"caravan"`
+	Fish        *FishSpawnConfig     `yaml:"fish,omitempty"`
+	Populations []WildlifePopulation `yaml:"populations"`
+	Caravan     CaravanConfig        `yaml:"caravan"`
 }
 type WildlifePopulation struct {
 	Key      string   `yaml:"key,omitempty"`
@@ -87,9 +84,6 @@ func (c *EcologyConfig) Validate() error {
 			return err
 		}
 	}
-	if c.TurnStepSpeed <= 0 {
-		return fmt.Errorf("turn_step_speed must be positive")
-	}
 	seen := map[string]bool{}
 	for _, p := range c.Populations {
 		k := p.Identity()
@@ -135,8 +129,10 @@ func CaravanTradePool() []string {
 		return nil
 	}
 	found := map[string]bool{}
-	add := func(entries []LootEntry) {
+	var add func(entries []LootEntry)
+	add = func(entries []LootEntry) {
 		for _, e := range entries {
+			add(e.Of)
 			if e.Type != "item" || e.Chance <= 0 {
 				continue
 			}
@@ -159,7 +155,5 @@ func CaravanTradePool() []string {
 }
 
 func decodeEcology(data []byte, c *EcologyConfig) error {
-	d := yaml.NewDecoder(bytes.NewReader(data))
-	d.KnownFields(true)
-	return d.Decode(c)
+	return strictyaml.Decode(data, c)
 }

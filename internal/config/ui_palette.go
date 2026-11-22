@@ -41,6 +41,23 @@ func SchoolRGBA(school string) color.RGBA {
 	return color.RGBA{255, 255, 255, 255}
 }
 
+// SchoolTextRGBA is a school's tint for text: its palette color, lifted where
+// that reads under 4.5:1 on the card plate (30,30,60).
+func SchoolTextRGBA(school string) color.RGBA {
+	if s, err := damage.ParseType(school); err == nil {
+		if c, ok := schoolTextPalette[s]; ok {
+			return c
+		}
+	}
+	return SchoolRGBA(school)
+}
+
+// schoolTextPalette lifts the school colors too dark for text (Dark is 3.37:1)
+// while keeping them apart from their neighbours (Dark from Mind).
+var schoolTextPalette = map[damage.Type]color.RGBA{
+	damage.Dark: {175, 100, 250, 255},
+}
+
 var schoolPalette = map[damage.Type]color.RGBA{
 	damage.Physical: {200, 200, 200, 255},
 	damage.Fire:     {255, 110, 60, 255},

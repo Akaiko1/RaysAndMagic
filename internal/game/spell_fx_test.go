@@ -52,7 +52,7 @@ func TestFireboltParticleSize_ShrinksWithDistance(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 
 	// Firebolt's actual per-particle base size (damage/radius-derived).
-	cs.game.CreateSpellHitEffectFromSpell(0, 0, "firebolt", nil)
+	cs.game.CreateSpellHitEffectFromSpell(0, 0, "firebolt", monsterVisualAnchor{})
 	if len(cs.game.spellHitEffects) == 0 || len(cs.game.spellHitEffects[0].Particles) == 0 {
 		t.Fatal("firebolt produced no hit particles")
 	}
@@ -164,7 +164,7 @@ func TestCreateSpellHitEffect_ImpactLightAndShake(t *testing.T) {
 	}
 
 	g.screenShake = 0
-	g.CreateSpellHitEffectFromSpell(100, 200, "fireball", nil)
+	g.CreateSpellHitEffectFromSpell(100, 200, "fireball", monsterVisualAnchor{})
 	if g.screenShake <= 0 {
 		t.Errorf("a fireball impact should set screen shake, got %v", g.screenShake)
 	}

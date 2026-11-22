@@ -7,6 +7,7 @@ import (
 
 	"ugataima/internal/character"
 	"ugataima/internal/collision"
+	"ugataima/internal/config"
 	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/spells"
 	"ugataima/internal/threading/entities"
@@ -58,10 +59,8 @@ func TestSpellBlastBurstsWhereverTheShotEnds(t *testing.T) {
 				case "hit", "dodge", "sealed":
 					g.combat.CheckProjectileMonsterCollisions()
 				default:
-					updater := entities.NewEntityUpdaterWithWorkers(1)
-					defer updater.Stop()
 					open := end == "range"
-					updater.UpdateProjectilesParallel(g.ConvertProjectilesToWrappers(), func(float64, float64) bool { return open })
+					entities.UpdateProjectiles(g.ConvertProjectilesToWrappers(), func(float64, float64) bool { return open })
 				}
 				blast := def.AoeRadiusTiles > 0
 				if got := near.HitPoints < 1000; got != blast {
@@ -156,25 +155,38 @@ func containsSlot(fallen []fallenMember, slot int) bool {
 	return false
 }
 
-// A heal cast from the spellbook has no pointer target: Heal Other lands on the
-// most wounded ally that can be healed (the caster when nobody is hurt), while
-// First Aid stays on the caster. The quick-slot F path keeps its pointer-else-
-// selected-hero rule (Control Tips).
+// A heal cast by hand (F, C, the book) lands on the hero under the pointer;
+// unpointed, on the most wounded ally that can be healed. With nobody for the
+// heal to mend, F and C cast nothing and spend nothing (want -1); First Aid
+// stays on the caster (Control Tips). C's handoff to another healer:
+// TestHealHandoffHealsTheHandHealTarget.
 func TestBookHealTargets(t *testing.T) {
 	for _, tc := range []struct {
 		name, spell string
 		hp          [4]int // percent of max; 0 = knocked out
-		pointer     int    // F path only: card under the pointer (-1 none)
-		entry       string // "book" or "f"
-		want        int
+		pointer     int    // card under the pointer (-1 none)
+		entry       string // "book", "f", "c" or "space"
+		want        int    // the one member healed; -1: F/C refuse and keep the SP
 	}{
 		{"heal_other/book/most wounded ally", "heal_other", [4]int{80, 30, 100, 60}, -1, "book", 1},
 		{"heal_other/book/skips 0 HP", "heal_other", [4]int{100, 0, 100, 50}, -1, "book", 3},
 		{"heal_other/book/only the caster hurt", "heal_other", [4]int{40, 100, 100, 100}, -1, "book", 0},
-		{"heal_other/f/no pointer heals the selected hero", "heal_other", [4]int{80, 30, 100, 100}, -1, "f", 0},
+		{"heal_other/f/no pointer heals the most wounded", "heal_other", [4]int{80, 30, 100, 100}, -1, "f", 1},
+		{"heal_other/f/no pointer skips 0 HP", "heal_other", [4]int{100, 0, 100, 50}, -1, "f", 3},
 		{"heal_other/f/pointer wins", "heal_other", [4]int{80, 30, 90, 100}, 2, "f", 2},
+		{"heal_other/c/no pointer heals the most wounded", "heal_other", [4]int{80, 30, 100, 100}, -1, "c", 1},
+		{"heal_other/c/only the caster hurt", "heal_other", [4]int{40, 100, 100, 100}, -1, "c", 0},
+		{"heal_other/c/pointer wins", "heal_other", [4]int{80, 30, 90, 100}, 2, "c", 2},
+		{"heal_other/f/nobody hurt casts nothing", "heal_other", [4]int{100, 100, 100, 100}, -1, "f", -1},
+		{"heal_other/c/nobody hurt casts nothing", "heal_other", [4]int{100, 100, 100, 100}, -1, "c", -1},
+		{"mass_heal/c/one hurt", "mass_heal", [4]int{100, 50, 100, 100}, -1, "c", 1},
+		{"mass_heal/c/nobody hurt casts nothing", "mass_heal", [4]int{100, 100, 100, 100}, -1, "c", -1},
+		{"heal_other/book/pointer wins", "heal_other", [4]int{80, 30, 90, 100}, 2, "book", 2},
+		{"heal_other/book/pointer on a knocked-out card heals the most wounded", "heal_other", [4]int{80, 0, 50, 100}, 1, "book", 2},
+		{"heal_other/space/pointer ignored", "heal_other", [4]int{80, 30, 90, 100}, 2, "space", 1},
 		{"heal/book/self only", "heal", [4]int{80, 30, 100, 100}, -1, "book", 0},
 		{"heal/f/self only", "heal", [4]int{80, 30, 100, 100}, 1, "f", 0},
+		{"heal/f/self only at full HP casts nothing", "heal", [4]int{100, 30, 100, 100}, -1, "f", -1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cs := newTestCombatSystemWithConfig(t)
@@ -192,22 +204,39 @@ func TestBookHealTargets(t *testing.T) {
 				before[i] = m.HitPoints
 			}
 			def, _ := spells.GetSpellDefinitionByID(spells.SpellID(tc.spell))
+			prev := rawCursorPosition
+			defer func() { rawCursorPosition = prev }()
+			x, y := -1, -1
+			if tc.pointer >= 0 {
+				w, h, left, top := partyPortraitLayout(g)
+				x, y = left+tc.pointer*w+w/2, top+h/2
+			}
+			rawCursorPosition = func() (int, int) { return x, y }
+			sp := g.party.Members[0].SpellPoints
+			handCast := func(key string, cast bool) {
+				if cast != (tc.want >= 0) {
+					t.Fatalf("%s cast=%v, want %v", key, cast, tc.want >= 0)
+				}
+				if tc.want < 0 && g.party.Members[0].SpellPoints != sp {
+					t.Fatalf("%s refused but spent SP: %d -> %d", key, sp, g.party.Members[0].SpellPoints)
+				}
+			}
 			switch tc.entry {
 			case "book":
 				if !cs.castPlayerSpell(def.ID, def, g.party.Members[0], true) {
 					t.Fatal("book cast refused")
 				}
 			case "f":
-				prev := rawCursorPosition
-				defer func() { rawCursorPosition = prev }()
-				x, y := -1, -1
-				if tc.pointer >= 0 {
-					w, h, left, top := partyPortraitLayout(g)
-					x, y = left+tc.pointer*w+w/2, top+h/2
-				}
-				rawCursorPosition = func() (int, int) { return x, y }
-				if fired, _ := NewInputHandler(g).castSlottedSpellResolved(g.party.Members[0]); !fired {
-					t.Fatal("F cast refused")
+				fired, _ := NewInputHandler(g).useSlottedActionResolved(g.party.Members[0])
+				handCast("F", fired)
+			case "c":
+				g.party.Members[0].LearnSpell(def.ID)
+				cast, _ := cs.CastBestHeal()
+				handCast("C", cast)
+			case "space":
+				g.party.Members[0].LearnSpell(def.ID)
+				if cs.SmartAttack().Spell == "" {
+					t.Fatal("Space did not heal")
 				}
 			}
 			for i, m := range g.party.Members {
@@ -238,7 +267,7 @@ func TestTownPortalChargesOnConfirm(t *testing.T) {
 					ih := NewInputHandler(g)
 					switch entry {
 					case "quick":
-						ih.castSlottedSpell(caster)
+						ih.useSlottedAction(caster)
 					case "book":
 						g.menuOpen, g.currentTab = true, TabSpellbook
 						schools := spellbookSchoolsWithSpells(caster)
@@ -263,7 +292,7 @@ func TestTownPortalChargesOnConfirm(t *testing.T) {
 						return
 					}
 					g.confirmTownPortal("other")
-					if caster.SpellPoints != 100-g.combat.effectiveSpellCost(caster, def.SpellPointsCost) {
+					if caster.SpellPoints != 100-caster.MeditatedSPCost(def.SpellPointsCost) {
 						t.Fatalf("confirm paid %d SP", 100-caster.SpellPoints)
 					}
 					if tb && caster.ActionsRemaining != 0 {
@@ -316,7 +345,7 @@ func TestWaterBreathingRecastKeepsTheSurfacePoint(t *testing.T) {
 			if g.underwaterReturnMap != "forest" || g.underwaterReturnX != surfaceX || g.underwaterReturnY != surfaceY {
 				t.Fatalf("recast moved the surface point to %s (%v,%v)", g.underwaterReturnMap, g.underwaterReturnX, g.underwaterReturnY)
 			}
-			g.advanceUtilityBuffs(g.waterBreathingDuration + 1)
+			spendFrames(g.waterBreathingClock.Frames+1, g.advanceUtilityBuffs)
 			if wm.CurrentMapKey != "forest" || g.camera.X != surfaceX || g.camera.Y != surfaceY {
 				t.Fatalf("spell ended on %s at (%v,%v), want forest (%v,%v)", wm.CurrentMapKey, g.camera.X, g.camera.Y, surfaceX, surfaceY)
 			}
@@ -343,7 +372,7 @@ func TestZoneTicksMeetArmorLikeProjectiles(t *testing.T) {
 				z := &PersistentDamageZone{SpellID: spell, FieldID: 1, X: 5 * ts, Y: 5 * ts, Radius: 2 * ts, FramesLeft: 60, TickDamage: 100}
 				g.combat.damageZoneMonsters(spell, []*PersistentDamageZone{z}, []*PersistentDamageZone{z})
 				bolt := &MagicProjectile{ID: "bolt", Active: true, LifeTime: 60, Damage: 100, SpellType: spell, Attacker: g.party.Members[0]}
-				g.combat.applyProjectileDamage(bolt, "magic_projectile", shot, bolt.ID)
+				g.combat.applyProjectileDamage(bolt, shot, bolt.ID)
 				if got := 10000 - bare.HitPoints; got != 100 {
 					t.Fatalf("unarmored tick %d, want 100", got)
 				}
@@ -364,7 +393,7 @@ func TestCooldownShowsQuickeningOnlyWhileActive(t *testing.T) {
 			cs := newTestCombatSystemWithConfig(t)
 			char := cs.game.party.Members[0]
 			if active {
-				cs.game.addCombatBuff(TimedCombatBuff{SpellID: "quickening", Frames: 600, RecoveryPct: 20})
+				cs.game.addCombatBuff(TimedCombatBuff{ID: config.TechniqueID("quickening"), Clock: framesClock(600), RecoveryPct: 20})
 			}
 			card := GetSpellTooltipRows("fireball", char, cs, true).String()
 			if got := strings.Contains(card, "Quickening: -20% recovery"); got != active {
@@ -374,5 +403,63 @@ func TestCooldownShowsQuickeningOnlyWhileActive(t *testing.T) {
 				t.Fatalf("an unclamped cooldown shows the limit stage:\n%s", card)
 			}
 		})
+	}
+}
+
+// One heal rule: a living member (HP above 0) is healed and wakes, by spell
+// or potion alike; 0 HP is never healed, only revived. A revive raises HP
+// and never lowers it.
+func TestHealAndReviveAgree(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		hp          int
+		unconscious bool
+		wantHealed  bool
+	}{
+		{"wounded", 20, false, true},
+		{"stray unconscious above 0", 20, true, true},
+		{"knocked out at 0", 0, true, false},
+	} {
+		for _, via := range []string{"spell", "potion"} {
+			t.Run(tc.name+"/"+via, func(t *testing.T) {
+				cs := newTestCombatSystemWithConfig(t)
+				g := cs.game
+				m := g.party.Members[1]
+				m.MaxHitPoints, m.HitPoints = 100, tc.hp
+				if tc.unconscious {
+					m.AddCondition(character.ConditionUnconscious)
+				}
+				switch via {
+				case "spell":
+					cs.healWholeParty(10)
+				case "potion":
+					g.applyFlatHeal(1, 10, 1000)
+				}
+				healed := m.HitPoints > tc.hp
+				if healed != tc.wantHealed {
+					t.Fatalf("healed=%v (HP %d), want %v", healed, m.HitPoints, tc.wantHealed)
+				}
+				if healed && m.HasCondition(character.ConditionUnconscious) {
+					t.Fatal("a healed member stayed unconscious")
+				}
+			})
+		}
+	}
+
+	def, err := spells.GetSpellDefinitionByID("raise_dead")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cs := newTestCombatSystemWithConfig(t)
+	m := cs.game.party.Members[1]
+	m.MaxHitPoints = 100
+	m.HitPoints = max(2, def.ReviveHpPct+10) // above the raise threshold
+	m.AddCondition(character.ConditionUnconscious)
+	before := m.HitPoints
+	caster := cs.game.party.Members[0]
+	caster.SpellPoints = 100
+	cs.castSpell(spellCastRequest{ID: def.ID, Definition: def, Caster: caster, Cost: def.SpellPointsCost})
+	if m.HitPoints < before || m.HasCondition(character.ConditionUnconscious) {
+		t.Fatalf("Raise Dead left HP %d (was %d), unconscious=%v", m.HitPoints, before, m.HasCondition(character.ConditionUnconscious))
 	}
 }

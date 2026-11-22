@@ -60,9 +60,9 @@ func TestScatterReservesMembersThatStayInPlace(t *testing.T) {
 						}
 						switch hold {
 						case "root":
-							g.combat.applyMonsterRoot(pinned, 3, 3*g.config.GetTPS())
+							g.combat.applyMonsterRoot(pinned, 3)
 						case "stun":
-							g.combat.applyStunDR(pinned, 3, 3*g.config.GetTPS(), false)
+							g.combat.applyStunDR(pinned, 3, false)
 						case "stationary":
 							pinned.Speed = 0
 						case "slow":
@@ -170,7 +170,7 @@ func TestScatterWithoutFreeTileKeepsPinnedMemberInPlace(t *testing.T) {
 					pinned, mobile = a, b
 				}
 				x, y := pinned.X, pinned.Y
-				g.combat.applyMonsterRoot(pinned, 3, 3*g.config.GetTPS())
+				g.combat.applyMonsterRoot(pinned, 3)
 				for _, d := range bandScatterRing[1:] {
 					g.world.Tiles[10+d[1]][10+d[0]] = world.TileWall
 				}

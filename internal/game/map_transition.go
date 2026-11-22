@@ -19,6 +19,10 @@ const (
 	mapArrivalUnderwater
 )
 
+// underwaterMapKey is the depths map. Dives and beacon recalls record a
+// surfacing point; Water Breathing lapsing there surfaces the party.
+const underwaterMapKey = "water"
+
 type mapTransition struct {
 	arrivalTile    *[2]int
 	adventureWorld *world.World3D
@@ -48,6 +52,34 @@ func (g *MMGame) arrivalTileError(mapKey string, tile [2]int) error {
 	return nil
 }
 
+// validateNPCArrivalTiles fails the boot on an authored arrival_tile the
+// travel would refuse at the moment of use (arrivalTileError). It needs every
+// map loaded, as the boot does.
+func (g *MMGame) validateNPCArrivalTiles() error {
+	wm := world.GlobalWorldManager
+	if character.NPCConfigInstance == nil || wm == nil {
+		return nil
+	}
+	for _, key := range sortedMapKeys(character.NPCConfigInstance.NPCs) {
+		data := character.NPCConfigInstance.NPCs[key]
+		if data == nil || data.Dialogue == nil {
+			continue
+		}
+		if err := data.Dialogue.WalkChoices(func(c *character.NPCDialogueChoice) error {
+			if c.ArrivalTile == nil {
+				return nil
+			}
+			if err := g.arrivalTileError(c.Map, *c.ArrivalTile); err != nil {
+				return fmt.Errorf("NPC %q row %q arrival_tile %v on %q: %w", key, c.Text, *c.ArrivalTile, c.Map, err)
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // transitionToMap owns one complete travel operation. No arrival, quest entry
 // spawn or autosave runs unless the destination world was selected successfully.
 func (g *MMGame) transitionToMap(request mapTransition) error {
@@ -60,6 +92,9 @@ func (g *MMGame) transitionToMap(request mapTransition) error {
 	}
 	if g.worldByKey(request.mapKey) == nil {
 		return fmt.Errorf("destination map is not loaded: %s", request.mapKey)
+	}
+	if request.mapKey == underwaterMapKey && !g.waterBreathingActive {
+		return fmt.Errorf("%s", uitext.Text("advanced.beacon_requires_water_breathing"))
 	}
 	if request.arrivalTile != nil {
 		if err := g.arrivalTileError(request.mapKey, *request.arrivalTile); err != nil {
@@ -93,11 +128,12 @@ func (g *MMGame) transitionToMap(request mapTransition) error {
 	if a := g.adventureConfig(request.mapKey); a != nil && a.OpeningOwned {
 		g.adventure.Occupied = request.mapKey
 	}
-	pose := request.pose
-	switch request.arrival {
-	case mapArrivalUnderwater:
+	if request.mapKey == underwaterMapKey && originKey != underwaterMapKey {
 		g.underwaterReturnX, g.underwaterReturnY = origin.X, origin.Y
 		g.underwaterReturnMap = originKey
+	}
+	pose := request.pose
+	switch request.arrival {
 	case mapArrivalEntrance:
 		if g.mapReturnPoses == nil {
 			g.mapReturnPoses = make(map[string]MapPose)
@@ -158,6 +194,7 @@ func (g *MMGame) switchToMap(targetMapKey string) error {
 
 	// Update world reference and collision system
 	g.world = g.GetCurrentWorld()
+	g.syncFrozenWaterCollision()
 
 	g.registerVisitedTownPortalDestination() // Town Portal learns this map's destination
 	g.dropFlyWithoutOpenSky()                // wings fade indoors (dungeons have no sky)
@@ -187,6 +224,7 @@ func (g *MMGame) switchToMap(targetMapKey string) error {
 		// Register new world monsters
 		g.world.RegisterMonstersWithCollisionSystem(g.collisionSystem)
 		g.registerMapStaticCollision()
+		g.settleStrandedMonsters() // ice may have thawed here while the party was away
 	}
 
 	// Update visual systems
@@ -229,6 +267,9 @@ func (g *MMGame) finishMapArrival(x, y, angle float64) {
 		g.snapToCardinalDirection()
 	}
 	g.applyEnvironmentArrival()
+	if wm := world.GlobalWorldManager; wm != nil {
+		g.fireStoryTrigger(storyOnRegionEntered, wm.CurrentMapKey, false)
+	}
 	g.Autosave()
 }
 
@@ -264,10 +305,8 @@ func (g *MMGame) relocateTravelAllies() {
 		if !ok {
 			x, y = g.camera.X, g.camera.Y
 		} // controlled allies may share the party's tile
-		m.X, m.Y = x, y
-		m.ResetPathfinding()
+		g.placeMonster(m, x, y)
 		m.AIFoe = nil
 		m.IsEngagingPlayer = false
-		g.collisionSystem.UpdateEntity(m.ID, x, y)
 	}
 }

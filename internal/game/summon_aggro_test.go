@@ -2,7 +2,6 @@ package game
 
 import (
 	"fmt"
-	"sort"
 	"testing"
 
 	damagecalc "ugataima/internal/damage"
@@ -150,7 +149,7 @@ func TestBoundCrossfireCannotHitExcludedActors(t *testing.T) {
 			if got := game.combat.nearestEnemyMonster(source, 10*tileSize); got != target {
 				t.Fatalf("bound ally selected %v, want nearest damageable target %s beyond passive mob", got, target.Name)
 			}
-			if !game.combat.spawnMonsterRangedAttackAtMonster(source, target, ProjectileOwnerBoundUndead) {
+			if !game.combat.spawnMonsterRangedAttackAtMonster(source, target, ProjectileOwnerPartyAlly) {
 				t.Fatal("bound bandit did not spawn a crossfire projectile")
 			}
 			bolt := &game.arrows[len(game.arrows)-1]
@@ -166,7 +165,7 @@ func TestBoundCrossfireCannotHitExcludedActors(t *testing.T) {
 			}
 
 			packet := singleMonsterDamagePacket(damagecalc.Parts{Normal: 50}, monsterPkg.DamagePhysical.String(), 0)
-			game.combat.applyCrossfireAoeSplash(target, source, ProjectileOwnerBoundUndead, packet, nil, false, 4)
+			game.combat.applyCrossfireAoeSplash(target, source, ProjectileOwnerPartyAlly, packet, nil, 4)
 			if passive.HitPoints != passive.MaxHitPoints || passive.WasAttacked != wasAttacked {
 				t.Fatal("bound AoE collaterally hit and provoked an ignored passive monster")
 			}
@@ -274,8 +273,7 @@ func activeBossKeys(t *testing.T) []string {
 	t.Helper()
 	monsterPkg.MustLoadMonsterConfig("../../assets/monsters.yaml")
 	probe, _, _ := tbBehaviorGame(t, 5, 5)
-	keys := monsterPkg.MonsterConfig.GetAllMonsterKeys()
-	sort.Strings(keys)
+	keys := catalogMonsterKeys()
 	bossKeys := make([]string, 0, len(keys))
 	for _, key := range keys {
 		if monsterPkg.NewMonster3DFromConfig(0, 0, key, probe.config).IsBoss() {
@@ -327,7 +325,7 @@ func TestCrossfireProjectileHitsSummonOutsidePartyView(t *testing.T) {
 	game.world.Monsters = []*monsterPkg.Monster3D{attacker, summon}
 	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
 
-	if !game.combat.spawnMonsterRangedAttackAtMonster(attacker, summon, ProjectileOwnerMonsterAtBound) {
+	if !game.combat.spawnMonsterRangedAttackAtMonster(attacker, summon, ProjectileOwnerMonsterAtActor) {
 		t.Fatal("bandit did not spawn its crossfire projectile")
 	}
 	bolt := &game.arrows[len(game.arrows)-1]
@@ -401,7 +399,7 @@ func TestCrossfireUsesEachMonsterAttackCountTurnBased(t *testing.T) {
 
 			attacker := monsterPkg.NewMonster3DFromConfig(10*ts+ts/2, 10*ts+ts/2, "skeleton", game.config)
 			attacker.DamageMin, attacker.DamageMax = 1, 1
-			attacker.AttacksPerRound = 3
+			attacker.AttackCooldownMultiplier = 1.0 / 3 // three TB swings per action
 			target := monsterPkg.NewMonster3DFromConfig(11*ts+ts/2, 10*ts+ts/2, "goblin", game.config)
 			target.MaxHitPoints, target.HitPoints = 10, 10
 			if tc.attackerBound {

@@ -34,12 +34,16 @@ type pageTabRect struct {
 	x, w int
 }
 
+// pageTabPadding is a tab's width beyond its label: room for the hotkey at
+// its right edge, sized so every tab fits the authored 1200 px canvas.
+const pageTabPadding = 56
+
 // pageTabLayout computes the on-screen rect of every top tab.
 func pageTabLayout() []pageTabRect {
 	rects := make([]pageTabRect, 0, len(pageTabDefs))
 	x := 8
 	for _, def := range pageTabDefs {
-		w := game.ShadedTextWidth(def.label) + 60
+		w := game.ShadedTextWidth(def.label) + pageTabPadding
 		rects = append(rects, pageTabRect{page: def.page, x: x + 4, w: w})
 		x += 4 + w + 4
 	}
@@ -268,6 +272,7 @@ const (
 type tooltipLine struct {
 	text string
 	kind tooltipLineKind
+	runs []game.TintedRun // the line's pieces in their school tints; nil = plain
 }
 
 // isInspectorHeading spots the headings of the editor's own map-inspector
@@ -294,10 +299,18 @@ func cardTooltipLines(c *contentCard) []tooltipLine {
 	if len(c.tooltipRows) > 0 {
 		var lines []tooltipLine
 		for _, source := range c.tooltipRows {
-			text := source.Text
-			kind := source.Kind
-			for _, row := range wrapTooltipLines(text, 80) {
-				lines = append(lines, tooltipLine{text: row, kind: kind})
+			if len(source.Runs) == 0 {
+				for _, row := range wrapTooltipLines(source.Text, 80) {
+					lines = append(lines, tooltipLine{text: row, kind: source.Kind})
+				}
+				continue
+			}
+			// A row with tinted runs breaks only where the game's card may:
+			// between its words, never inside a damage share.
+			wrapped := wrapTooltipWords(source.Words(), 80)
+			runs := game.CardRowLineRuns(source, wrapped)
+			for i, row := range wrapped {
+				lines = append(lines, tooltipLine{text: row, kind: source.Kind, runs: runs[i]})
 			}
 		}
 		return lines
@@ -378,23 +391,40 @@ func drawCardTooltip(screen *ebiten.Image, c *contentCard, mouseX, mouseY, areaX
 		h := tooltipLineHeight(line.kind)
 		switch line.kind {
 		case tooltipLineTitle:
-			game.DrawShadedText(screen, line.text, boxX+10, y, game.RarityColor(c.rarity))
+			drawTooltipText(screen, line, boxX+10, y, game.RarityColor(c.rarity))
 		case tooltipLineCategory:
 			game.DrawShadedText(screen, strings.ToUpper(line.text), boxX+10, y, color.RGBA{130, 145, 175, 255})
 		case tooltipLineDescription:
-			game.DrawShadedText(screen, line.text, boxX+10, y, color.RGBA{215, 215, 225, 255})
+			drawTooltipText(screen, line, boxX+10, y, color.RGBA{215, 215, 225, 255})
 		case tooltipLineFlavor:
-			game.DrawShadedText(screen, line.text, boxX+10, y, color.RGBA{205, 180, 115, 255})
+			drawTooltipText(screen, line, boxX+10, y, color.RGBA{205, 180, 115, 255})
 		case tooltipLineSection:
 			drawTooltipSectionLine(screen, line.text, boxX+7, y, boxW-14, h)
 		case tooltipLineResult:
-			game.DrawShadedText(screen, line.text, boxX+10, y, color.RGBA{250, 240, 214, 255})
+			drawTooltipText(screen, line, boxX+10, y, color.RGBA{250, 240, 214, 255})
 		case tooltipLineDetail:
-			game.DrawShadedText(screen, line.text, boxX+10, y, color.RGBA{185, 192, 204, 255})
+			drawTooltipText(screen, line, boxX+10, y, color.RGBA{185, 192, 204, 255})
 		case tooltipLineBody, character.CardRowHint:
-			game.DrawShadedText(screen, line.text, boxX+10, y, color.RGBA{225, 225, 235, 255})
+			drawTooltipText(screen, line, boxX+10, y, color.RGBA{225, 225, 235, 255})
 		}
 		y += h
+	}
+}
+
+// drawTooltipText draws a card line in col, its tinted pieces in their
+// school tints, as the game's card does.
+func drawTooltipText(screen *ebiten.Image, line tooltipLine, x, y int, col color.Color) {
+	if len(line.runs) == 0 {
+		game.DrawShadedText(screen, line.text, x, y, col)
+		return
+	}
+	for _, r := range line.runs {
+		tint := r.Tint
+		if tint == nil {
+			tint = col
+		}
+		game.DrawShadedText(screen, r.Text, x, y, tint)
+		x += game.ShadedTextWidth(r.Text)
 	}
 }
 
@@ -407,7 +437,7 @@ func cardAccentColor(c *contentCard) color.RGBA {
 		switch c.kind {
 		case cardWeapon:
 			return color.RGBA{210, 105, 80, 255}
-		case cardSpell:
+		case cardSpell, cardAction:
 			return color.RGBA{95, 155, 225, 255}
 		case cardSkill:
 			return viewerHeaderTextColor
@@ -442,7 +472,12 @@ func wrapTooltipLines(s string, maxRunes int) []string {
 	if utf8.RuneCountInString(s) <= maxRunes {
 		return []string{s}
 	}
-	words := strings.Fields(s)
+	return wrapTooltipWords(strings.Fields(s), maxRunes)
+}
+
+// wrapTooltipWords joins words into lines of at most maxRunes by single
+// spaces; a longer word keeps a line of its own.
+func wrapTooltipWords(words []string, maxRunes int) []string {
 	var lines []string
 	current := ""
 	for _, w := range words {

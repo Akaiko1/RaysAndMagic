@@ -57,18 +57,18 @@
 #   cross-map thread.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %.T@.S..T..HH....T...T.A.TAHAVV.VVVVVVV..VVV%  >[npc:chest_wooden]
-%.AAAS........%%%%%%%%%........y.VVBBBBBB..V%
-%.A@A.S.v...%%..HH.....%%.......VVVB.y@.B.VV%  >[npc:spell_lectern], [npc:dragon_cliffs_bone_lair]
-%.A.A.S..........H....AA.%...eVVV..Be...B..V%
+%.AAAS........%%%%%%%%%........y.VVBBBBBB.@V%  >[npc:cliffs_scorched_pack]
+%.A@A.S.v...%%@.HH.....%%.......VVVB.y@@B.VV%  >[npc:spell_lectern], [npc:cliffs_shed_scales], [npc:dragon_cliffs_bone_lair], [npc:cliffs_shed_scales]
+%.A.A.S..........H....AA@%...eVVV..Be...B..V%  >[npc:cliffs_shed_scales]
 %%%...S....%%%..RR........%...VVV..BB.BBB..V%
 %.v....S..%..z..======....%%.VVVV.........VV%
-%.T....S..%.....=..@.=....%...VVV....D....eV%  >[npc:chest_golden]
+%@T....S..%.....=@..@=....%@..VVV....D....eV%  >[npc:spell_lectern_cleric], [npc:spell_lectern_light_dark], [npc:chest_golden], [npc:cliffs_scorched_pack]
 %%%....S..%.....=....=....%%V.....D.D.D..VVV%
 %.T.A..S..%.....==@===.z..%..D.D.D....###..V%  >[npc:steel_door]
-%..Av..S...%..AA.HH.......%.D...D.eD.#...#.V%
+%..Av..S...%..AA.HH.......%.D...D.eD.#@..#.V%  >[npc:cliffs_shed_scales]
 %AA....S...%%..HH...z....%...D.e.....#.@.#.V%  >[npc:dragon_cliffs_ember_lair]
-%@A..A.S.....%%..H..RR.%%............#.ye#.V%  >[npc:chest_iron]
-%...AR.S.......%%%..%%%%..VV....D.....#.#..V%
+%@A.@A.S.....%%..H..RR.%%............#.ye#.V%  >[npc:chest_iron], [npc:cliffs_shed_scales]
+%...RR.S.......%%%..%%%%..VV....D.....#.#..V%
 %....A..S...A...%%...A.........A...........V%
 %.......S.................EEEEEEEEEEEEBNBEEE%
 %.......S.....EEEEEEEEEEEECCCCCCCCCCCCCNCCCC%
@@ -77,14 +77,14 @@
 %CCCCCCCCMMCCCJJJJJJJJJJJJ..................%
 %JJJJJJJJMMJJJ...A..........................%
 %......@A..A.....A...TT.......A..AA..A......%  >[npc:chest_wooden]
-%.TTTTTT..TT.T.R..............H....WWWW.D...%
-%..........T..T.R.R...H....R.R....WWWWWWW...%
-%...@.@....T.....R.HH....H.R.R...WWWWWWWWW..%  >[npc:tavern], [npc:scalewright]
+%.TTTTTT..TT.T.R..............H....WWWW@D...%  >[npc:cliffs_shed_scales]
+%..........T..T.R@R...H....R.R....WWWWWWW...%  >[npc:cliffs_scorched_pack]
+%...@.@....T.....R.HH....H.R@R...WWWWWWWWW..%  >[npc:tavern], [npc:scalewright], [npc:cliffs_scorched_pack]
 %......@...T.......R.R......R....WQQQ@QQQW..%  >[npc:dragon_cliffs_ranger], [npc:chest_golden]
 %..........T...TT..R@R...........WQQQQQQQW..%  >[npc:dragon_cliffs_bone_hermit]
 %....+.....T...T...RRR...........WWWWWWWW...%
 %.........@...HH.......AA......HH..WWWW.....%  >[stile:vteleporter]
 %............HHHH......Rv.HH........WW...D..%
 %.TT.................A...RA...HH.A.....HH...%
-%................H...................H......%
+%................H...................H..@...%  >[npc:cliffs_scorched_pack]
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

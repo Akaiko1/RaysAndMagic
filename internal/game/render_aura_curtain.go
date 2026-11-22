@@ -8,17 +8,14 @@ import (
 )
 
 func (r *Renderer) ensureAuraCurtainShader() (*ebiten.Shader, error) {
-	if r.auraCurtainShader != nil {
-		return r.auraCurtainShader, nil
+	if r.auraCurtainShader == nil {
+		if err := compileShader(&r.auraCurtainShader, "aura_curtain.kage"); err != nil {
+			return nil, err
+		}
+		r.auraCurtainOpts.Blend = additiveGlowBlend
+		r.auraCurtainOpts.Uniforms = map[string]any{"Phase": r.auraCurtainPhase[:]}
 	}
-	shader, err := ebiten.NewShader([]byte(auraCurtainShaderSrc))
-	if err != nil {
-		return nil, err
-	}
-	r.auraCurtainShader = shader
-	r.auraCurtainOpts.Blend = additiveGlowBlend
-	r.auraCurtainOpts.Uniforms = map[string]any{"Phase": r.auraCurtainPhase[:]}
-	return shader, nil
+	return r.auraCurtainShader, nil
 }
 
 // auraCurtainEdge stores perspective-correct coordinates across one projected
@@ -174,7 +171,7 @@ func (r *Renderer) appendAuraCurtain(screen *ebiten.Image, s UnifiedSpriteRender
 	verts, indices := r.auraCurtainVerts, r.auraCurtainIndices
 	vertex := func(x float64) (ebiten.Vertex, ebiten.Vertex) {
 		inv := edge.inv0 + (x-edge.left)*edge.invStep
-		floorRise := r.game.viewFocal() * 0.5 * edge.tileSize * inv
+		floorRise := r.game.viewFocal() * eyeHeightTiles * edge.tileSize * inv
 		bottom, rise := r.game.viewHorizon()+floorRise, floorRise*edge.riseFraction
 		v := ebiten.Vertex{DstX: float32(x), DstY: float32(bottom - rise),
 			SrcX: float32(bottom), SrcY: float32(rise),
@@ -191,7 +188,7 @@ func (r *Renderer) appendAuraCurtain(screen *ebiten.Image, s UnifiedSpriteRender
 			inv := edge.inv0 + (math.Max(sx0, math.Min(sx1, float64(x)+0.5))-edge.left)*edge.invStep
 			depth := 1 / inv
 			visible = !(x < len(r.game.depthBuffer) && depth >= r.game.depthBuffer[x])
-			floorRise := r.game.viewFocal() * 0.5 * edge.tileSize * inv
+			floorRise := r.game.viewFocal() * eyeHeightTiles * edge.tileSize * inv
 			visible = visible && r.game.viewHorizon()+floorRise*(1-edge.riseFraction) < float64(height)
 		}
 		if start >= 0 && !visible {
@@ -221,7 +218,7 @@ func (r *Renderer) flushAuraCurtains(screen *ebiten.Image) {
 			}
 			// All temporal frequencies are integral multiples of this phase,
 			// so wrapping every 20 seconds is continuous even in long sessions.
-			period := int64(max(1, r.game.config.GetTPS())) * 20
+			period := int64(r.game.config.GetTPS()) * 20
 			r.auraCurtainPhase[0] = float32(float64(r.game.frameCount%period) * (2 * math.Pi / float64(period)))
 			worldDrawColumnShader32(screen, verts, indices, shader, &r.auraCurtainOpts)
 		}

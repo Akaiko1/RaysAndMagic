@@ -1,7 +1,7 @@
 package game
 
 import (
-	"math"
+	"cmp"
 	"slices"
 	"sort"
 
@@ -13,9 +13,6 @@ const (
 	// Kept near one tile so a band forms when a mob actually wanders into another
 	// (opportunistic), not by magnetically yanking distant mobs together.
 	bandBindDistTiles = 0.85
-	// bandFanRadiusTiles: render fan radius - stacked followers ring the leader so
-	// the pile reads as several mobs, centred on the tile.
-	bandFanRadiusTiles = 0.16
 	// maxBandStackCount caps one calm visual/position band. Extra nearby mobs
 	// stay separate instead of being pulled into the band.
 	maxBandStackCount = 3
@@ -212,7 +209,7 @@ func (gl *GameLoop) updateMonsterBands() {
 }
 
 func sortMonstersByID(monsters []*monster.Monster3D) {
-	sort.Slice(monsters, func(a, b int) bool { return monsters[a].ID < monsters[b].ID })
+	slices.SortFunc(monsters, func(a, b *monster.Monster3D) int { return cmp.Compare(a.ID, b.ID) })
 }
 
 // leaveBand clears a monster's runtime band membership (it becomes solo/unbanded).
@@ -403,9 +400,7 @@ func (gl *GameLoop) scatterBand(members, group []*monster.Monster3D, tile float6
 			nx, ny := TileCenterFromTile(key[0], key[1], tile)
 			if gl.game.collisionSystem.CanMoveToWithTileOverrides(m.ID, nx, ny, m.WalkableTileOverrides, m.Flying) {
 				used[key] = true
-				m.X, m.Y = nx, ny
-				gl.game.collisionSystem.UpdateEntity(m.ID, nx, ny)
-				m.ResetPathfinding()
+				gl.game.placeMonster(m, nx, ny)
 				break
 			}
 		}
@@ -442,16 +437,4 @@ func (gl *GameLoop) engageBandMemberOnScatter(m *monster.Monster3D, wasHit, sawP
 	} else if sawParty && m.CanPursueParty(gl.game.camera.X, gl.game.camera.Y) && m.CurrentAIBehavior().Caps().AnswersBand {
 		m.BeginPlayerEngagement()
 	}
-}
-
-// bandFanOffset returns the render-only world offset for a stacked band member:
-// the leader (index 0) sits at the tile centre, followers ring it evenly so the
-// pile reads as several mobs without the actual (co-located) positions moving.
-func bandFanOffset(idx, count int, tile float64) (float64, float64) {
-	if count <= 1 || idx <= 0 {
-		return 0, 0
-	}
-	r := bandFanRadiusTiles * tile
-	ang := (float64(idx-1) / float64(count-1)) * 2 * math.Pi
-	return math.Cos(ang) * r, math.Sin(ang) * r
 }

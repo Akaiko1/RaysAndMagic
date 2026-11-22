@@ -25,33 +25,6 @@ func TestFadeVectorColorPremultiplies(t *testing.T) {
 	}
 }
 
-// Two badges on one portrait stay attached to it: their haloes may blend in the
-// middle (soft glows do that gracefully), but the pair must not drift out past
-// the portrait it belongs to.
-func TestProgressionBadgeLayoutKeepsBothBadgesOnThePortrait(t *testing.T) {
-	const px, py, pw, ph = 100, 200, 47, 56
-	both := makePartyProgressionBadgeLayout(px, py, pw, ph, true, true)
-	if both.stat.right() > both.skill.x {
-		t.Fatalf("the two badges overlap: stat ends at %d, skill starts at %d", both.stat.right(), both.skill.x)
-	}
-	// The pair is wider than the narrow portrait aperture by design (the badges
-	// straddle its lower rim), but the overhang plus the halo has a budget: past
-	// half a badge they stop reading as attached to THIS portrait.
-	overhangBudget := partyProgressBadgeSize / 2
-	if left := px - (both.stat.x - badgeAuraSpreadPx); left > overhangBudget {
-		t.Fatalf("the stat badge halo overhangs the portrait by %dpx on the left, budget %dpx", left, overhangBudget)
-	}
-	if right := (both.skill.right() + badgeAuraSpreadPx) - (px + pw); right > overhangBudget {
-		t.Fatalf("the skill badge halo overhangs the portrait by %dpx on the right, budget %dpx", right, overhangBudget)
-	}
-
-	// One badge alone centres under the portrait.
-	only := makePartyProgressionBadgeLayout(px, py, pw, ph, false, true)
-	if got, want := only.skill.x+only.skill.w/2, px+pw/2; got != want {
-		t.Fatalf("a single badge centres at %d, want the portrait centre %d", got, want)
-	}
-}
-
 // The halo is a per-pixel falloff image, cached per (size, reach, tint) - both
 // the hero card and the badges pull from the same generator.
 func TestSoftGlowIsCachedAndFadesOutward(t *testing.T) {

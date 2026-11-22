@@ -16,7 +16,6 @@ const (
 	uiCommandClick uiCommandKind = iota
 	uiCommandDrag
 	uiCommandHold
-	uiCommandNavigation
 	uiCommandPointer // Screen gestures tick once per Update, including release.
 )
 
@@ -124,9 +123,15 @@ func (ui *UISystem) displayIdentity() uiDisplayIdentity {
 	mix(uint64(g.alchemyBatches))
 	mix(ui.alchemyRevision)
 	mix(uint64(uiFontGeneration)) // a new font moves every measured label
+	mix(uint64(boolInt(ui.questChronicle)))
 	mix(uint64(boolInt(g.fontListOpen)))
 	mix(uint64(boolInt(g.brewAnimation != nil)))
 	mix(uint64(g.settingsTab))
+	// The Gameplay tab's page, the Builds class and the roster scroll decide
+	// what each settings control is bound to.
+	mix(uint64(g.gameplaySettingsPage))
+	mix(uint64(g.buildsSettingsClass))
+	mix(uint64(g.buildsRosterScroll))
 	mix(uint64(ui.personalInventoryPage))
 	mix(uint64(ui.personalInventoryTab))
 	for _, offset := range g.potionSettingsScroll {
@@ -164,7 +169,7 @@ func (ui *UISystem) displayIdentity() uiDisplayIdentity {
 						mix(0)
 					}
 				}
-				for slot := items.EquipSlot(0); slot <= items.SlotSpell; slot++ {
+				for slot := items.EquipSlot(0); slot <= items.SlotQuickAction; slot++ {
 					it, ok := ch.Equipment[slot]
 					mix(uint64(slot))
 					mix(uint64(boolInt(ok)))
@@ -180,16 +185,27 @@ func (ui *UISystem) displayIdentity() uiDisplayIdentity {
 						item(*it)
 					}
 				}
+				mix(uint64(boolInt(ch.QuickSecondRow))) // moves the tabs' bars and pager
 			}
 		}
 	}
 	if g.stash != nil {
+		// Every chest cell by position (empty ones too); the collections as an
+		// order-free sum, since map order is random and sorting would allocate
+		// every frame.
 		for _, it := range g.stash.Slots {
 			item(it)
 		}
-		for _, it := range g.stash.CardSlots {
-			item(it)
+		var places uint64
+		for _, it := range g.stash.Collection {
+			places += uiItemIdentity(it)
 		}
+		for _, page := range g.stash.Album {
+			for i, it := range page {
+				places += uiItemIdentity(it) ^ uint64(i+1)*0x9e3779b97f4a7c15
+			}
+		}
+		mix(places)
 	}
 	if g.dialogActive && g.dialogNPC != nil {
 		for _, entry := range g.merchantVisibleStock() {
@@ -221,8 +237,8 @@ func (ui *UISystem) displayIdentity() uiDisplayIdentity {
 			for i := range q.ID {
 				add(uint64(q.ID[i]))
 			}
-			for i := range q.Status {
-				add(uint64(q.Status[i]))
+			for _, ch := range []byte(q.Status()) {
+				add(uint64(ch))
 			}
 			add(uint64(q.CurrentCount))
 			add(uint64(q.DynamicTarget))
@@ -307,6 +323,22 @@ func (ui *UISystem) onDisplayedInput(kind uiCommandKind, bounds layoutRect, appl
 	}
 }
 
+// onClick registers a click over r: when the queued left click lands in r
+// and enabled holds, it is consumed and run - the rect is stated once.
+func (ui *UISystem) onClick(r layoutRect, enabled bool, run func()) {
+	ui.onGatedClick(r, func() bool { return enabled }, run)
+}
+
+// onGatedClick is onClick with a gate read at dispatch, for state an earlier
+// click in the same Update can change (modal ownership, the hub).
+func (ui *UISystem) onGatedClick(r layoutRect, gate func() bool, run func()) {
+	ui.onDisplayedInput(uiCommandClick, r, func() {
+		if gate() && ui.game.consumeLeftClickIn(r.x, r.y, r.right(), r.bottom()) {
+			run()
+		}
+	})
+}
+
 // Register existing Update mouse adapters only for the modal being displayed.
 // Keyboard, wheel and hover polling still run once in InputHandler.HandleInput.
 func (ui *UISystem) registerDisplayedModalMouse(handle func(*InputHandler), layers ...modalLayerID) {
@@ -328,8 +360,8 @@ func (ui *UISystem) registerDisplayedModalMouse(handle func(*InputHandler), laye
 
 func (ui *UISystem) displayedDragPending() bool {
 	g := ui.game
-	return g.dragArmed || g.dragActive || g.dragPickedUp || g.dragDropAt == 1 ||
-		g.stashDragArmed || g.stashDragActive || g.stashDragPickedUp || g.stashDragDrop
+	return g.drag.armed || g.drag.active || g.dragPickedUp || g.dragDropAt == 1 ||
+		g.stashDrag.armed || g.stashDrag.active || g.stashDragPickedUp || g.stashDragDrop
 }
 
 func (ui *UISystem) dispatchDisplayedInput() {
@@ -364,8 +396,7 @@ func (ui *UISystem) dispatchDisplayedInput() {
 		// A hero advancing or inventory changing invalidates widget commands,
 		// not a held world attack. Screen/modal changes have their own barrier.
 		ui.cancelWidgetPointerGestures()
-		ui.game.clearDrag()
-		ui.game.clearStashDrag()
+		ui.suspendDisplayedDrags()
 		return
 	}
 	ui.syncCharacterHubClickContext()
@@ -384,8 +415,8 @@ func (ui *UISystem) dispatchDisplayedInput() {
 			hit := func(x, y int) bool {
 				return isMouseHoveringBox(x, y, cmd.bounds.x, cmd.bounds.y, cmd.bounds.right(), cmd.bounds.bottom())
 			}
-			if !(g.dragArmed && hit(g.dragStartX, g.dragStartY) || g.dragDropAt == 1 && hit(g.dragCurX, g.dragCurY) ||
-				g.stashDragArmed && hit(g.stashDragStartX, g.stashDragStartY) || g.stashDragDrop && hit(g.stashDragCurX, g.stashDragCurY)) {
+			if !(g.drag.armed && hit(g.drag.startX, g.drag.startY) || g.dragDropAt == 1 && hit(g.drag.curX, g.drag.curY) ||
+				g.stashDrag.armed && hit(g.stashDrag.startX, g.stashDrag.startY) || g.stashDragDrop && hit(g.stashDrag.curX, g.stashDrag.curY)) {
 				continue
 			}
 		}
@@ -469,7 +500,7 @@ func uiItemIdentity(it items.Item) uint64 {
 	mix(it.InstanceID)
 	mix(uint64(it.Type))
 	mix(uint64(it.Count()))
-	for _, text := range []string{it.Name, string(it.SpellEffect)} {
+	for _, text := range []string{it.Name, string(it.SpellEffect), it.Technique, it.Trap, it.Flask} {
 		for i := 0; i < len(text); i++ {
 			mix(uint64(text[i]))
 		}
@@ -486,6 +517,10 @@ func uiItemIdentity(it items.Item) uint64 {
 // retarget an already carried item after reorder, stack merge or roster swap.
 type uiDragIdentity struct {
 	active      bool
+	screen      uiScreenIdentity
+	modal       modalLayerSnapshot
+	menuOpen    bool
+	tab         int
 	world       *world.World3D
 	party       *character.Party
 	actor       *character.MMCharacter
@@ -496,13 +531,16 @@ type uiDragIdentity struct {
 
 func (ui *UISystem) currentDragIdentity(stashDrag bool) uiDragIdentity {
 	g := ui.game
-	id := uiDragIdentity{world: g.world, party: g.party}
+	id := uiDragIdentity{
+		world: g.world, party: g.party, screen: ui.inputScreenIdentity(),
+		modal: ui.topModalSnapshot(), menuOpen: g.menuOpen, tab: int(g.currentTab),
+	}
 	if g.party == nil {
 		return id
 	}
 	var it items.Item
 	if stashDrag {
-		if !g.stashDragArmed && !g.stashDragActive && !g.stashDragPickedUp && !g.stashDragDrop {
+		if !g.stashDrag.armed && !g.stashDrag.active && !g.stashDragPickedUp && !g.stashDragDrop {
 			return id
 		}
 		addr, ok := decodeStashFrom(g.stashDragFrom)
@@ -601,4 +639,21 @@ func (ui *UISystem) captureDisplayedDrags() {
 	if !d.stashDrag.active {
 		d.stashDrag = ui.currentDragIdentity(true)
 	}
+}
+
+// A presentation stall invalidates drop geometry, not a captured source. Keep
+// held gestures until a complete frame can accept their release. Selection
+// highlights may change between Updates without changing that source's owner.
+func (ui *UISystem) suspendDisplayedDrags() {
+	ui.validateDisplayedDrags()
+	g, d := ui.game, &ui.displayedInput
+	if !g.dragPickedUp && (!g.drag.armed || !d.quickDrag.active) {
+		g.clearDrag()
+	}
+	if !g.stashDragPickedUp && (!g.stashDrag.armed || !d.stashDrag.active) {
+		g.clearStashDrag()
+	}
+	// Never replay a drop against a layout that was not shown at release.
+	g.dragDropAt = 0
+	g.stashDragDrop = false
 }

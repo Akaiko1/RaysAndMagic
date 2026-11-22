@@ -9,12 +9,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hajimehoshi/ebiten/v2"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/game/keytracker"
 	"ugataima/internal/items"
 	"ugataima/internal/world"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 func rareInputCast(g *MMGame, ih *InputHandler, tb bool) {
@@ -23,7 +24,7 @@ func rareInputCast(g *MMGame, ih *InputHandler, tb bool) {
 		ih.keys.BeginFrame()
 		ih.handleTurnBasedInput()
 	} else {
-		ih.performRTCombatAction(rtActCast, true)
+		ih.performRTCombatAction(rtActSlotted, true)
 	}
 }
 
@@ -48,7 +49,7 @@ func TestRareInputCastCycles(t *testing.T) {
 					g.party.Members = []*character.MMCharacter{c, caster}
 					if kind == "veil" {
 						it, _ := config.TechniqueItem("phase_veil")
-						c.Equipment[items.SlotSpell] = it
+						c.Equipment[items.SlotQuickAction] = it
 					} else {
 						it, _ := items.TryCreateItemFromYAML("harm_flask")
 						it.Quantity = 3
@@ -67,7 +68,7 @@ func TestRareInputCastCycles(t *testing.T) {
 						g.parkSelection = true
 					case "unavailable":
 						if kind == "veil" {
-							g.addCombatBuff(TimedCombatBuff{SpellID: "phase_veil", Frames: 100})
+							g.addCombatBuff(TimedCombatBuff{ID: config.TechniqueID("phase_veil"), Clock: framesClock(100)})
 						} else {
 							g.party.Inventory = nil
 						}
@@ -83,7 +84,7 @@ func TestRareInputCastCycles(t *testing.T) {
 						if !tb && g.selectedChar != 1 {
 							t.Fatal("rare action did not advance RT cast selection")
 						}
-						g.spellInputCooldown = 0
+						g.actionInputStagger = 0
 						rareInputCast(g, ih, tb)
 					}
 					if caster.SpellPoints >= 100 {
@@ -108,7 +109,7 @@ func TestRareSpatialCommandsAreManualAndFaceForward(t *testing.T) {
 				g, c := rareClassGame(t, character.ClassWayfarer, tb)
 				g.appScreen = AppScreenInGame
 				it, _ := config.TechniqueItem("fold_step")
-				c.Equipment[items.SlotSpell] = it
+				c.Equipment[items.SlotQuickAction] = it
 				ih := NewInputHandler(g)
 				m := zoneVictim(t, g)
 				ts := float64(g.config.GetTileSize())
@@ -135,7 +136,7 @@ func TestRareSpatialCommandsAreManualAndFaceForward(t *testing.T) {
 				} else {
 					ih.pendingRepeat = rtActSmart
 					if entry == "held_F" {
-						ih.pendingRepeat = rtActCast
+						ih.pendingRepeat = rtActSlotted
 					}
 					ih.performPendingRepeat()
 				}
@@ -146,7 +147,7 @@ func TestRareSpatialCommandsAreManualAndFaceForward(t *testing.T) {
 					if tb && (math.Mod(g.camera.X, ts) != ts/2 || math.Mod(g.camera.Y, ts) != ts/2) {
 						t.Fatal("step left TB grid")
 					}
-				} else if g.camera.X != x || g.camera.Y != y || c.SpellPoints != 100 || g.spatialReuseFrames != 0 {
+				} else if g.camera.X != x || g.camera.Y != y || c.SpellPoints != 100 || g.spatialReuse.Frames != 0 {
 					t.Fatal("attack or held command automatically moved the party")
 				}
 				if g.camera.Angle != angle {
@@ -172,7 +173,7 @@ func TestRarePendingRepeatHonorsRunningWeapon(t *testing.T) {
 					if down {
 						holder.HitPoints = 0
 					}
-					delete(c.Equipment, items.SlotSpell)
+					delete(c.Equipment, items.SlotQuickAction)
 					c.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("hunting_bow")
 					ih.pendingRepeat = kind
 					ih.performPendingRepeat()
@@ -260,15 +261,15 @@ func TestRareBuffRecoveryAndUnconsciousAnchor(t *testing.T) {
 	for _, life := range []character.Condition{character.ConditionUnconscious, character.ConditionDead, character.ConditionEradicated} {
 		t.Run(life.String(), func(t *testing.T) {
 			g, c := rareClassGame(t, character.ClassWayfarer, false)
-			c.RareClass.Anchor = character.SpatialAnchor{MapKey: "forest", Frames: 100}
+			c.RareClass.Anchor = character.SpatialAnchor{MapKey: "forest", Clock: framesClock(100)}
 			c.HitPoints = 0
 			c.AddCondition(life)
-			g.tickRareClassClocks(1)
+			passFrames(g, 1)
 			if life == character.ConditionUnconscious {
-				if c.RareClass.Anchor.Frames != 99 {
+				if c.RareClass.Anchor.Clock.Frames != 99 {
 					t.Fatal("unconscious hero lost anchor")
 				}
-			} else if c.RareClass.Anchor.Frames != 0 {
+			} else if c.RareClass.Anchor.Clock.Frames != 0 {
 				t.Fatal("dead hero retained anchor")
 			}
 		})
@@ -378,7 +379,7 @@ func TestRareDisplayedWorkbenchMaxAndSafety(t *testing.T) {
 				it.Quantity = a.Count * 7
 				g.party.AddItem(it)
 			}
-			l := computeRareBookLayout(layout.content, true)
+			l := computeRareBookLayout(layout.content, true, 1)
 			a := makeAlchemyMaterialLayout(l, r)
 			maxButton := a.maximum
 			h.clicks(false, maxButton.x+10, maxButton.y+10, 1)

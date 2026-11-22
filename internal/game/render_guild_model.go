@@ -5,9 +5,6 @@ import (
 	"ugataima/internal/character"
 )
 
-const guildPlasterMaterial = 11
-const guildWindowMaterial = 12
-
 // The same static model is used for scene triangles and picking. Dimensions
 // are relative to the authored size class, like the other procedural props.
 func buildGuildModel(spec character.NPCPropModel) *propModel {
@@ -20,7 +17,7 @@ func buildGuildModel(spec character.NPCPropModel) *propModel {
 	// approached from either side; yaw_degrees rotates every part together.
 	b.propBox(0, 0, 0, .48, .36, .09, 0, stone, worldStone)
 	b.guildWallShell(.43, .30, .09, .84, stone, worldStone)
-	b.guildWallShell(.45, .32, .84, 1.44, [3]int{183, 166, 132}, guildPlasterMaterial)
+	b.guildWallShell(.45, .32, .84, 1.44, [3]int{183, 166, 132}, worldPlaster)
 	for _, z := range []float64{.80, .87, 1.41} {
 		for i := 0; i < 12; i++ {
 			x := -.47 + (float64(i)+.5)*.94/12
@@ -84,16 +81,16 @@ func buildGuildModel(spec character.NPCPropModel) *propModel {
 	}
 	b.propBox(0, -.34, .67, .164, .024, .05, 0, stone, worldStone)
 	for _, z := range []float64{.19, .55} {
-		b.propBox(0, -.352, z, .105, .009, .024, 0, black, 0)
+		b.propBox(0, -.352, z, .105, .009, .024, 0, black, worldIron)
 	}
-	b.propBox(.072, -.364, .36, .012, .012, .025, 0, gold, 0)
+	b.propBox(.072, -.364, .36, .012, .012, .025, 0, gold, worldIron)
 	// Recessed door planks, threshold steps, strap studs and iron ring handle.
 	for i := 0; i < 7; i++ {
 		b.propBox(-.095+float64(i)*.0315, -.350, .108, .0145, .004, .53, 0, wood, worldWood)
 	}
 	for _, z := range []float64{.19, .55} {
 		for _, x := range []float64{-.088, -.05, .05, .088} {
-			b.propBox(x, -.364, z+.005, .003, .004, .009, 0, gold, 0)
+			b.propBox(x, -.364, z+.005, .003, .004, .009, 0, gold, worldIron)
 		}
 	}
 	b.guildRing(.048, -.378, .365, .025, .005, black)
@@ -189,15 +186,15 @@ func buildGuildModel(spec character.NPCPropModel) *propModel {
 	// Raised crossed-key sign: two rigid keys, separate from the facade.
 	b.propBox(0, -.374, .76, .105, .016, .14, 0, black, worldWood)
 	for _, x := range []float64{-.11, .11} {
-		b.propBox(x, -.394, .75, .006, .008, .16, 0, gold, 0)
+		b.propBox(x, -.394, .75, .006, .008, .16, 0, gold, worldIron)
 	}
 	for _, z := range []float64{.75, .90} {
-		b.propBox(0, -.394, z, .11, .008, .008, 0, gold, 0)
+		b.propBox(0, -.394, z, .11, .008, .008, 0, gold, worldIron)
 	}
 	for _, side := range []float64{-1, 1} {
 		b.guildRing(side*.057, -.417, .877, .020, .0045, gold)
-		b.cylinder(worldModelPoint{side * .057, -.4, .875}, worldModelPoint{-side * .061, -.4, .785}, .009, gold, 0, 6)
-		b.propBox(-side*.060, -.4, .779, .019, .011, .015, 0, gold, 0)
+		b.cylinder(worldModelPoint{side * .057, -.4, .875}, worldModelPoint{-side * .061, -.4, .785}, .009, gold, worldIron, 6)
+		b.propBox(-side*.060, -.4, .779, .019, .011, .015, 0, gold, worldIron)
 	}
 	// Match the broad two-storey facade rather than a narrow tower. Rebuild
 	// normals and material coordinates from the final architectural dimensions.
@@ -295,7 +292,7 @@ func (b *worldModelBuilder) guildWallShell(rx, ry, z0, z1 float64, col [3]int, m
 func (b *worldModelBuilder) guildRing(x, y, z, r, thickness float64, col [3]int) {
 	for i := 0; i < 12; i++ {
 		a, c := float64(i)*math.Pi/6, float64(i+1)*math.Pi/6
-		b.cylinder(worldModelPoint{x + r*math.Cos(a), y, z + r*math.Sin(a)}, worldModelPoint{x + r*math.Cos(c), y, z + r*math.Sin(c)}, thickness, col, 0, 4)
+		b.cylinder(worldModelPoint{x + r*math.Cos(a), y, z + r*math.Sin(a)}, worldModelPoint{x + r*math.Cos(c), y, z + r*math.Sin(c)}, thickness, col, worldIron, 4)
 	}
 }
 
@@ -307,7 +304,7 @@ func (b *worldModelBuilder) guildWindow(x, y, z, half, height float64, wood, tri
 		for col := 0; col < 4; col++ {
 			x0, x1 := x-half+float64(col)*half/2, x-half+float64(col+1)*half/2
 			z0, z1 := z+.018+float64(row)*(height-.018)/6, z+.018+float64(row+1)*(height-.018)/6
-			b.quad(worldModelPoint{x0, y - .025, z0}, worldModelPoint{x1, y - .025, z0}, worldModelPoint{x1, y - .025, z1}, worldModelPoint{x0, y - .025, z1}, [3]int{226, 143, 38}, guildWindowMaterial, 1)
+			b.quad(worldModelPoint{x0, y - .025, z0}, worldModelPoint{x1, y - .025, z0}, worldModelPoint{x1, y - .025, z1}, worldModelPoint{x0, y - .025, z1}, [3]int{226, 143, 38}, worldWindow, 1)
 		}
 	}
 	for _, side := range []float64{-1, 1} {

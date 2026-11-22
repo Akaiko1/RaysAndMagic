@@ -7,6 +7,7 @@ import (
 	uitext "ugataima/assets/text"
 
 	damagecalc "ugataima/internal/damage"
+	"ugataima/internal/stats"
 )
 
 // Presentation lines for items - the ONE formatter behind the in-game item
@@ -33,22 +34,15 @@ func (d *ItemDefinitionConfig) StatBonusLines() []string {
 
 // FlatStatBonusLines excludes formulas that a live card resolves for its bearer.
 func (d *ItemDefinitionConfig) FlatStatBonusLines() []string {
+	return statBonusLines(d.StatBonus.Stats())
+}
+
+// statBonusLines is "Might +2" per non-zero stat, in sheet order.
+func statBonusLines(b stats.StatBonuses) []string {
 	var parts []string
-	flat := []struct {
-		label string
-		val   int
-	}{
-		{"Might", d.BonusMight},
-		{"Intellect", d.BonusIntellect},
-		{"Personality", d.BonusPersonality},
-		{"Endurance", d.BonusEndurance},
-		{"Accuracy", d.BonusAccuracy},
-		{"Speed", d.BonusSpeed},
-		{"Luck", d.BonusLuck},
-	}
-	for _, b := range flat {
-		if b.val != 0 {
-			parts = append(parts, fmt.Sprintf("%s %+d", b.label, b.val))
+	for _, n := range stats.Names {
+		if v := b.ValueByName(n); v != 0 {
+			parts = append(parts, fmt.Sprintf("%s %+d", stats.Title(n), v))
 		}
 	}
 	return parts
@@ -71,6 +65,13 @@ func (d *ItemDefinitionConfig) ScalingStatBonusLines() []string {
 // two can never drift (tooltip parity contract).
 func (d *ItemDefinitionConfig) ItemMechanicLines() []string {
 	var lines []string
+	if d.WeaponBaseDamageBonus > 0 && d.Type != "card" {
+		lines = append(lines, uitext.Text("item.weapon_base_bonus", d.WeaponBaseDamageBonus))
+	}
+	if d.PersonalInventoryRegenPct > 0 {
+		lines = append(lines, uitext.Text("item.carried_regeneration", d.PersonalInventoryRegenPct))
+	}
+
 	if len(d.AllowedClasses) > 0 {
 		names := make([]string, len(d.AllowedClasses))
 		for i, key := range d.AllowedClasses {
@@ -82,7 +83,10 @@ func (d *ItemDefinitionConfig) ItemMechanicLines() []string {
 		lines = append(lines, uitext.Text("item.mirror_scales_chance_to_turn_a_projectile", d.ProjectileReflectPct))
 	}
 	if d.StatusDurationPct != 0 {
-		lines = append(lines, uitext.Text("item.hostile_statuses_on_the_wearer_last_as", 100+d.StatusDurationPct))
+		lines = append(lines, uitext.Text("item.hostile_statuses_on_the_wearer_last_as", 100+d.StatusDurationPct, ScaledRoundsText(d.StatusDurationPct)))
+	}
+	if d.RewindCooldownSeconds > 0 {
+		lines = append(lines, uitext.Text("item.rewind", DurationText(d.RewindCooldownSeconds)))
 	}
 	if d.ScaleStackAC > 0 {
 		lines = append(lines, uitext.Text("item.growing_scales_ac_per_hit_taken_max", d.ScaleStackAC, d.ScaleStackAC*d.ScaleStackMax))
@@ -118,7 +122,10 @@ func (d *ItemDefinitionConfig) TimedBuffEffectLines() []string {
 		if d.BuffManaRegenPct > 0 {
 			recovery = append(recovery, uitext.Text("item.regeneration_mana", d.BuffManaRegenPct))
 		}
-		lines = append(lines, uitext.Text("item.party_regeneration_draught", strings.Join(recovery, uitext.Text("item.regeneration_join")), float64(RegenerationIntervalFrames)/float64(GetTargetTPS()), RegenerationRounds))
+		lines = append(lines, uitext.Text("item.party_regeneration_draught", strings.Join(recovery, uitext.Text("item.regeneration_join")), RegenerationIntervalSeconds(), RegenerationRounds))
+		if d.BuffManaRegenPct > 0 {
+			lines = append(lines, uitext.Text("item.mana_regen_while_fighting", CombatSPRegenSeconds, CombatSPRegenRounds))
+		}
 	}
 	if d.BuffArmorClass > 0 {
 		lines = append(lines, uitext.Text("item.party_stoneskin", d.BuffArmorClass))
@@ -217,7 +224,7 @@ func (d *ItemDefinitionConfig) behaviorLines() []string {
 			lines = append(lines, uitext.Text("item.revives_a_fallen_ally"))
 		}
 	}
-	if d.SummonDistanceTiles > 0 {
+	if d.SummonDistanceTiles > 0 && d.UseAction == "" { // devices state it in DeviceEffectLines
 		lines = append(lines, uitext.Text("item.summons_tiles_away", d.SummonDistanceTiles))
 	}
 	if d.OpensMap {
@@ -235,7 +242,7 @@ func (d *ItemDefinitionConfig) behaviorLines() []string {
 }
 
 // CardCollectionLines is what a monster card does while it is in the
-// collection, one effect per line; a card with no Card* field yet says so.
+// collection, one effect per line; a card with no supported effect yet says so.
 // Every card view (bag, shop, collector, Cards tab, editor) shows this list.
 func (d *ItemDefinitionConfig) CardCollectionLines() []string {
 	if lines := d.CardEffectLines(); len(lines) > 0 {
@@ -324,25 +331,27 @@ func EquipmentSetLines(setKey string) []string {
 	}
 	lines := []string{uitext.Text("item.set_pieces", set.Name, set.RequiredPieceCount())}
 	var parts []string
-	for _, b := range []struct {
-		label string
-		val   int
-	}{
-		{"Armor Class", set.BonusArmorClass}, {"Might", set.BonusMight}, {"Intellect", set.BonusIntellect}, {"Personality", set.BonusPersonality},
-		{"Endurance", set.BonusEndurance}, {"Accuracy", set.BonusAccuracy}, {"Speed", set.BonusSpeed}, {"Luck", set.BonusLuck},
-	} {
-		if b.val != 0 {
-			parts = append(parts, fmt.Sprintf("%s %+d", b.label, b.val))
-		}
+	if set.BonusArmorClass != 0 {
+		parts = append(parts, fmt.Sprintf("Armor Class %+d", set.BonusArmorClass))
 	}
+	parts = append(parts, statBonusLines(set.StatBonus.Stats())...)
 	if set.StunDurationPct != 0 {
-		parts = append(parts, uitext.Text("item.stuns_suffered_duration", 100+set.StunDurationPct))
+		parts = append(parts, uitext.Text("item.stuns_suffered_duration", 100+set.StunDurationPct, ScaledRoundsText(set.StunDurationPct)))
 	}
 	if set.BonusCritChance != 0 {
 		parts = append(parts, uitext.Text("item.critical_chance", set.BonusCritChance))
 	}
 	if set.FieryRipostePct != 0 {
 		parts = append(parts, uitext.Text("item.melee_attackers_take_back_as_fire", set.FieryRipostePct))
+	}
+	if set.FightOpenerActions > 0 {
+		parts = append(parts, uitext.Text("item.set_quick_draw", set.FightOpenerActions))
+	}
+	if set.HealFollowUpSpell {
+		parts = append(parts, uitext.Text("item.set_pendulum"))
+	}
+	if set.StationaryDamageReductionPct > 0 {
+		parts = append(parts, uitext.Text("item.set_locked_gears", set.StationaryDamageReductionPct))
 	}
 	if len(parts) > 0 {
 		lines = append(lines, uitext.Text("item.set_bonus")+strings.Join(parts, ", "))
@@ -351,11 +360,15 @@ func EquipmentSetLines(setKey string) []string {
 }
 
 // CardEffectLines is the SINGLE SOURCE of a monster card's collection-effect
-// text, derived from its Card* fields. Shared by the item tooltip (via
+// text, derived from its card fields and shared item modifiers. Used by the item tooltip (via
 // SpecialEffectLines), the card collector dialog, and the Cards menu tab. ASCII only -
 // the in-game bitmap font has no glyph for unicode dashes.
 func (d *ItemDefinitionConfig) CardEffectLines() []string {
 	var p []string
+	p = append(p, d.CardRuleLines()...)
+	if d.WeaponBaseDamageBonus > 0 {
+		p = append(p, uitext.Text("item.party_weapon_base_bonus", d.WeaponBaseDamageBonus))
+	}
 	if d.CardDodgeChargePct > 0 {
 		p = append(p, uitext.Text("item.dodge_charge", d.CardDodgeChargePct, d.CardDodgeChargeLimit))
 	}
@@ -371,12 +384,9 @@ func (d *ItemDefinitionConfig) CardEffectLines() []string {
 	if d.CardBonusActions != 0 {
 		p = append(p, uitext.Text("item.party_action_turn", d.CardBonusActions))
 	}
-	for _, s := range []struct{ key, label string }{
-		{"might", "Might"}, {"intellect", "Intellect"}, {"personality", "Personality"},
-		{"endurance", "Endurance"}, {"accuracy", "Accuracy"}, {"speed", "Speed"}, {"luck", "Luck"},
-	} {
-		if v := d.CardStatBonuses[s.key]; v != 0 {
-			p = append(p, fmt.Sprintf("%+d %s", v, s.label))
+	for _, n := range stats.Names {
+		if v := d.CardStatBonuses[n]; v != 0 {
+			p = append(p, fmt.Sprintf("%+d %s", v, stats.Title(n)))
 		}
 	}
 	if d.CardRangedDmgPct != 0 {
@@ -408,10 +418,10 @@ func (d *ItemDefinitionConfig) CardEffectLines() []string {
 		p = append(p, line)
 	}
 	if d.CardDisintegratePct != 0 {
-		p = append(p, uitext.Text("item.on_direct_hit_disintegrate_undead_and_dragons", d.CardDisintegratePct))
+		p = append(p, uitext.Text("item.on_direct_hit_disintegrate_undead_and_dragons", d.CardDisintegratePct, InstakillSearMaxHPPct))
 	}
 	if d.CardRegenPct != 0 {
-		p = append(p, uitext.Text("item.regenerate_max_hp_per_regeneration_tick", d.CardRegenPct, float64(RegenerationIntervalFrames)/float64(GetTargetTPS()), RegenerationRounds))
+		p = append(p, uitext.Text("item.regenerate_max_hp_per_regeneration_tick", d.CardRegenPct, RegenerationIntervalSeconds(), RegenerationRounds))
 	}
 	if d.CardDoubleAttackPct != 0 {
 		p = append(p, uitext.Text("item.on_melee_attack_strike_again", d.CardDoubleAttackPct))

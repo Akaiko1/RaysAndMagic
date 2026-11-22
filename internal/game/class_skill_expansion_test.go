@@ -104,14 +104,14 @@ func TestClassKitsMatchAuthoredClassYAML(t *testing.T) {
 				if !ok {
 					t.Fatalf("quick_trap %q is not in traps.yaml", stats.QuickTrap)
 				}
-				want[items.SlotSpell] = def.Name
+				want[items.SlotQuickAction] = def.Name
 			}
 			if stats.QuickSpell != "" {
 				def, err := spells.GetSpellDefinitionByID(spells.SpellID(stats.QuickSpell))
 				if err != nil {
 					t.Fatalf("quick_spell %q: %v", stats.QuickSpell, err)
 				}
-				want[items.SlotSpell] = def.Name
+				want[items.SlotQuickAction] = def.Name
 			}
 			if len(ch.Equipment) != len(want) {
 				t.Errorf("hero wears %d items, kit authors %d", len(ch.Equipment), len(want))
@@ -134,7 +134,7 @@ func TestBlasterRequiresAndUsesBlasterMastery(t *testing.T) {
 	// with or without the Blaster skill. The skill only pays mastery bonuses
 	// (asserted below).
 	for _, member := range []*character.MMCharacter{archer, thief, sorcerer} {
-		if !member.CanEquipWeaponByName("Alien Blaster") {
+		if !member.CanEquipWeapon(testWeapon("Alien Blaster")) {
 			t.Errorf("%s cannot equip a Blaster - blasters need no training", member.Class)
 		}
 	}
@@ -150,10 +150,10 @@ func TestBlasterRequiresAndUsesBlasterMastery(t *testing.T) {
 		t.Fatal("alien_blaster missing")
 	}
 	archer.Skills[character.SkillBlaster].Mastery = character.MasteryGrandMaster
-	trueDamage, ignoresDodge := cs.weaponMasteryStrike(archer, blaster)
-	if trueDamage != 3*MasteryWeaponTrueDamagePerTier || !ignoresDodge {
+	trueDamage, grazesDodge := cs.weaponMasteryStrike(archer, blaster)
+	if trueDamage != 3*MasteryWeaponTrueDamagePerTier || !grazesDodge {
 		t.Fatalf("GM Blaster mastery = (%d,%v), want (%d,true)",
-			trueDamage, ignoresDodge, 3*MasteryWeaponTrueDamagePerTier)
+			trueDamage, grazesDodge, 3*MasteryWeaponTrueDamagePerTier)
 	}
 }
 
@@ -216,7 +216,7 @@ func TestElementalSpellTrueDamageReachesPrimaryAndAoeTargets(t *testing.T) {
 		Damage: 0, TrueDamage: 15,
 		SpellType: "fireball", Attacker: caster,
 	}
-	cs.applyProjectileDamage(projectile, "magic_projectile", primary, "elemental-true-test")
+	cs.applyProjectileDamage(projectile, primary, "elemental-true-test")
 
 	if got := 100 - primary.HitPoints; got != 15 {
 		t.Fatalf("primary received %d typed true damage, want 15", got)
@@ -297,7 +297,7 @@ func TestImpenetrableDefenseAndSacrificeUsePostMitigationDamage(t *testing.T) {
 	if got.Normal != 17 || got.True != 20 {
 		t.Fatalf("Impenetrable Defense result = %+v, want normal 17 true 20", got)
 	}
-	cs.game.combatBuffs = []TimedCombatBuff{{SpellID: "test", Frames: 1, ResistPct: 50, InReduce: 5}}
+	cs.game.combatBuffs = []TimedCombatBuff{{ID: "test", Clock: framesClock(1), ResistPct: 50, InReduce: 5}}
 	got = cs.mitigateCharacterDamageParts(damagecalc.Parts{Normal: 100, True: 20}, "physical", knight, false)
 	if got.Normal != 42 || got.True != 10 {
 		t.Fatalf("mitigation order result = %+v, want resist -> personal -3 -> buff -5 and resisted true 10", got)
@@ -341,7 +341,7 @@ func TestAnimalBondingBearCopiesDruidStatsAndIsPureSummon(t *testing.T) {
 	wantArmor := game.combat.CalculateTotalArmorClass(druid) * character.AnimalBondingStatPct(2) / 100
 	weapon := druid.Equipment[items.SlotMainHand]
 	_, _, attack := game.combat.CalculateWeaponDamage(weapon, druid)
-	if def := lookupWeaponConfigByName(weapon.Name); def != nil {
+	if def := lookupWeaponConfig(weapon); def != nil {
 		trueDamage, _ := game.combat.weaponMasteryStrike(druid, def)
 		attack += trueDamage
 	}

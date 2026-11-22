@@ -3,6 +3,7 @@ package game
 import (
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 	"testing"
 
@@ -12,6 +13,7 @@ import (
 	damagecalc "ugataima/internal/damage"
 	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/spells"
+	"ugataima/internal/world"
 )
 
 func absorptionTestMember(cs *CombatSystem, tier character.SkillMastery) *character.MMCharacter {
@@ -225,10 +227,16 @@ func TestStrongMagicExchangeTable(t *testing.T) {
 	if pct := strongMagicPct(caster, heal); pct != 0 {
 		t.Fatalf("a heal must not be boosted, got %d%%", pct)
 	}
-	// A spell that deals no damage gains nothing, so it pays nothing: every
-	// offensive spell without a damage path is flagged deals_no_damage, and
-	// every one that deals damage is boosted.
+	// A spell that deals no damage gains nothing, so it pays nothing: stuns are
+	// flagged deals_no_damage, control mechanics (slow, fear, berserk) have no
+	// damage at all, and every spell that deals damage is boosted.
+	// The oracle is the damage a real cast carries, not the damage formula.
+	var keys []string
 	for key := range config.GlobalSpells.Spells {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
 		def, err := spells.GetSpellDefinitionByID(spells.SpellID(key))
 		if err != nil || !def.IsOffensive() {
 			continue
@@ -237,16 +245,19 @@ func TestStrongMagicExchangeTable(t *testing.T) {
 		if pureStun && !def.DealsNoDamage {
 			t.Errorf("%s only stuns but is not marked deals_no_damage", key)
 		}
-		if got := strongMagicPct(caster, def); (got > 0) == def.DealsNoDamage {
-			t.Errorf("%s: Strong Magic %d%% with deals_no_damage=%v", key, got, def.DealsNoDamage)
-		}
-		if def.DealsNoDamage {
-			caster.HitPoints = 100
-			cs.applyStrongMagicBurn(caster, def, 20)
-			if caster.HitPoints != 100 {
-				t.Errorf("%s deals no damage but Strong Magic burned %d HP", key, 100-caster.HitPoints)
+		t.Run("cast/"+key, func(t *testing.T) {
+			damaging := castDamageCarried(t, def) > 0
+			if got := strongMagicPct(caster, def); (got > 0) != damaging {
+				t.Errorf("Strong Magic %d%%, deals damage=%v", got, damaging)
 			}
-		}
+			if !damaging {
+				caster.HitPoints = 100
+				cs.applyStrongMagicBurn(caster, def, 20)
+				if caster.HitPoints != 100 {
+					t.Errorf("deals no damage but Strong Magic burned %d HP", 100-caster.HitPoints)
+				}
+			}
+		})
 	}
 
 	tests := []struct {
@@ -281,7 +292,7 @@ func TestStrongMagicExchangeTable(t *testing.T) {
 		caster.Skills[character.SkillStrongMagic] = &character.Skill{Mastery: character.MasteryGrandMaster}
 		caster.HitPoints, caster.MaxHitPoints = 200, 200
 		caster.SpellPoints, caster.MaxSpellPoints = 100, 100
-		cost := cs.effectiveSpellCost(caster, rockBlast.SpellPointsCost)
+		cost := caster.MeditatedSPCost(rockBlast.SpellPointsCost)
 		if !cs.castResolvedSpell("rock_blast", rockBlast, caster, cost, false, false) {
 			t.Fatal("rock_blast cast failed")
 		}
@@ -292,6 +303,49 @@ func TestStrongMagicExchangeTable(t *testing.T) {
 			t.Fatalf("HP after GM cast = %d, want %d (burn == full cost)", caster.HitPoints, want)
 		}
 	})
+}
+
+// castDamageCarried casts def through the real cast path, without Strong
+// Magic, at an adjacent goblin (undead for the undead-only spells) and returns
+// the damage the cast carried: the target's HP lost plus the payload on every
+// projectile, zone and mortar the cast left behind.
+func castDamageCarried(t *testing.T, def spells.SpellDefinition) int {
+	t.Helper()
+	g, _ := summonTileWorld(t)
+	setTestWorldManager(t, nil)
+	g.combat.controlSaveRoll = func() float64 { return 0.99 } // effects, not saves
+	equipSpellAndPrepareCaster(t, g.combat, string(def.ID), 200, 30)
+	g.camera.Angle = 0
+	if def.OutdoorOnly {
+		// Open-ground spells need a sky map; the sky check stats assets/ from the repo root.
+		t.Chdir("../..")
+		setTestWorldManager(t, &world.WorldManager{
+			MapConfigs:    map[string]*config.MapConfig{"arena": {SkyTexture: "arena_panorama"}},
+			CurrentMapKey: "arena",
+		})
+	}
+	mon := monsterPkg.NewMonster3DFromConfig(g.camera.X+g.config.GetTileSize(), g.camera.Y, "goblin", g.config)
+	mon.MaxHitPoints, mon.HitPoints, mon.PerfectDodge, mon.Resistances = 500, 500, 0, nil
+	if def.Mechanic != nil && (def.Mechanic.Kind == "destroy_undead" || def.Mechanic.Kind == "turn_undead") {
+		mon.MonsterType = monsterPkg.TypeUndead
+	}
+	g.world.Monsters = []*monsterPkg.Monster3D{mon}
+	g.world.RegisterMonstersWithCollisionSystem(g.collisionSystem)
+	g.combat.castResolvedSpell(def.ID, def, g.party.Members[0], def.SpellPointsCost, false, false)
+	carried := mon.MaxHitPoints - mon.HitPoints
+	for _, p := range g.magicProjectiles {
+		carried += p.Damage + p.TrueDamage
+	}
+	for _, a := range g.arrows {
+		carried += a.Damage + a.TrueDamage
+	}
+	for _, z := range g.persistentDamageZones {
+		carried += z.TickDamage + z.TrueTickDamage
+	}
+	for _, m := range g.pendingMortars {
+		carried += m.Damage + m.TrueDamage
+	}
+	return carried
 }
 
 // Strong Magic must reach the packet that actually FLIES, for every cast form:
@@ -314,7 +368,7 @@ func TestStrongMagicBoostsEveryCastForm(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s definition: %v", spellID, err)
 		}
-		cost := cs.effectiveSpellCost(caster, def.SpellPointsCost)
+		cost := caster.MeditatedSPCost(def.SpellPointsCost)
 		if !cs.castResolvedSpell(spellID, def, caster, cost, false, false) {
 			t.Fatalf("%s cast failed", spellID)
 		}
@@ -404,7 +458,7 @@ func TestStrongMagicOutgoingBuffOrderTable(t *testing.T) {
 					Damage: parts.Normal, TrueDamage: parts.True, SpellType: "rock_blast", Attacker: caster,
 				}
 				before := mob.HitPoints
-				cs.applyProjectileDamage(projectile, "magic_projectile", mob, projectile.ID)
+				cs.applyProjectileDamage(projectile, mob, projectile.ID)
 				return formResult{got: before - mob.HitPoints, want: parts.Total() + flatBonus}
 			},
 		},
@@ -462,7 +516,7 @@ func TestStrongMagicOutgoingBuffOrderTable(t *testing.T) {
 			caster.Luck = 0
 			caster.Skills[character.SkillStrongMagic] = &character.Skill{Mastery: character.MasteryGrandMaster}
 			cs.game.combatBuffs = []TimedCombatBuff{{
-				SpellID: "test-outgoing-buff", Frames: 600,
+				ID: "test-outgoing-buff", Clock: framesClock(600),
 				OutBonus: flatBonus, OutDamageType: "all",
 			}}
 			mob := mkTestMonster("Target", 10000)
@@ -498,7 +552,7 @@ func TestStrongMagicContractTable(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s definition: %v", spellID, err)
 		}
-		return cs.castResolvedSpell(spellID, def, caster, cs.effectiveSpellCost(caster, def.SpellPointsCost), false, false)
+		return cs.castResolvedSpell(spellID, def, caster, caster.MeditatedSPCost(def.SpellPointsCost), false, false)
 	}
 
 	t.Run("confirmed firewall burns HP", func(t *testing.T) {
@@ -593,7 +647,7 @@ func TestStrongMagicContractTable(t *testing.T) {
 		cs := newTestCombatSystemWithConfig(t)
 		caster := gmCaster(cs)
 		cs.game.combatBuffs = []TimedCombatBuff{{
-			SpellID: "test-outgoing-buff", Frames: 600,
+			ID: "test-outgoing-buff", Clock: framesClock(600),
 			OutBonus: 7, OutDamageType: "all",
 		}}
 		for _, tc := range []struct {
@@ -603,16 +657,16 @@ func TestStrongMagicContractTable(t *testing.T) {
 		}{
 			{spellID: "rock_blast", needle: "Total Damage: ", expected: func(def spells.SpellDefinition) string {
 				_, _, total := cs.CalculateSpellDamage(def.ID, caster)
-				parts, _ := cs.spellPartsWithOutgoingBuff(cs.spellDamageParts(def.ID, caster, total), def.School)
+				parts, _, _ := cs.spellPartsWithOutgoingBuff(cs.spellDamageParts(def.ID, caster, total), def.School)
 				return fmt.Sprintf("Total Damage: %d", parts.Total())
 			}},
 			{spellID: "firewall", needle: "Total per tick: ", expected: func(def spells.SpellDefinition) string {
 				tick := cs.CalculatePersistentDamageZoneTickDamage(def, caster)
-				parts, _ := cs.spellPartsWithOutgoingBuff(cs.spellDamageParts(def.ID, caster, tick), def.School)
+				parts, _, _ := cs.spellPartsWithOutgoingBuff(cs.spellDamageParts(def.ID, caster, tick), def.School)
 				return fmt.Sprintf("Total per tick: %d", parts.Total())
 			}},
 			{spellID: "inferno", needle: "Damage: ", expected: func(def spells.SpellDefinition) string {
-				parts, _ := cs.spellPartsWithOutgoingBuff(
+				parts, _, _ := cs.spellPartsWithOutgoingBuff(
 					cs.spellDamageParts(def.ID, caster, cs.CalculatePartyNovaDamage(def, caster)), def.School,
 				)
 				return fmt.Sprintf("Damage: %d", parts.Total())
@@ -636,14 +690,14 @@ func TestStrongMagicContractTable(t *testing.T) {
 		cs := newTestCombatSystemWithConfig(t)
 		caster := gmCaster(cs)
 		cs.game.combatBuffs = []TimedCombatBuff{{
-			SpellID: "test-outgoing-buff", Frames: 600,
+			ID: "test-outgoing-buff", Clock: framesClock(600),
 			OutBonus: 7, OutDamageType: "all",
 		}}
 		lines := buildSpellComparisonRowsByID("rock_blast", "firebolt", caster, cs).Lines()
 		_, _, rockTotal := cs.CalculateSpellDamage("rock_blast", caster)
 		_, _, boltTotal := cs.CalculateSpellDamage("firebolt", caster)
-		rockParts, _ := cs.spellPartsWithOutgoingBuff(cs.spellDamageParts("rock_blast", caster, rockTotal), "earth")
-		boltParts, _ := cs.spellPartsWithOutgoingBuff(cs.spellDamageParts("firebolt", caster, boltTotal), "fire")
+		rockParts, _, _ := cs.spellPartsWithOutgoingBuff(cs.spellDamageParts("rock_blast", caster, rockTotal), "earth")
+		boltParts, _, _ := cs.spellPartsWithOutgoingBuff(cs.spellDamageParts("firebolt", caster, boltTotal), "fire")
 		rock := rockParts.Total()
 		bolt := boltParts.Total()
 		want := fmt.Sprintf("Total Damage: %d -> %d (%+d)", bolt, rock, rock-bolt)
@@ -687,7 +741,7 @@ func TestStrongMagicSpellCardStatesHPCost(t *testing.T) {
 				}
 				caster.HitPoints, caster.MaxHitPoints = 500, 500
 				caster.SpellPoints, caster.MaxSpellPoints = 500, 500
-				cost := cs.effectiveSpellCost(caster, def.SpellPointsCost)
+				cost := caster.MeditatedSPCost(def.SpellPointsCost)
 				want := character.StrongMagicHPCost(cost, strongMagicPct(caster, def))
 				card := GetSpellTooltipRows(key, caster, cs, false).String()
 				shown := strings.Contains(card, "Strong Magic: also burns")

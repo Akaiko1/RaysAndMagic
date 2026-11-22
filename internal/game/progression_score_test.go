@@ -2,8 +2,11 @@ package game
 
 import (
 	"testing"
+	"time"
 
 	"ugataima/internal/character"
+	"ugataima/internal/highscore"
+	"ugataima/internal/items"
 	"ugataima/internal/world"
 )
 
@@ -101,5 +104,60 @@ func TestScoreTotalsAndVictoryAcknowledgementPersistThroughSaveLoad(t *testing.T
 	}
 	if !gLoad.victoryAcknowledged {
 		t.Fatal("victory acknowledgement did not persist")
+	}
+}
+
+// A victory records the party as it ended - every hero, their class, level
+// and everything they wear (the quick-action shortcut is no gear) - and a
+// score its parts explain; the High Scores screen then opens on that run.
+func TestVictoryScoreRecordsThePartyAndItsGear(t *testing.T) {
+	g, _, _ := travelFixture(t)
+	g.victoryTime = g.sessionStartTime.Add(95 * time.Minute)
+	g.totalExperienceEarned, g.totalGoldEarned = 12000, 3400
+	hero := g.party.Members[0]
+	blade := items.Item{Name: "Vibroblade", Type: items.ItemWeapon}
+	hero.Equipment[items.SlotMainHand] = blade
+	hero.Equipment[items.SlotQuickAction] = items.Item{Name: "Health Potion", Type: items.ItemConsumable}
+	g.victoryNameInput = "Company"
+	if err := highscore.Save(&highscore.Board{Entries: []highscore.Entry{{PlayerName: "Champions", Score: 1 << 30}}}); err != nil {
+		t.Fatal(err)
+	}
+	g.highScoreSelection = 7
+
+	(&InputHandler{game: g}).saveVictoryScore()
+	board, err := highscore.LoadCached()
+	if err != nil || !g.victoryScoreSaved || len(board.Entries) != 2 {
+		t.Fatalf("victory not recorded: %+v, %v", board, err)
+	}
+	if g.highScoreSelection != 1 || board.Entries[1].PlayerName != "Company" {
+		t.Fatalf("the scores open on run %d, want the new run at 1: %+v", g.highScoreSelection, board.Entries)
+	}
+	e := board.Entries[1]
+	if e.Parts().Total() != e.Score || e.PlaySeconds != 95*60 {
+		t.Fatalf("score %d, parts %+v, seconds %d", e.Score, e.Parts(), e.PlaySeconds)
+	}
+	if len(e.Party) != len(g.party.Members) {
+		t.Fatalf("recorded %d heroes, want %d", len(e.Party), len(g.party.Members))
+	}
+	for i, m := range g.party.Members {
+		got := e.Party[i]
+		if got.Name != m.Name || got.Class != m.Class.Key() || got.Level != m.Level || got.Portrait != g.portraitSpriteName(m) {
+			t.Fatalf("hero %d recorded as %+v", i, got)
+		}
+		worn := len(m.Equipment)
+		if _, ok := m.Equipment[items.SlotQuickAction]; ok {
+			worn--
+		}
+		if len(got.Gear) != worn {
+			t.Fatalf("hero %d recorded %d pieces, wears %d", i, len(got.Gear), worn)
+		}
+		for _, it := range got.Gear {
+			if it.Name == "Health Potion" {
+				t.Fatal("the quick-action shortcut was recorded as gear")
+			}
+		}
+	}
+	if e.Party[0].Gear[0].Name != blade.Name {
+		t.Fatalf("the main hand recorded as %q, want %q first", e.Party[0].Gear[0].Name, blade.Name)
 	}
 }

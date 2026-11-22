@@ -122,7 +122,7 @@ func TestMonsterCommitRevalidatesBehaviorBothModes(t *testing.T) {
 			{"relentless", func(m *monster.Monster3D) { m.Relentless = true }, true},
 			{"pursuit", func(m *monster.Monster3D) {}, true},
 			{"dead", func(m *monster.Monster3D) { m.HitPoints = 0 }, false},
-			{"stunned", func(m *monster.Monster3D) { m.StunFramesRemaining = 3; m.StunTurnsRemaining = 1 }, false},
+			{"stunned", func(m *monster.Monster3D) { m.Stun.Frames = 3; m.Stun.Turns = 1 }, false},
 			{"same_tile", func(m *monster.Monster3D) { m.X -= 64 }, false},
 		} {
 			t.Run(fmt.Sprintf("%d/%s", cadence, tc.name), func(t *testing.T) {

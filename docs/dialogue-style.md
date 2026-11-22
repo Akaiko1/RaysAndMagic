@@ -9,7 +9,8 @@ reminders, and rewards.
 - Author NPC voices and location-specific messages in `assets/npcs.yaml`, not
   the shared UI catalog. `quest_messages.<quest_id>` holds both conversation
   bodies (`offer`, `active`, `completed`) and optional action replies
-  (`accepted`, `already_active`, `not_completed`, `ineligible`, `rejected_undead`).
+  (`accepted`, `already_active`, `not_completed`, `ineligible`, `rejected_undead`,
+  `level_locked` for a party below the quest's `min_party_level`).
   Missing optional replies use neutral UI feedback; they never change gates.
 - Paid wait and tavern-rest choices require a complete `response`. Use `{cost}`
   for the choice's price; other placeholders are rejected. Percent signs in
@@ -61,6 +62,23 @@ Lesson: a specific object and destination carry a small story; the instruction
 has atmosphere without losing what the player needs to do. Rhyme belongs to
 this magical speaker, not to every shopkeeper.
 
+The spoken introduction, Sheltem addressing the party:
+
+> I am Sheltem, guardian of Terra.
+
+> Twice now, you have defeated my tests, thinking yourself worthy of invading
+> my world.
+
+> Walk carefully, then, through this third challenge, and take heed that your
+> final decision is truly what you desire--for the course of destiny cannot be
+> turned once set in motion.
+
+[Source: Game 259, the opening monologue](http://crpgaddict.blogspot.com/2017/08/game-259-might-and-magic-iii-isles-of.html).
+
+Lesson: an antagonist's address is direct second person in plain clauses. The
+one flourish, the closing warning, is also a gameplay fact: it announces that a
+final choice exists. Story narration may foreshadow a decision the same way.
+
 ### Might and Magic IV: Clouds of Xeen
 
 Two voiced shop greetings:
@@ -73,10 +91,23 @@ The introduction interrupts Crodo's narration with King Burlock:
 
 > I am the king!
 
+Crodo's narration opens and closes the introduction (the peasants answer his
+"much rejoicing" with a flat "Yaaaay."):
+
+> I am Crodo, overseer of the land known as Xeen.
+
+> I am unable to help you in these dark times. It is now up to you,
+> adventurers, to right what has been wronged.
+
 [Source: Game 403, shop voices and introduction transcript](https://crpgaddict.blogspot.com/2021/02/game-403-might-and-magic-world-of-xeen.html).
 
 Lesson: very short lines can distinguish a brusque armorer, a cheerful banker,
 and a pompous king. Brevity does not require a neutral tutorial voice.
+
+Lesson: a story narrator names himself, states the situation in a few plain
+sentences, and hands the task to the party. That closing line is the ceiling
+for formality in prologue and story-screen text; the deadpan crowd shows that
+humor can sit beside the epic frame without breaking it.
 
 ### Might and Magic V: Darkside of Xeen
 

@@ -6,7 +6,7 @@
 # @ = NPC placeholder (entrance back to forest; bound by >[npc:...] at line end)
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%...%%%%%%%%%%%%%%
-%%@........%%%...%%%........@%%  >[npc:chest_wooden], [npc:barrel_blue]
+%%@.......@%%%...%%%........@%%  >[npc:chest_wooden], [npc:spell_lectern_cleric], [npc:barrel_blue]
 %%..k......%%%...%%%..k...k..%%
 %%$...k......@..........k....%%  >[npc:wooden_door], [tile:dragon_art]
 %%......k..%%%...%%%..k...k..%%

@@ -1,31 +1,27 @@
 package game
 
 import (
-	"fmt"
 	"math"
 	"math/rand"
 
+	uitext "ugataima/assets/text"
+	"ugataima/internal/config"
+
 	"ugataima/internal/monster"
-	"ugataima/internal/status"
 )
 
-// PartyRootState shares the rated status clock with monster roots and stuns.
-// Root restricts voluntary translation only; turning and combat remain legal.
-type PartyRootState struct {
-	Frames int `json:"frames,omitempty"`
-	Turns  int `json:"turns,omitempty"`
-	Rate   int `json:"rate,omitempty"`
-}
+// A party root restricts voluntary translation only; turning and combat
+// remain legal.
+func (g *MMGame) partyRooted() bool { return g.partyRoot.Active() }
 
-func (g *MMGame) partyRooted() bool { return g.partyRoot.Frames > 0 || g.partyRoot.Turns > 0 }
+// rootParty roots the whole party for whole rounds (never shortening a longer
+// root already running).
+func (g *MMGame) rootParty(rounds int) {
+	g.partyRoot.Arm(rounds*config.CombatRoundSeconds, g.config.GetTPS())
+}
 func (g *MMGame) tickPartyRoot(turn bool) {
 	g.tickPartyHinder(turn)
-	r := &g.partyRoot
-	if turn {
-		status.TickTurnRated(&r.Turns, &r.Frames, &r.Rate)
-	} else {
-		status.TickFrameRated(&r.Frames, &r.Turns, &r.Rate)
-	}
+	g.partyRoot.Tick(turn)
 }
 
 // indexAuthoredBands visits the roster once per simulation pass. Peers are
@@ -142,12 +138,11 @@ func (g *MMGame) rallyAuthoredBandHit(target *monster.Monster3D) {
 // Called once at the committed party attack boundary, never on movement ticks
 // or separately for each hit in a multi-attack action.
 func (cs *CombatSystem) tryMonsterPartyAbilities(m *monster.Monster3D, cadence monsterAttackCadence) {
-	if m.RootPartyChance > 0 && rand.Float64() < m.RootPartyChance {
-		r := &cs.game.partyRoot
-		status.RefreshDualRated(&r.Frames, &r.Turns, &r.Rate, m.RootPartySeconds*cs.game.config.GetTPS(), m.RootPartyTurns)
-		cs.game.AddCombatMessage(fmt.Sprintf("%s roots the party in place!", m.Name))
+	if m.Abilities.RootParty.Chance > 0 && rand.Float64() < m.Abilities.RootParty.Chance {
+		cs.game.rootParty(config.CombatRounds(m.Abilities.RootParty.Seconds))
+		cs.game.AddCombatMessage(uitext.Text("combat.roots_the_party_in_place", m.Name))
 	}
-	if m.RearBlinkChance > 0 && !cs.game.monsterMovementHeld(m) && rand.Float64() < m.RearBlinkChance {
+	if m.Abilities.RearBlink.Chance > 0 && !cs.game.monsterMovementHeld(m) && rand.Float64() < m.Abilities.RearBlink.Chance {
 		cs.blinkBehindParty(m, cadence)
 	}
 }
@@ -177,26 +172,49 @@ func (cs *CombatSystem) blinkBehindParty(m *monster.Monster3D, cadence monsterAt
 			bestDot, rear = dot, d
 		}
 	}
-	for n := int(m.RearBlinkRangeTiles); n >= 2; n-- {
+	for n := int(m.Abilities.RearBlink.RangeTiles); n >= 2; n-- {
 		x, y := TileCenterFromTile(tx+rear[0]*n, ty+rear[1]*n, tile)
 		if g.collisionSystem.IsMonsterAttackPostReserved(m.ID, x, y) || !g.collisionSystem.CanMoveToWithTileOverrides(m.ID, x, y, m.WalkableTileOverrides, m.Flying) || !cs.attackLineClear(x, y, px, py) {
 			continue
 		}
-		g.releaseMonsterAttackPost(m)
-		m.X, m.Y = x, y
-		g.collisionSystem.UpdateEntity(m.ID, x, y)
+		g.relocateMonster(m, x, y)
 		if !cs.monsterAttackStillValid(m, monsterAttackDestination{}, cadence) || !g.tryClaimMonsterAttackPost(m) {
 			m.X, m.Y = oldX, oldY
 			g.collisionSystem.UpdateEntity(m.ID, oldX, oldY)
 			g.tryClaimMonsterAttackPost(m)
 			continue
 		}
-		m.ResetPathfinding()
-		m.Direction = math.Atan2(py-y, px-x)
-		g.spawnBlinkLightColumn(oldX, oldY)
-		g.spawnBlinkLightColumn(x, y)
-		g.AddCombatMessage(fmt.Sprintf("%s slips behind the party!", m.Name))
+		cs.settleBlink(m, oldX, oldY, px, py)
+		g.AddCombatMessage(uitext.Text("combat.slips_behind_the_party", m.Name))
 		return true
 	}
 	return false
+}
+
+// relocateMonster is a monster's displacement - a blink, a shove, a pull -
+// to a spot its caller already checked: it leaves its attack post, then
+// moves (placeMonster).
+func (g *MMGame) relocateMonster(m *monster.Monster3D, x, y float64) {
+	g.releaseMonsterAttackPost(m)
+	g.placeMonster(m, x, y)
+}
+
+// placeMonster moves a monster to a checked spot keeping its fight state (a
+// scatter off a shared tile, an ejection from the party's tile): its
+// collision box follows and its stale route drops.
+func (g *MMGame) placeMonster(m *monster.Monster3D, x, y float64) {
+	m.X, m.Y = x, y
+	g.collisionSystem.UpdateEntity(m.ID, x, y)
+	m.ResetPathfinding()
+}
+
+// settleBlink finishes a blink (Rear Blink, Phase Shift): a fresh route, its
+// target at (faceX, faceY) in view, and a light column where it left and where
+// it arrived.
+func (cs *CombatSystem) settleBlink(m *monster.Monster3D, oldX, oldY, faceX, faceY float64) {
+	m.ResetPathfinding()
+	cs.game.snapMonsterGlide(m)
+	m.Direction = math.Atan2(faceY-m.Y, faceX-m.X)
+	cs.game.spawnBlinkLightColumn(oldX, oldY)
+	cs.game.spawnBlinkLightColumn(m.X, m.Y)
 }

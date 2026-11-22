@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // TestItemNameIndexRoundTrip guards the O(1) display-name index behind
 // GetItemDefinitionByName: for EVERY item, looking it up by its Name must
@@ -55,5 +58,82 @@ func TestWeaponNameIndexRoundTrip(t *testing.T) {
 		if gotDef != def {
 			t.Errorf("weapon name %q resolved to a different definition than its own", def.Name)
 		}
+	}
+}
+
+// Aliases must resolve deterministically and a failed reload must leave the
+// current catalog usable by inventories, icons and saved merchant shelves.
+func TestItemLegacyNames(t *testing.T) {
+	preserveUsageCatalog(t)
+	if _, err := LoadItemConfig("../../assets/items.yaml"); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name    string
+		aliases []string
+		other   []string
+		valid   bool
+	}{
+		{"accepted", []string{"Old Dust"}, nil, true},
+		{"empty", []string{""}, nil, false},
+		{"untrimmed", []string{" Old Dust"}, nil, false},
+		{"current name", []string{"Wolf Pelt"}, nil, false},
+		{"own name", []string{"Fairy Dust"}, nil, false},
+		{"duplicate", []string{"Old Dust", "Old Dust"}, nil, false},
+		{"shared alias", []string{"Old Dust"}, []string{"Old Dust"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := usageFixture(t)
+			defs := root["items"].(map[string]any)
+			defs["fairy_dust"].(map[string]any)["legacy_names"] = tc.aliases
+			defs["wolf_pelt"].(map[string]any)["legacy_names"] = tc.other
+			before := GlobalItems
+			cfg, err := loadUsageFixture(t, root)
+			if !tc.valid {
+				if err == nil || !strings.Contains(err.Error(), "legacy") {
+					t.Fatalf("expected legacy-name rejection, got %v", err)
+				}
+				if GlobalItems != before {
+					t.Fatal("invalid catalog replaced active definitions")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, name := range []string{"Fairy Dust", "Old Dust"} {
+				def, key, ok := GetItemDefinitionByName(name)
+				if !ok || key != "fairy_dust" || def != cfg.Items[key] {
+					t.Fatalf("%q did not resolve to the same item", name)
+				}
+			}
+		})
+	}
+}
+
+// One key or display name names one entry across items.yaml and weapons.yaml.
+func TestCatalogsDisjoint(t *testing.T) {
+	weapons := &WeaponSystemConfig{Weapons: map[string]*WeaponDefinitionConfig{
+		"iron_sword": {Name: "Iron Sword", LegacyNames: []string{"Old Sword"}},
+	}}
+	for _, tc := range []struct {
+		name    string
+		item    ItemDefinitionConfig
+		key     string
+		wantErr string
+	}{
+		{"distinct", ItemDefinitionConfig{Name: "Potion"}, "potion", ""},
+		{"shared key", ItemDefinitionConfig{Name: "Potion"}, "iron_sword", "also a weapon key"},
+		{"shared name", ItemDefinitionConfig{Name: "Iron Sword"}, "potion", "share the name"},
+		{"weapon's former name", ItemDefinitionConfig{Name: "Old Sword"}, "potion", "share the name"},
+		{"item's former name", ItemDefinitionConfig{Name: "Potion", LegacyNames: []string{"Iron Sword"}}, "potion", "share the name"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			def := tc.item
+			err := validateCatalogsDisjoint(&ItemSystemConfig{Items: map[string]*ItemDefinitionConfig{tc.key: &def}}, weapons)
+			if (err == nil) != (tc.wantErr == "") || (err != nil && !strings.Contains(err.Error(), tc.wantErr)) {
+				t.Fatalf("validateCatalogsDisjoint = %v, want %q", err, tc.wantErr)
+			}
+		})
 	}
 }

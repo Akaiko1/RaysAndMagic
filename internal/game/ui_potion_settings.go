@@ -29,14 +29,14 @@ var settingsTabLabels = [...]string{
 }
 
 // settingsTabRows is how many keyboard-selectable rows a tab has.
-func settingsTabRows(tab settingsTabKind) int {
+func (g *MMGame) settingsTabRows(tab settingsTabKind) int {
 	switch tab {
 	case settingsTabPotions:
 		return 2 // health and mana
 	case settingsTabDisplay:
 		return displayRows
 	case settingsTabCombat:
-		return gameplayRows
+		return g.gameplayRowCount()
 	default:
 		return len(audioSettingDefinitions)
 	}
@@ -62,11 +62,7 @@ func (ui *UISystem) settingsClick(r layoutRect, action func()) {
 	if !ui.audioSettingsOwnsInput() {
 		return
 	}
-	ui.onDisplayedInput(uiCommandClick, r, func() {
-		if ui.game.consumeLeftClickIn(r.x, r.y, r.right(), r.bottom()) {
-			action()
-		}
-	})
+	ui.onClick(r, true, action)
 }
 func (ui *UISystem) drawSettingsHeader(screen *ebiten.Image, px, py, panelW int) {
 	drawScaledMetalCenteredText(screen, "Settings", px+panelW/2, py+22, 2, rarityGold)
@@ -197,15 +193,14 @@ func (ui *UISystem) drawPotionSettings(screen *ebiten.Image, px, py, panelW int)
 				mx, my := pointerPosition()
 				_, wheel := pointerWheel()
 				if isMouseHoveringBox(mx, my, l.types.x, l.types.y, l.types.right(), l.types.bottom()) && wheel != 0 {
-					g.potionSettingsScroll[row] = max(0, min(g.potionSettingsScroll[row]-int(math.Copysign(max(1, math.Abs(wheel*36)), wheel)), limit))
+					g.potionSettingsScroll[row] = max(0, min(g.potionSettingsScroll[row]+wheelScrollPixels(wheel, 36), limit))
 				}
 			})
 		}
-		clip := image.Rect(l.types.x, l.types.y, l.types.right(), l.types.bottom()).Intersect(uiBounds(screen))
-		if clip.Empty() {
+		dst, clip, ok := uiListClip(screen, l.types)
+		if !ok {
 			continue
 		}
-		dst := uiClip(screen, clip)
 		for i, choice := range choices {
 			r := l.card(i, offset)
 			hit := image.Rect(r.x, r.y, r.right(), r.bottom()).Intersect(clip)
@@ -238,7 +233,7 @@ func (ui *UISystem) drawPotionSettings(screen *ebiten.Image, px, py, panelW int)
 				ink = color.RGBA{162, 192, 134, 255}
 			}
 			drawUITextColored(dst, caption, r.x+44, r.y+38, ink)
-			ui.settingsClick(layoutRect{hit.Min.X, hit.Min.Y, hit.Dx(), hit.Dy()}, func() { g.toggleAutomaticPotion(mana, choice.Key) })
+			ui.settingsClick(layoutRectOf(hit), func() { g.toggleAutomaticPotion(mana, choice.Key) })
 			mx, my := pointerPosition()
 			if image.Pt(mx, my).In(hit) {
 				lines := GetItemTooltipRows(item, nil, g.combat, tooltipDetailHeld())

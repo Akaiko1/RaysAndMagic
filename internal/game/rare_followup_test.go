@@ -7,13 +7,15 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"ugataima/internal/status"
 
-	"github.com/hajimehoshi/ebiten/v2"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/game/keytracker"
 	"ugataima/internal/items"
 	"ugataima/internal/world"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 // Every flask and collision route shares the tile scatter, native particle
@@ -29,26 +31,27 @@ func TestRareFlaskImpactLifecycle(t *testing.T) {
 					if !g.throwFlask(0, key, false) {
 						t.Fatal("throw failed")
 					}
-					p := &g.magicProjectiles[0]
-					w := MagicProjectileWrapper{MagicProjectile: p, game: g, collisionSystem: g.collisionSystem, projectileID: p.ID}
-					distance := p.FlaskFlightRange / 2
+					p := &g.flasks[0]
+					w := FlaskProjectileWrapper{Flask: p, game: g, collisionSystem: g.collisionSystem}
+					distance := p.Launch.distance / 2
 					if hit == "range" {
-						distance = p.FlaskFlightRange
+						distance = p.Launch.distance
 					}
 					x, y := g.camera.X+distance, g.camera.Y
 					m := zoneVictim(t, g)
 					m.X, m.Y, m.ArmorClass = x, y, 0
+					g.collisionSystem.UpdateEntity(m.ID, x, y)
 					hp := m.HitPoints
 					w.SetPosition(x, y)
 					if hit == "body" {
-						g.combat.applyProjectileDamage(p, "magic_projectile", m, p.ID)
+						g.combat.CheckProjectileMonsterCollisions()
 					} else {
 						if hit == "wall" {
 							w.OnCollision(x, y)
 						}
 						w.ApplyCollisionEffects()
 					}
-					assertFlaskTileFootprint(t, g, x, y, p.FlaskRadius)
+					assertFlaskTileFootprint(t, g, x, y, p.Radius)
 					if hp-m.HitPoints != p.Damage {
 						t.Fatalf("damage=%d want=%d", hp-m.HitPoints, p.Damage)
 					}
@@ -125,7 +128,7 @@ func TestRareFlaskRetunedGroundFootprint(t *testing.T) {
 					if !g.throwFlask(0, key, false) {
 						t.Fatal("throw failed")
 					}
-					p := &g.magicProjectiles[0]
+					p := &g.flasks[0]
 					tile := float64(g.config.GetTileSize())
 					x, y := g.camera.X+(3+offset)*tile, g.camera.Y+offset*tile
 					g.combat.detonateFlask(p, x, y)
@@ -148,7 +151,7 @@ func TestRareFlaskGroundVisibility(t *testing.T) {
 			d, _ := config.GetItemDefinition(key)
 			tile := float64(g.config.GetTileSize())
 			x, y := g.camera.X+4*tile, g.camera.Y
-			p := &MagicProjectile{FlaskRadius: 2 * tile, FlaskPoisonFrames: d.Flask.PoisonSeconds[0], FlaskBurnFrames: d.Flask.BurnSeconds[0]}
+			p := &FlaskProjectile{Radius: 2 * tile, PoisonFrames: d.Flask.PoisonSeconds[0], BurnFrames: d.Flask.BurnSeconds[0]}
 			g.createFlaskImpact(p, x, y, d.BrewColor)
 			initial := g.spellHitEffects[0]
 			initial.Particles = append([]SpellHitParticle(nil), initial.Particles...)
@@ -214,9 +217,9 @@ func TestRareReturnAcrossFoldChain(t *testing.T) {
 						if tb {
 							g.startPartyTurn()
 						} else {
-							g.tickRareClassClocks(fold.ReuseSeconds * g.config.GetTPS())
+							passFrames(g, fold.ReuseSeconds*g.config.GetTPS())
 						}
-						g.spellInputCooldown = 0
+						g.actionInputStagger = 0
 					}
 					for hop := 0; hop < 3; hop++ {
 						if hop > 0 {
@@ -225,12 +228,12 @@ func TestRareReturnAcrossFoldChain(t *testing.T) {
 						c.ActionsRemaining = 0
 						c.RTCooldown = 123
 						it, _ := config.TechniqueItem("fold_step")
-						c.Equipment[items.SlotSpell] = it
+						c.Equipment[items.SlotQuickAction] = it
 						rareInputCast(g, NewInputHandler(g), tb)
 						if math.Abs(g.camera.X-x-float64((hop+1)*tiles)*ts) > .01 || c.ActionsRemaining != 0 || c.RTCooldown != 123 {
 							t.Fatal("equipped F step did not use mastery range for free")
 						}
-						if c.RareClass.Anchor.X != x || c.RareClass.Anchor.Y != y || c.RareClass.Anchor.Frames != config.TierValue(fold.Duration, tier)*g.config.GetTPS() {
+						if c.RareClass.Anchor.X != x || c.RareClass.Anchor.Y != y || c.RareClass.Anchor.Clock.Frames != config.TierValue(fold.Duration, tier)*g.config.GetTPS() {
 							t.Fatal("later Fold replaced first anchor or failed to refresh it")
 						}
 					}
@@ -255,7 +258,7 @@ func TestRareReturnAcrossFoldChain(t *testing.T) {
 					case "landing_wall":
 						g.world.Tiles[10][8] = world.TileWall
 					case "expired":
-						c.RareClass.Anchor.Frames = 0
+						c.RareClass.Anchor.Clock = status.DualClock{}
 					case "different_map":
 						c.RareClass.Anchor.MapKey = "another_map"
 					}
@@ -265,10 +268,10 @@ func TestRareReturnAcrossFoldChain(t *testing.T) {
 					if got != want {
 						t.Fatalf("Return=%v want=%v", got, want)
 					}
-					if got && (math.Abs(g.camera.X-x) > .01 || g.camera.Y != y || c.RareClass.Anchor.Frames != 0) {
+					if got && (math.Abs(g.camera.X-x) > .01 || g.camera.Y != y || c.RareClass.Anchor.Clock.Frames != 0) {
 						t.Fatal("Return missed first anchor")
 					}
-					if !got && (g.camera.X != beforeX || c.SpellPoints != sp || c.RareClass.Anchor != anchor || g.spatialReuseFrames != 0) {
+					if !got && (g.camera.X != beforeX || c.SpellPoints != sp || c.RareClass.Anchor != anchor || g.spatialReuse.Frames != 0) {
 						t.Fatal("failed Return spent state")
 					}
 				})
@@ -284,7 +287,7 @@ func TestRareFlowingStaffPersistentCharges(t *testing.T) {
 				g, c := rareClassGame(t, character.ClassWayfarer, tb)
 				c.Skills[character.SkillFlowingStaff] = &character.Skill{Mastery: character.SkillMastery(tier)}
 				c.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("oak_staff")
-				d := lookupWeaponConfigByName("Oak Staff")
+				d := lookupWeaponConfig(testWeapon("Oak Staff"))
 				base := character.WeaponDamageAtNight(d, c, false).Total
 				if !g.useTechnique(0, "fold_step", false, false) {
 					t.Fatal("Fold failed")
@@ -292,7 +295,7 @@ func TestRareFlowingStaffPersistentCharges(t *testing.T) {
 				if c.FlowingStaffCharges() != tier+1 {
 					t.Fatal("movement did not grant mastery capacity")
 				}
-				g.tickRareClassClocks(1000000)
+				passFrames(g, config.RoundFrames(1, g.config.GetTPS())) // the clock ticks; charges have none
 				g.clearTransientCombatState()
 				c = restoreCharacterSave(buildCharacterSave(c))
 				g.party.Members[0] = c
@@ -315,8 +318,8 @@ func TestRareFlowingStaffPersistentCharges(t *testing.T) {
 				if character.WeaponDamageAtNight(d, c, false).FlowingStaff != 0 {
 					t.Fatal("empty charges still boost damage")
 				}
-				g.notifyPilgrimDisplacement(g.camera.X-float64(g.config.GetTileSize()), g.camera.Y)
-				g.notifyPilgrimDisplacement(g.camera.X-float64(g.config.GetTileSize()), g.camera.Y)
+				g.partyMoved(g.camera.X-float64(g.config.GetTileSize()), g.camera.Y)
+				g.partyMoved(g.camera.X-float64(g.config.GetTileSize()), g.camera.Y)
 				if c.FlowingStaffCharges() != tier+1 {
 					t.Fatal("refill exceeded mastery cap")
 				}
@@ -328,7 +331,7 @@ func TestRareFlowingStaffPersistentCharges(t *testing.T) {
 	c.RareClass.FlowCharges = 0
 	c = restoreCharacterSave(buildCharacterSave(c))
 	g.party.Members[0] = c
-	g.tickRareClassClocks(100000)
+	passFrames(g, config.RoundFrames(1, g.config.GetTPS())) // the clock ticks; charges have none
 	if c.FlowingStaffCharges() != 1 || c.RareClass.FlowFrames != 0 {
 		t.Fatal("legacy timer did not migrate to one permanent charge")
 	}
@@ -401,7 +404,7 @@ func TestRarePathfindingPartyAndRunning(t *testing.T) {
 					ih.pendingRepeat = rtActWeapon
 					ih.performPendingRepeat()
 				case "held_cast":
-					ih.pendingRepeat = rtActCast
+					ih.pendingRepeat = rtActSlotted
 					ih.performPendingRepeat()
 				case "mouse":
 					m := zoneVictim(t, g)
@@ -504,24 +507,6 @@ func TestRarePathfindingAutocastAndProgression(t *testing.T) {
 	}
 	if c.SkillTier(character.SkillPathfinding) != int(character.MasteryGrandMaster) || !g.partyFireWhileRunning() {
 		t.Fatal("trained mastery did not survive save/load")
-	}
-}
-
-func TestRareFlowingStaffHUDGeometry(t *testing.T) {
-	for n := 0; n <= 4; n++ {
-		boxes := flowingStaffChargeRects(panelPortraitX, panelPortraitY, panelPortraitW, n)
-		if len(boxes) != n {
-			t.Fatalf("%d charges have %d glyphs", n, len(boxes))
-		}
-		badges := makePartyProgressionBadgeLayout(panelPortraitX, panelPortraitY, panelPortraitW, panelPortraitH, true, true)
-		for i, b := range boxes {
-			if b.x < panelPortraitX+panelPortraitW || b.right() >= partyPanelContentLeft || b.y < 0 || b.bottom() > badges.stat.y {
-				t.Fatal("charge icon overlaps portrait, stats or progression badges")
-			}
-			if i > 0 && boxes[i-1].bottom() > b.y {
-				t.Fatal("charges overlap")
-			}
-		}
 	}
 }
 

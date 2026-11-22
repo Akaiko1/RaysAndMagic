@@ -1,6 +1,7 @@
 package game
 
 import (
+	"fmt"
 	"image/color"
 	"strconv"
 
@@ -9,29 +10,37 @@ import (
 	"ugataima/internal/spells"
 
 	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/colorm"
 )
 
 const campHUDSprite = "icon_camp"
 
 type gameplayActionBarLayout struct {
-	bounds, quick, camp layoutRect
-	hasQuick            bool
+	bounds, quick, camp, auto layoutRect
+	quick2                    layoutRect // the second quick row, above quick; zero without it
+	hasQuick, hasAuto         bool
 }
 
-// One layout owns the whole action rail, including the always-available camp
-// button when the selected hero has no quick items. Other HUD blocks reserve
-// bounds, while each control draws and consumes clicks in its own rectangle.
+// One layout owns the whole action rail: the party's AUTO button while any
+// hero has stat points, the always-available camp button, and the selected
+// hero's quick items. Other HUD blocks reserve bounds, while each control
+// draws and consumes clicks in its own rectangle.
 func inGameActionBarLayout(g *MMGame) (gameplayActionBarLayout, bool) {
 	if g == nil || g.config == nil || g.party == nil || len(g.party.Members) == 0 || g.menuOpen {
 		return gameplayActionBarLayout{}, false
 	}
 	l := gameplayActionBarLayout{}
+	secondRow := false
 	if g.selectedChar >= 0 && g.selectedChar < len(g.party.Members) {
 		if ch := g.party.Members[g.selectedChar]; ch != nil {
 			for _, it := range ch.QuickSlots {
 				l.hasQuick = l.hasQuick || it != nil
 			}
+			secondRow = ch.QuickSecondRow
 		}
+	}
+	for _, m := range g.party.Members {
+		l.hasAuto = l.hasAuto || m != nil && m.FreeStatPoints > 0
 	}
 	pw, _, left, partyTop := partyPortraitLayout(g)
 	barW := min(pw*2, 240)
@@ -42,14 +51,80 @@ func inGameActionBarLayout(g *MMGame) (gameplayActionBarLayout, bool) {
 	bottom := max(campSize, partyTop-18)
 	if l.hasQuick {
 		l.quick = layoutRect{right - barW, bottom - barH, barW, barH}
+		if secondRow {
+			l.quick2 = layoutRect{l.quick.x, l.quick.y - quickSlotRowGap - barH, barW, barH}
+		}
 		right = l.quick.x - gap
 	}
 	l.camp = layoutRect{right - campSize, bottom - campSize, campSize, campSize}
 	l.bounds = l.camp
+	if l.hasAuto {
+		l.auto = layoutRect{l.camp.x - gap - campSize, l.camp.y, campSize, campSize}
+		l.bounds.x = l.auto.x
+	}
+	end := l.camp.right()
 	if l.hasQuick {
-		l.bounds.w = l.quick.right() - l.camp.x
+		end = l.quick.right()
+	}
+	l.bounds.w = end - l.bounds.x
+	if l.quick2.w > 0 {
+		l.bounds = l.bounds.union(l.quick2)
 	}
 	return l, true
+}
+
+// hudIconWhite keeps an icon's alpha silhouette and paints it white.
+var hudIconWhite = func() colorm.ColorM {
+	var cm colorm.ColorM
+	cm.Scale(0, 0, 0, 1)
+	cm.Translate(1, 1, 1, 0)
+	return cm
+}()
+
+// drawHUDIconHoverGlow rims an action-rail icon in white while preserving its
+// alpha silhouette.
+func (ui *UISystem) drawHUDIconHoverGlow(screen *ebiten.Image, key string, r layoutRect) {
+	op := &ebiten.DrawImageOptions{}
+	op.ColorScale.ScaleAlpha(0.16)
+	white := ui.hudIconSilhouettes.of(key, ui.game.sprites.GetSprite(key))
+	uiDrawImageScaledEdgeGlow(screen, white, float64(r.x), float64(r.y), float64(r.w), float64(r.h), 2, op)
+}
+
+// drawAutoStatsHUD is the party's AUTO button beside the camp: every hero
+// spends their stat points by the build chosen for their class.
+func (ui *UISystem) drawAutoStatsHUD(screen *ebiten.Image) {
+	g := ui.game
+	layout, visible := inGameActionBarLayout(g)
+	if !visible || !layout.hasAuto {
+		return
+	}
+	r := layout.auto
+	mouseX, mouseY := pointerPosition()
+	hover := !ui.hudClicksBlocked() && isMouseHoveringBox(mouseX, mouseY, r.x, r.y, r.right(), r.bottom())
+	// The badge art is already a framed tile: it is the button, drawn at a
+	// whole-pixel scale like the camp beside it.
+	sprite := g.sprites.GetSprite(statBadgeStyle.icon)
+	side := r.w
+	if art := sprite.Bounds().Dx(); art > 0 && side >= art {
+		side = side / art * art
+	}
+	icon := layoutRect{r.x + (r.w-side)/2, r.bottom() - side, side, side}
+	drawPartyProgressionBadgeAura(screen, icon.x, icon.y, icon.w, icon.h, statBadgeStyle.tint, g.badgeAuraPulse(ui.game.uiSeconds()))
+	if hover {
+		ui.drawHUDIconHoverGlow(screen, statBadgeStyle.icon, icon)
+	}
+	drawImageScaled(screen, sprite, icon.x, icon.y, icon.w, icon.h)
+	drawCenteredTextWithShadow(screen, "AUTO", icon.x, icon.bottom()-uiTextCharHeight-4, icon.w, uiTextCharHeight+1, statBadgeStyle.tint)
+	if hover {
+		points := 0
+		for _, m := range g.party.Members {
+			if m != nil {
+				points += m.FreeStatPoints
+			}
+		}
+		ui.queueTooltip([]string{"Auto-assign party stats", fmt.Sprintf("Spend %d points by each hero's build", points), "Builds: Settings > Gameplay"}, mouseX+12, mouseY+8)
+	}
+	ui.onGatedClick(r, func() bool { return !ui.hudClicksBlocked() }, func() { g.autoDistributePartyStatPoints() })
 }
 
 func (ui *UISystem) drawCampHUD(screen *ebiten.Image) {
@@ -63,12 +138,7 @@ func (ui *UISystem) drawCampHUD(screen *ebiten.Image) {
 	hover := !ui.hudClicksBlocked() && isMouseHoveringBox(mouseX, mouseY, r.x, r.y, r.right(), r.bottom())
 	sprite := g.sprites.GetSprite(campHUDSprite)
 	if hover {
-		op := &ebiten.DrawImageOptions{}
-		// Replace RGB with white while preserving the tent's alpha silhouette.
-		op.ColorM.Scale(0, 0, 0, 1)
-		op.ColorM.Translate(1, 1, 1, 0)
-		op.ColorScale.ScaleAlpha(0.16)
-		uiDrawImageScaledEdgeGlow(screen, sprite, float64(r.x), float64(r.y), float64(r.w), float64(r.h), 2, op)
+		ui.drawHUDIconHoverGlow(screen, campHUDSprite, r)
 	}
 	drawImageScaled(screen, sprite, r.x, r.y, r.w, r.h)
 	// Keep the number directly on the artwork; only the glyph shadow supplies
@@ -88,11 +158,7 @@ func (ui *UISystem) drawCampHUD(screen *ebiten.Image) {
 		lines, colors := g.campStatusCardRows()
 		ui.queueCardTooltip(lines, colors, woodPlateColor, nil, campHUDSprite, mouseX+12, mouseY+8)
 	}
-	ui.onDisplayedInput(uiCommandClick, r, func() {
-		if !ui.hudClicksBlocked() && g.consumeLeftClickIn(r.x, r.y, r.right(), r.bottom()) {
-			g.campConfirmOpen = true
-		}
-	})
+	ui.onGatedClick(r, func() bool { return !ui.hudClicksBlocked() }, func() { g.campConfirmOpen = true })
 }
 
 type campConfirmationLayout struct {
@@ -135,10 +201,8 @@ func (ui *UISystem) drawCampConfirmation(screen *ebiten.Image) {
 		r := button.r
 		hover := interactive && isMouseHoveringBox(mouseX, mouseY, r.x, r.y, r.right(), r.bottom())
 		ui.drawMenuButton(screen, button.label, r.x, r.y, r.w, r.h, hover)
-		ui.onDisplayedInput(uiCommandClick, r, func() {
-			if interactive && g.consumeLeftClickIn(r.x, r.y, r.right(), r.bottom()) {
-				g.resolveCampConfirmation(button.confirm)
-			}
+		ui.onClick(r, interactive, func() {
+			g.resolveCampConfirmation(button.confirm)
 		})
 	}
 	ui.drawPopupCloseButton(screen, l.close.x, l.close.y, l.close.w, interactive, func() {
@@ -152,10 +216,11 @@ func (g *MMGame) resolveCampConfirmation(confirmed bool) {
 	}
 	g.campConfirmOpen = false
 	if confirmed {
+		hurt := g.watcherPartyHurt() // judged as they lie down: the rest heals it
 		message, rested := g.TryCamp()
 		g.AddCombatMessage(message)
 		if rested {
-			g.beginCampRest()
+			g.beginCampRest(hurt)
 			// One cue per accepted rest, using the actual healing spell's
 			// YAML school routing; never once per party member or draw frame.
 			if heal, err := spells.GetSpellDefinitionByID(spells.SpellID(items.SpellEffectHealOther)); err == nil {

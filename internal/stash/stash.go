@@ -6,28 +6,123 @@ package stash
 
 import (
 	"encoding/json"
+	"fmt"
+	"maps"
 	"os"
+	"slices"
 
+	"ugataima/internal/config"
 	"ugataima/internal/items"
+	"ugataima/internal/status"
 	"ugataima/internal/storage"
 )
 
-// SlotCount is the number of general (any-item) stash cells.
-const SlotCount = 8
+// SlotCount is the number of general (any-item) chest cells.
+const SlotCount = 64
 
-// CardSlotCount is the number of extra cells that ONLY accept monster cards.
-const CardSlotCount = 8
+// AlbumCopies is how many copies of one card a card-album slot holds.
+const AlbumCopies = 4
 
 const fileName = "stash.json"
 
 const transferJournalFileName = "stash-transfer.json"
 
-// Stash is the shared chest. An empty slot is the zero Item (Name == "").
-// CardSlots are a separate bank restricted to monster cards (items.ItemCard);
-// older stash.json files without the field load them empty (backward-compatible).
+// Stash is everything stored across saves. An empty cell is the zero Item
+// (Name == ""). Slots are the tavern chest; Collection (the Storage Clerk's
+// legendary stamps) holds one item per item key and Album up to AlbumCopies
+// cards per card key.
 type Stash struct {
-	Slots     [SlotCount]items.Item     `json:"slots"`
-	CardSlots [CardSlotCount]items.Item `json:"card_slots"`
+	Slots      [SlotCount]items.Item   `json:"slots"`
+	Collection map[string]items.Item   `json:"collection,omitempty"`
+	Album      map[string][]items.Item `json:"album,omitempty"`
+}
+
+// MarshalJSON records the tick rate the items' frame counts (device recharge,
+// wind-up) were written at, for the chest file and the transfer journal alike.
+func (s Stash) MarshalJSON() ([]byte, error) {
+	type current Stash
+	return json.Marshal(struct {
+		current
+		TickRate int `json:"tick_rate"`
+	}{current(s), config.GetTargetTPS()})
+}
+
+// UnmarshalJSON reads the current layout, moves the old card vault
+// (card_slots) into free general cells and rescales the items' frame counts to
+// the live tick rate (status.RescaleSaved), for the chest file and the
+// transfer journal alike, so no reader ever sees the retired bank.
+func (s *Stash) UnmarshalJSON(data []byte) error {
+	type current Stash
+	var wire struct {
+		current
+		CardSlots []items.Item `json:"card_slots"`
+		TickRate  int          `json:"tick_rate"`
+	}
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	*s = Stash(wire.current)
+	for _, card := range wire.CardSlots {
+		if IsEmpty(card) {
+			continue
+		}
+		i := slices.IndexFunc(s.Slots[:], IsEmpty)
+		if i < 0 {
+			return fmt.Errorf("stash: no free cell for a card from the old card vault")
+		}
+		s.Slots[i] = card
+	}
+	status.RescaleSaved(s, wire.TickRate)
+	return nil
+}
+
+// Place lands an item on chest cell idx under items.DropOnto, as Bag.Place
+// does in a bag: onto a matching stack it merges, an empty cell takes it, onto
+// any other item it takes the cell and returns the item it displaced. Callers
+// refuse part of a stack onto another item before taking anything.
+func (s *Stash) Place(idx int, it items.Item) (displaced items.Item) {
+	cell := &s.Slots[idx]
+	if items.DropOnto(it, *cell, true) == items.DropMerge {
+		cell.MergeStack(it)
+		return items.Item{}
+	}
+	displaced, *cell = *cell, it
+	return displaced
+}
+
+// Each visits every stored item - chest cells, collection, album - in a fixed
+// order and keeps whatever fn changes. It is the one walk over the stash, so
+// anti-dupe claims, load normalization and every reader cover every container.
+func (s *Stash) Each(fn func(*items.Item)) {
+	for i := range s.Slots {
+		if !IsEmpty(s.Slots[i]) {
+			fn(&s.Slots[i])
+		}
+	}
+	for _, key := range slices.Sorted(maps.Keys(s.Collection)) {
+		it := s.Collection[key]
+		fn(&it)
+		s.Collection[key] = it
+	}
+	for _, key := range slices.Sorted(maps.Keys(s.Album)) {
+		for i := range s.Album[key] {
+			fn(&s.Album[key][i])
+		}
+	}
+}
+
+// Clone is a deep copy: a snapshot's collection and album pages never alias
+// the live stash.
+func (s Stash) Clone() Stash {
+	out := s
+	out.Collection = maps.Clone(s.Collection)
+	if s.Album != nil {
+		out.Album = make(map[string][]items.Item, len(s.Album))
+		for key, page := range s.Album {
+			out.Album[key] = slices.Clone(page)
+		}
+	}
+	return out
 }
 
 func path() string { return storage.AppSavePath(fileName) }

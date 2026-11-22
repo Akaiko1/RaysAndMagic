@@ -10,6 +10,15 @@ type FloorChoice struct {
 
 type FloorResolution [][]FloorChoice
 
+// FloorRecipient selects the ground rules for a cell awaiting inheritance.
+type FloorRecipient uint8
+
+const (
+	FloorScenery FloorRecipient = iota
+	FloorNPC
+	FloorMonster
+)
+
 func (floors FloorResolution) At(x, y int) (TileType3D, bool) {
 	if y < 0 || y >= len(floors) || x < 0 || x >= len(floors[y]) {
 		return TileEmpty, false
@@ -20,8 +29,8 @@ func (floors FloorResolution) At(x, y int) (TileType3D, bool) {
 
 // CanSupplyUnderFloor applies to original floors and to the original floor
 // carried through another object. Never classify the intervening prop as ground.
-// Movement flags do not determine appearance. Donors opt out in tile data;
-// ordinary/deep water and directional edges require explicit placement.
+// Donors can opt out in tile data. Movement and water restrictions belong to
+// the recipient and are applied during the vote, not to the source globally.
 func (tm *TileManager) CanSupplyUnderFloor(tile TileType3D) bool {
 	d := tm.GetTileData(tile)
 	return d != nil && d.RenderType == config.TileRenderFloor &&
@@ -32,7 +41,7 @@ func (tm *TileManager) CanSupplyUnderFloor(tile TileType3D) bool {
 // are pending cells even when the parser has placed a default floor beneath
 // them. No fallback participates in the vote: callers apply it after resolution.
 // Each newly resolved cell wakes its neighbours once, keeping long chains linear.
-func (tm *TileManager) ResolveFloors(tiles [][]TileType3D, entities map[[2]int]bool) FloorResolution {
+func (tm *TileManager) ResolveFloors(tiles [][]TileType3D, entities map[[2]int]FloorRecipient) FloorResolution {
 	floors := make(FloorResolution, len(tiles))
 	pending := make([][]bool, len(tiles))
 	queued := make([][]bool, len(tiles))
@@ -42,7 +51,7 @@ func (tm *TileManager) ResolveFloors(tiles [][]TileType3D, entities map[[2]int]b
 		pending[y] = make([]bool, len(row))
 		queued[y] = make([]bool, len(row))
 		for x, tile := range row {
-			if entities[[2]int{x, y}] || tm.InheritsFloor(tile) {
+			if entities[[2]int{x, y}] != FloorScenery || tm.InheritsFloor(tile) {
 				pending[y][x] = true
 			} else if tm.CanSupplyUnderFloor(tile) {
 				floors[y][x] = FloorChoice{Tile: tile, OK: true}
@@ -67,12 +76,13 @@ func (tm *TileManager) ResolveFloors(tiles [][]TileType3D, entities map[[2]int]b
 		for i, cell := range candidates {
 			x, y := cell[0], cell[1]
 			owner := tiles[y][x]
-			if entities[cell] {
+			if entities[cell] != FloorScenery {
 				owner = TileEmpty
 			}
 			// An entity's inherited floor also becomes its movement tile. Visual
-			// scenery may inherit water/chasm color, but automatic spawn ground
-			// must remain walkable. Explicit ground_tile bypasses this vote.
+			// scenery may inherit chasm color, but automatic spawn ground
+			// must remain walkable. Only monsters may inherit water, and only
+			// walkable water. Explicit ground_tile bypasses this vote.
 			tile, ok := tm.voteUnderFloor(owner, x, y, floors.At, entities[cell])
 			choices[i] = FloorChoice{Tile: tile, OK: ok}
 		}
@@ -90,7 +100,7 @@ func (tm *TileManager) ResolveFloors(tiles [][]TileType3D, entities map[[2]int]b
 	return floors
 }
 
-func (tm *TileManager) voteUnderFloor(owner TileType3D, x, y int, at func(int, int) (TileType3D, bool), requireWalkable bool) (TileType3D, bool) {
+func (tm *TileManager) voteUnderFloor(owner TileType3D, x, y int, at func(int, int) (TileType3D, bool), recipient FloorRecipient) (TileType3D, bool) {
 	ownerData := tm.GetTileData(owner)
 	// At most eight distinct donors: avoid a map allocation for every cell.
 	var donors [8]TileType3D
@@ -99,7 +109,9 @@ func (tm *TileManager) voteUnderFloor(owner TileType3D, x, y int, at func(int, i
 	best, bestScore := TileEmpty, 0
 	for _, n := range floorVoteNeighbours {
 		tile, ok := at(x+n.dx, y+n.dy)
-		if !ok || !tm.CanSupplyUnderFloor(tile) || requireWalkable && !tm.IsWalkable(tile) {
+		if !ok || !tm.CanSupplyUnderFloor(tile) ||
+			(recipient != FloorScenery && !tm.IsWalkable(tile)) ||
+			(tm.IsWater(tile) && recipient != FloorMonster) {
 			continue
 		}
 		excluded := false

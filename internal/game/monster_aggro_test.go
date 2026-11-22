@@ -17,9 +17,9 @@ func TestPursuitLimitsAcrossCombatModes(t *testing.T) {
 	cfg := loadTestConfig(t)
 	for _, turn := range []bool{false, true} {
 		for _, tc := range []struct {
-			name                                    string
-			radius, distance                        float64
-			hit, boss, guard, hunter, stunned, want bool
+			name                                              string
+			radius, distance                                  float64
+			hit, boss, guard, relieved, hunter, stunned, want bool
 		}{
 			{name: "sight edge", radius: 4, distance: 8, want: true},
 			{name: "sight lost", radius: 4, distance: 9},
@@ -33,6 +33,10 @@ func TestPursuitLimitsAcrossCombatModes(t *testing.T) {
 			{name: "chamber sight lost", radius: 3.2, distance: 8, boss: true},
 			{name: "guard edge", radius: 4, distance: 7, guard: true, want: true},
 			{name: "guard lost", radius: 4, distance: 8, guard: true},
+			// Relieved by the automatic turn-based entry: the leash of a
+			// seven-tile sight, not the authored one (8).
+			{name: "relieved guard edge", radius: 4, distance: 14, guard: true, relieved: true, want: true},
+			{name: "relieved guard lost", radius: 4, distance: 15, guard: true, relieved: true},
 			{name: "provoked guard", radius: 4, distance: 12, guard: true, hit: true, want: true},
 			{name: "remote map hunter", radius: 4, distance: 30, boss: true, hunter: true, want: true},
 		} {
@@ -45,13 +49,16 @@ func TestPursuitLimitsAcrossCombatModes(t *testing.T) {
 				m := spawnMonsterAtTile(g, "goblin", 3+int(tc.distance), 10, ts)
 				m.AlertRadius, m.WasAttacked = tc.radius*ts, false
 				m.Boss, m.AggroWholeMap, m.LootGuardAlerted = tc.boss, tc.hunter, tc.guard
+				if tc.relieved {
+					m.RelieveLootGuard()
+				}
 				m.SpawnX += 2 * ts
 				m.State = monster.StateAlert
 				if tc.hit {
 					takeDamageParts(m, damagecalc.Parts{True: 1}, "true", 0)
 				}
 				if tc.stunned {
-					m.StunTurnsRemaining, m.StunFramesRemaining = 5, 600
+					m.Stun.Turns, m.Stun.Frames = 5, 600
 				}
 				hp, startX := m.HitPoints, m.X
 				step := func(tb bool) {
@@ -78,8 +85,14 @@ func TestPursuitLimitsAcrossCombatModes(t *testing.T) {
 				if m.IsEngagingPlayer != tc.want {
 					t.Fatal("mode switch changed pursuit scope")
 				}
-				if tc.hunter && g.combatAuraHostile(m) {
+				if tc.hunter && g.battlefieldCombatant(m) {
 					t.Fatal("remote hunter expanded the local overlay")
+				}
+				// The fight flag follows engagement inside the battlefield and
+				// clears with disengagement; a map-wide hunter out past the
+				// battlefield is no fight until it closes in.
+				if got := g.partyInCombat(); got != (tc.want && !tc.hunter) {
+					t.Fatalf("partyInCombat=%v, want %v", got, tc.want && !tc.hunter)
 				}
 			})
 		}
@@ -107,9 +120,14 @@ func TestPursuitTemporaryRetaliation(t *testing.T) {
 				m.SpawnX += 2 * ts
 				g.registerSpawnedMonster(m)
 				g.turnBasedMode = tb
-				g.combat.ApplyDamageToMonster(m, 1, "Test", false)
+				g.combat.ApplyDamageToMonster(m, 1, testWeapon("Test"), false)
 				if !m.TargetsParty() || m.Retaliation.Frames != int(.1*float64(cfg.GetTPS())) || m.Retaliation.RadiusTiles != 20+cfg.MonsterAI.Pursuit.RetaliationMarginTiles {
 					t.Fatal("party hit did not grant authored temporary retaliation from its actual range")
+				}
+				// A long shot puts the party in a fight while the retaliation
+				// lasts, without stretching the battlefield past its radius.
+				if !g.partyInCombat() || g.battlefieldCombatant(m) {
+					t.Fatalf("long-shot retaliation: inCombat=%v battlefield=%v", g.partyInCombat(), g.battlefieldCombatant(m))
 				}
 				hp, startX := m.HitPoints, m.X
 				step := func(turn bool) {
@@ -144,13 +162,18 @@ func TestPursuitTemporaryRetaliation(t *testing.T) {
 				if m.TargetsParty() || m.IsEngagingPlayer || !m.ReturningHome || !m.WasAttacked || m.HitPoints != hp || m.PursuitLeashPixels() != 9*ts {
 					t.Fatalf("expiry: target=%v engaged=%v returning=%v memory=%v HP=%d/%d leash=%v", m.TargetsParty(), m.IsEngagingPlayer, m.ReturningHome, m.WasAttacked, m.HitPoints, hp, m.PursuitLeashPixels()/ts)
 				}
-				m.AttackCDFrames, m.OffHandCDFrames, m.PounceCDFrames, m.PounceCDTurns, m.PounceCDRate = 2, 3, 4, 2, 2
-				m.BossCD, m.InfernoCDFrames, m.TrapVolleyCDFrames, m.TrapVolleyTurnCD, m.TrapVolleyCDRate = 2, 2, 4, 2, 2
+				if g.partyInCombat() {
+					t.Fatal("the fight outlived the lapsed retaliation")
+				}
+				m.AttackCDFrames, m.OffHandCDFrames, m.PounceCD.Frames, m.PounceCD.Turns, m.PounceCD.Rate = 2, 3, 4, 2, 2
+				m.PhaseShiftCD.Frames, m.PhaseShiftCD.Turns, m.PhaseShiftCD.Rate = 4, 2, 2
+				m.BossCD, m.NovaRollCD = framesClock(2), framesClock(2)
+				m.TrapVolleyCD.Frames, m.TrapVolleyCD.Turns, m.TrapVolleyCD.Rate = 4, 2, 2
 				g.combat.HandleMonsterInteractions()
-				if m.AttackCDFrames != 1 || m.OffHandCDFrames != 2 || m.PounceCDFrames != 3 {
+				if m.AttackCDFrames != 1 || m.OffHandCDFrames != 2 || m.PounceCD.Frames != 3 || m.PhaseShiftCD.Frames != 3 {
 					t.Fatal("calm monster froze its attack recovery")
 				}
-				if boss && (m.BossCD != 1 || m.InfernoCDFrames != 1 || m.TrapVolleyCDFrames != 3 || len(g.bossFireTraps) != 0) {
+				if boss && (m.BossCD.Frames != 1 || m.NovaRollCD.Frames != 1 || m.TrapVolleyCD.Frames != 3 || len(g.bossFireTraps) != 0) {
 					t.Fatal("calm boss recovery must tick without releasing an action")
 				}
 			})
@@ -197,7 +220,7 @@ func TestPursuitRegionExitAndReentry(t *testing.T) {
 	wm.CurrentMapKey = "forest"
 	hunter.BeginPlayerEngagement()
 	normal.BeginPlayerEngagement()
-	hunter.Telegraph.Warning = 2
+	hunter.Telegraph.Warning = roundClock()
 	g.camera.X, g.camera.Y = wm.ProjectWorldPos("highlands", 10.5*ts, 10.5*ts)
 	g.syncOpenWorldRegion()
 	for _, m := range g.world.Monsters {
@@ -205,13 +228,13 @@ func TestPursuitRegionExitAndReentry(t *testing.T) {
 			t.Fatal("region exit retained pursuit")
 		}
 	}
-	if hunter.Telegraph.Warning != 0 || !hunter.Relentless || !normal.WasAttacked {
+	if hunter.Telegraph.Warning.Active() || !hunter.Relentless || !normal.WasAttacked {
 		t.Fatal("exit failed to cancel windup or erased hostility memory")
 	}
 	g.camera.X, g.camera.Y = wm.ProjectWorldPos("forest", 40.5*ts, 10.5*ts)
 	g.syncOpenWorldRegion()
 	g.refreshMonsterAIState()
-	if !hunter.TargetsParty() || normal.TargetsParty() || g.combatAuraHostile(hunter) {
+	if !hunter.TargetsParty() || normal.TargetsParty() || g.battlefieldCombatant(hunter) {
 		t.Fatal("reentry did not separate map hunt from local combat")
 	}
 	// A seam crossing and attack can share one input frame, before region sync.
@@ -230,7 +253,7 @@ func TestPursuitRegionExitAndReentry(t *testing.T) {
 	if !normal.PartyOutsideHome() {
 		t.Fatal("scope query retained a cached party biome")
 	}
-	g.combat.ApplyDamageToMonster(normal, 1, "Test", false)
+	g.combat.ApplyDamageToMonster(normal, 1, testWeapon("Test"), false)
 	if !normal.TargetsParty() {
 		t.Fatal("cross-biome party attack received no retaliation")
 	}
@@ -242,7 +265,7 @@ func TestPursuitRegionExitAndReentry(t *testing.T) {
 		t.Fatal("cross-biome retaliation outlived its timer")
 	}
 	// A separate physical world never inherits the temporary region exception.
-	g.combat.ApplyDamageToMonster(normal, 1, "Test", false)
+	g.combat.ApplyDamageToMonster(normal, 1, testWeapon("Test"), false)
 	originalWorld := g.world
 	g.world = newTestWorldSized(cfg, 8, 8)
 	if normal.TargetsParty() {
@@ -291,7 +314,7 @@ func TestPursuitSaveMemoryAndLegacyMigration(t *testing.T) {
 				m.SpawnX += 2 * ts
 				m.EndPlayerEngagement()
 				if state != "returning" {
-					g.combat.ApplyDamageToMonster(m, 1, "Test", false)
+					g.combat.ApplyDamageToMonster(m, 1, testWeapon("Test"), false)
 					m.TickRetaliation(false)
 				}
 				frames, hp, pending := m.Retaliation.Frames, m.HitPoints, m.BandHitPending
@@ -322,8 +345,11 @@ func TestPursuitSaveMemoryAndLegacyMigration(t *testing.T) {
 				if active && (m.Retaliation.Frames != frames || m.BandHitPending != pending) {
 					t.Fatal("save lost/clamped retaliation or the unconsumed fresh hit incorrectly")
 				}
-				if g.combatAuraHostile(m) {
+				if g.battlefieldCombatant(m) {
 					t.Fatal("restored remote monster expanded overlay")
+				}
+				if g.partyInCombat() != active {
+					t.Fatalf("restored long-shot fight: inCombat=%v, want %v", g.partyInCombat(), active)
 				}
 			})
 		}
@@ -361,8 +387,39 @@ func TestPursuitMapHunterQuestRestore(t *testing.T) {
 			if m.BossEvasive == completed || m.BossDormant || m.TargetsParty() != completed {
 				t.Fatal("first-frame pursuit ignored the hunter's saved quest gate")
 			}
-			if g.combatAuraHostile(m) {
-				t.Fatal("distant map hunter expanded the local overlay after load")
+			if g.battlefieldCombatant(m) || g.partyInCombat() {
+				t.Fatal("distant map hunter expanded the local overlay or started a fight after load")
+			}
+		})
+	}
+}
+
+// The party is in a fight while a monster duels one of its allies on the
+// battlefield, though that monster never targets the party; the same duel out
+// past the battlefield is not the party's fight.
+func TestPartyInCombatCountsAllyFights(t *testing.T) {
+	cfg := loadTestConfig(t)
+	for _, tc := range []struct {
+		name  string
+		tiles int
+		want  bool
+	}{{"on the battlefield", 6, true}, {"past the battlefield", 20, false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			g := newTestGame(cfg, newTestWorldSized(cfg, 42, 24))
+			g.combat = NewCombatSystem(g)
+			ts := float64(cfg.GetTileSize())
+			placePlayerAtTile(g, 3, 10, ts)
+			m := spawnMonsterAtTile(g, "goblin", 3+tc.tiles, 10, ts)
+			m.IsEngagingPlayer, m.WasAttacked = false, false
+			ally := monster.NewMonster3DFromConfig(m.X-ts, m.Y, "bear", cfg)
+			ally.Bound = true
+			g.world.Monsters = append(g.world.Monsters, ally)
+			m.AIFoe = ally
+			if m.TargetsParty() || !m.IsInCombat() {
+				t.Fatalf("fixture: targets party=%v in combat=%v", m.TargetsParty(), m.IsInCombat())
+			}
+			if g.partyInCombat() != tc.want || g.battlefieldCombatant(m) != tc.want {
+				t.Fatalf("inCombat=%v battlefield=%v, want %v", g.partyInCombat(), g.battlefieldCombatant(m), tc.want)
 			}
 		})
 	}

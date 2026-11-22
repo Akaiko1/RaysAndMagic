@@ -146,12 +146,12 @@ func TestMerchantCategoryWithinAuthoredCollection(t *testing.T) {
 	}
 	g.switchDialogTab(1)
 	g.merchantBuyPage, g.merchantSellPage = 3, 2
-	g.dialogLastClickZone, g.dialogLastClickedIdx = "merchant_buy", 0
+	g.dialogClicks.click(dialogClickKey{"merchant_buy", 0}, 1000)
 	g.setMerchantCategory(true, inventoryTabOwning(items.Item{Type: items.ItemWeapon}))
 	if got := g.merchantVisibleStock(); len(got) != 1 || got[0] != g.dialogNPC.MerchantStock[2] {
 		t.Fatal("category crossed the authored collection boundary")
 	}
-	if g.merchantBuyPage != 0 || g.merchantSellPage != 2 || g.dialogLastClickedIdx != -1 {
+	if g.merchantBuyPage != 0 || g.merchantSellPage != 2 || g.dialogClicks.pending() {
 		t.Fatal("category failed to reset its page/click identity or changed the other page")
 	}
 	g.setMerchantCategory(true, inventoryTabOwning(items.Item{Type: items.ItemArmor}))

@@ -148,7 +148,7 @@ func TestMonsterAttackTimingOnlySlowsAuthoredSheets(t *testing.T) {
 		t.Fatalf("missing-art fixture unexpectedly has %d authored attack frames", got)
 	}
 	g.armMonsterAttackAnimation(fallback)
-	if got, want := fallback.AttackAnimFrames, MonsterAttackAnimFrames; got != want {
+	if got, want := fallback.AttackAnimFrames, g.framesForSeconds(MonsterAttackAnimSeconds); got != want {
 		t.Fatalf("walking-sheet fallback duration = %d, want unchanged %d", got, want)
 	}
 }
@@ -186,8 +186,8 @@ func TestMonsterOptInRestingPlayback(t *testing.T) {
 			{"zero speed without flag", "goblin", func(m *monster.Monster3D) { m.Speed = 0 }, false},
 			{"disabled", "dragon_brood_mother", func(m *monster.Monster3D) { m.AnimateWhenIdle = false }, false},
 			{"mobile opt in", "goblin", func(m *monster.Monster3D) { m.AnimateWhenIdle = true }, true},
-			{"rooted", "goblin", func(m *monster.Monster3D) { m.RootFramesRemaining, m.RootTurnsRemaining = 100, 2 }, false},
-			{"stunned", "goblin", func(m *monster.Monster3D) { m.StunFramesRemaining, m.StunTurnsRemaining = 100, 2 }, false},
+			{"rooted", "goblin", func(m *monster.Monster3D) { m.Root.Frames, m.Root.Turns = 100, 2 }, false},
+			{"stunned", "goblin", func(m *monster.Monster3D) { m.Stun.Frames, m.Stun.Turns = 100, 2 }, false},
 			{"slowed", "goblin", func(m *monster.Monster3D) { m.ApplySlow(100, 100, 2) }, false},
 			{"idol", "jungle_idol", func(m *monster.Monster3D) { m.AnimateWhenIdle = true }, false},
 			{"dormant", "dragon_brood_mother", func(m *monster.Monster3D) { m.BossDormant = true }, false},

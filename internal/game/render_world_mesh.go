@@ -42,6 +42,37 @@ type trapBurst struct {
 	born        int64
 }
 
+// World mesh materials: world_material.kage branches on them by name and
+// TestShaderConstantsMatchGo keeps its const block equal.
+const (
+	worldIron  = iota // metal; iron, brass and steel shade alike (scratched,
+	worldBrass        // specular) and differ only in their authored colour
+	worldSteel
+	worldGlass   // transparent cyan glass
+	worldSand    // flowing hourglass sand and lit seams
+	worldGlow    // slowly shimmering glow
+	worldEmber   // coal bed
+	worldPlume   // world-oriented flame plume planes
+	worldWood    // grain, knots and plank joints
+	worldStone   // stone grain
+	worldFlame   // the camp flame volume
+	worldPlaster // dry plaster infill
+	worldWindow  // warm light behind window leadwork
+	worldGlacier // dense blue ice
+	worldFrost   // frost crystallizing across a tile
+	worldSunPyre // Destroy Undead's solar lightning
+)
+
+// worldTwoSided reports the materials drawn from both sides; every other
+// material culls its back faces.
+func worldTwoSided(material int) bool {
+	switch material {
+	case worldGlass, worldSand, worldGlow, worldEmber, worldPlume:
+		return true
+	}
+	return false
+}
+
 const trapBurstSeconds = .85
 
 func (g *MMGame) startTrapBurst(t PlacedTrap) {
@@ -71,11 +102,9 @@ func (r *Renderer) ensureWorldMaterial() error {
 	if m.shader != nil {
 		return nil
 	}
-	shader, err := ebiten.NewShader([]byte(worldMaterialShaderSrc))
-	if err != nil {
+	if err := compileShader(&m.shader, "world_material.kage"); err != nil {
 		return err
 	}
-	m.shader = shader
 	m.opts.Blend = ebiten.BlendSourceOver
 	m.opts.Uniforms = map[string]any{"Time": m.clock[:], "Viewport": m.viewport[:], "CameraForward": m.forward[:]}
 	return nil
@@ -92,7 +121,7 @@ func (r *Renderer) prepareWorldMaterial() {
 		m.pixels = make([]byte, 8*w)
 	}
 	scale := math.Max(r.game.camera.ViewDist, 64) * 2
-	m.clock[0] = float32(r.weaponMaterialClock())
+	m.clock[0] = float32(r.game.worldSeconds())
 	m.forward = [3]float32{float32(math.Cos(r.game.camera.Angle)), float32(math.Sin(r.game.camera.Angle)), float32(r.game.config.GetTileSize())}
 	m.viewport = [3]float32{float32(w), float32(h), float32(scale)}
 	for x := 0; x < w; x++ {
@@ -212,6 +241,9 @@ func (r *Renderer) collectWorldModels() {
 	m.order, m.nextFace = m.order[:0], 0
 	r.collectTrapModels()
 	r.collectPropModels()
+	r.collectGlacierModels()
+	r.collectSunPyres()
+	r.collectSolarFlares()
 	if len(m.faces) > 0 {
 		r.prepareWorldMaterial()
 	}
@@ -279,12 +311,12 @@ type trapCachedModel struct {
 	triangles []worldModelTriangle
 }
 type worldModelBuilder struct {
-	triangles                 []worldModelTriangle
-	origin, axisX, axisY      [2]float64
-	r                         *Renderer
-	x, y, ts, progress, alpha float64
-	accent                    [3]int
-	fireScale, fireSeed       float64
+	triangles                     []worldModelTriangle
+	origin, axisX, axisY          [2]float64
+	r                             *Renderer
+	x, y, ts, progress, alpha     float64
+	accent                        [3]int
+	fireScale, fireSeed, fireBase float64
 }
 
 type worldClipPoint struct{ x, z, height, u, v float64 }
@@ -299,7 +331,7 @@ func (b *worldModelBuilder) triangle(a, c, d worldModelPoint, rgb [3]int, materi
 	}
 	nx, ny, nz = nx/length, ny/length, nz/length
 	flameWidth, flameBottom, flameHeight := 0.0, 0.0, 0.0
-	if material == 7 {
+	if material == worldPlume {
 		flameBottom = math.Min(a.z, math.Min(c.z, d.z))
 		flameHeight = math.Max(a.z, math.Max(c.z, d.z)) - flameBottom
 		for _, p := range [3]worldModelPoint{a, c, d} {
@@ -316,7 +348,7 @@ func (b *worldModelBuilder) triangle(a, c, d worldModelPoint, rgb [3]int, materi
 				u, v = p.x, p.z
 			}
 		}
-		if material == 7 {
+		if material == worldPlume {
 			u, v = (-ny*p.x+nx*p.y)/flameWidth*.5, (p.z-flameBottom)/flameHeight
 		}
 		face.uv[i] = [2]float64{u, v}
@@ -330,7 +362,7 @@ func (b *worldModelBuilder) projectTriangle(face *worldModelTriangle) {
 	cam := b.r.game.camera
 	ex, ey, ez := (cam.X-b.x)/b.ts-mx, (cam.Y-b.y)/b.ts-my, .5-mz
 	facing := nx*ex + ny*ey + nz*ez
-	if facing < 0 && (face.material < 3 || face.material >= 8) {
+	if facing < 0 && !worldTwoSided(face.material) {
 		return
 	}
 	if facing < 0 {
@@ -371,13 +403,16 @@ func (b *worldModelBuilder) projectTriangle(face *worldModelTriangle) {
 			// large enough to retain precision before the shader subtracts it.
 			vertex := weaponMaterialVertex(sx, sy, p.u*q*1024, p.v*q*1024, face.rgb, face.alpha*b.alpha)
 			vertex.Custom0, vertex.Custom1, vertex.Custom2, vertex.Custom3 = float32(shade), float32(spec), float32(q), float32(face.material)+.25
+			if face.material == worldSunPyre {
+				vertex.Custom0 = float32(b.progress)
+			}
 			if face.material == worldFlame {
-				vertex.Custom0 = float32(p.height / b.ts * q)
+				vertex.Custom0 = float32((p.height/b.ts - b.fireBase) * q)
 				vertex.Custom1 = float32(face.alpha)
 				vertex.Custom3 = float32(worldFlame) + .125 + float32(b.fireSeed)*.75
 				vertex.ColorR = float32((cam.X - b.x) / b.ts)
 				vertex.ColorG = float32((cam.Y - b.y) / b.ts)
-				vertex.ColorB = .5
+				vertex.ColorB = float32(.5 - b.fireBase)
 				vertex.ColorA = float32(b.fireScale)
 			}
 			f.vertices[j] = vertex

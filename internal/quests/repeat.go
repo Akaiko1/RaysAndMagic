@@ -10,6 +10,13 @@ import (
 // after claiming the reward. Boolean YAML is deliberately rejected.
 type RepeatSchedule string
 
+// Phase schedules refresh at a day/night turn; "Nd" refreshes N days after
+// the claim.
+const (
+	RepeatDaily   RepeatSchedule = "day"
+	RepeatNightly RepeatSchedule = "night"
+)
+
 func (r RepeatSchedule) days() int {
 	text := string(r)
 	if !strings.HasSuffix(text, "d") {
@@ -23,7 +30,7 @@ func (r RepeatSchedule) days() int {
 }
 
 func (r RepeatSchedule) Validate() error {
-	if r == "" || r == "day" || r == "night" || r.days() > 0 {
+	if r == "" || r == RepeatDaily || r == RepeatNightly || r.days() > 0 {
 		return nil
 	}
 	return fmt.Errorf("repeatable must be day, night, or a positive whole-day interval such as 3d; got %q", r)
@@ -32,7 +39,7 @@ func (r RepeatSchedule) Validate() error {
 // Due keeps phase events separate from elapsed time, so loading at night does
 // not reset a nightly errand and a half-day never counts as a full day.
 func (r RepeatSchedule) Due(claimedDay, nowDay float64, event RepeatSchedule) bool {
-	if r == "day" || r == "night" {
+	if r == RepeatDaily || r == RepeatNightly {
 		return event == r
 	}
 	days := r.days()

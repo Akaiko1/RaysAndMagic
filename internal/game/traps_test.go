@@ -8,7 +8,9 @@ import (
 	"ugataima/internal/character"
 	"ugataima/internal/collision"
 	"ugataima/internal/config"
+	"ugataima/internal/items"
 	monsterPkg "ugataima/internal/monster"
+	"ugataima/internal/spells"
 	"ugataima/internal/world"
 )
 
@@ -66,9 +68,9 @@ func TestStunDR_DiminishesThenImmune(t *testing.T) {
 	// requestStun applies a fresh 4-turn stun after clearing any active stun, so
 	// each call's RESULT reflects only the DR scaling (not refresh-to-max).
 	requestStun := func() (stunned bool, turns int) {
-		m.StunTurnsRemaining, m.StunFramesRemaining = 0, 0
-		stunned = cs.applyStunDR(m, 4, 4*tps, true)
-		return stunned, m.StunTurnsRemaining
+		m.Stun.Turns, m.Stun.Frames = 0, 0
+		stunned = cs.applyStunDR(m, 4, true)
+		return stunned, m.Stun.Turns
 	}
 
 	for i, want := range []int{4, 2, 1, 0} { // 100% -> 50% -> 25% -> immune
@@ -81,8 +83,9 @@ func TestStunDR_DiminishesThenImmune(t *testing.T) {
 		}
 	}
 	// The reset window was (re)armed on every attempt.
-	if m.StunDRMemoryTurns != StunDRResetTurns || m.StunDRMemoryFrames != StunDRResetSeconds*tps {
-		t.Fatalf("reset window not armed: turns=%d frames=%d", m.StunDRMemoryTurns, m.StunDRMemoryFrames)
+	resetRounds := config.CombatRounds(config.Status("stun").RepeatResetSeconds)
+	if m.StunDRMemory.Turns != resetRounds || m.StunDRMemory.Frames != config.RoundFrames(resetRounds, tps) {
+		t.Fatalf("reset window not armed: turns=%d frames=%d", m.StunDRMemory.Turns, m.StunDRMemory.Frames)
 	}
 
 	// Once the chain resets (stun-free window elapsed), stuns are full again.
@@ -106,15 +109,18 @@ func TestStunDR_OneTurnStunNeverFloorsToZeroBeforeImmune(t *testing.T) {
 	tps := g.config.GetTPS()
 
 	requestStun := func() (stunned bool, turns int) {
-		m.StunTurnsRemaining, m.StunFramesRemaining = 0, 0
-		stunned = cs.applyStunDR(m, 1, 2*tps, true) // Stasis Trap: stun_turns=1, stun_seconds=2
-		return stunned, m.StunTurnsRemaining
+		m.Stun.Turns, m.Stun.Frames = 0, 0
+		stunned = cs.applyStunDR(m, 1, true) // Stasis Trap: stun_seconds=3, one round
+		return stunned, m.Stun.Turns
 	}
 
 	for i, want := range []int{1, 1, 1, 0} { // 100% / 50% / 25% all keep 1 turn; only immune (0%) drops to 0
 		stunned, got := requestStun()
 		if got != want {
 			t.Fatalf("stun #%d: got %d turns, want %d", i+1, got, want)
+		}
+		if frames := config.RoundFrames(want, tps); m.Stun.Frames != frames {
+			t.Fatalf("stun #%d: RT frames %d, want the same span %d", i+1, m.Stun.Frames, frames)
 		}
 		if (want > 0) != stunned {
 			t.Fatalf("stun #%d: stunned=%v, want %v", i+1, stunned, want > 0)
@@ -306,8 +312,8 @@ func TestTrap_StasisStunsAndBearRootsTB(t *testing.T) {
 	if _, placed := g.combat.tryPlaceQuickTrap(thief, true); !placed {
 		t.Fatal("stasis trap should place")
 	}
-	if want := config.GlobalTrapConfig.Traps["stasis_trap"].StunTurns; stunned.StunTurnsRemaining != want {
-		t.Errorf("stasis: want %d stun turns, got %d", want, stunned.StunTurnsRemaining)
+	if want := config.CombatRounds(config.GlobalTrapConfig.Traps["stasis_trap"].StunSeconds); stunned.Stun.Turns != want {
+		t.Errorf("stasis: want %d stun turns, got %d", want, stunned.Stun.Turns)
 	}
 
 	if !equipTrap(thief, "bear_trap") {
@@ -318,19 +324,19 @@ func TestTrap_StasisStunsAndBearRootsTB(t *testing.T) {
 	if _, placed := g.combat.tryPlaceQuickTrap(thief, true); !placed {
 		t.Fatal("bear trap should place")
 	}
-	if rooted.StunTurnsRemaining != 0 {
+	if rooted.Stun.Turns != 0 {
 		t.Errorf("bear trap must not stun")
 	}
-	if want := config.GlobalTrapConfig.Traps["bear_trap"].RootTurns; rooted.RootTurnsRemaining != want {
-		t.Errorf("bear: want %d root turns, got %d", want, rooted.RootTurnsRemaining)
+	if want := config.CombatRounds(config.GlobalTrapConfig.Traps["bear_trap"].RootSeconds); rooted.Root.Turns != want {
+		t.Errorf("bear: want %d root turns, got %d", want, rooted.Root.Turns)
 	}
-	if want := config.GlobalTrapConfig.Traps["bear_trap"].RootSeconds * g.config.GetTPS(); rooted.RootFramesRemaining != want {
-		t.Errorf("bear: want %d root frames, got %d", want, rooted.RootFramesRemaining)
+	if want := config.GlobalTrapConfig.Traps["bear_trap"].RootSeconds * g.config.GetTPS(); rooted.Root.Frames != want {
+		t.Errorf("bear: want %d root frames, got %d", want, rooted.Root.Frames)
 	}
 
 	// Rooted: the root burns one charge per monster TURN (TickRootTurn) and
 	// pins movement for that whole turn - even if the monster only attacks.
-	baseTurns := config.GlobalTrapConfig.Traps["bear_trap"].RootTurns
+	baseTurns := config.CombatRounds(config.GlobalTrapConfig.Traps["bear_trap"].RootSeconds)
 	x, y := rooted.X, rooted.Y
 	for turn := 0; turn < baseTurns; turn++ {
 		rooted.TickRootTurn()
@@ -339,8 +345,8 @@ func TestTrap_StasisStunsAndBearRootsTB(t *testing.T) {
 			t.Fatalf("turn %d: rooted monster must not move", turn)
 		}
 	}
-	if rooted.RootTurnsRemaining != 0 {
-		t.Errorf("root must be spent after %d turns, %d left", baseTurns, rooted.RootTurnsRemaining)
+	if rooted.Root.Turns != 0 {
+		t.Errorf("root must be spent after %d turns, %d left", baseTurns, rooted.Root.Turns)
 	}
 	rooted.TickRootTurn() // root expired: movement unpinned
 	if rooted.RootHeld() {
@@ -448,12 +454,12 @@ func TestSmartAttack_TrapFallbackIsSilent(t *testing.T) {
 			spBefore := thief.SpellPoints
 			msgsBefore := len(g.GetCombatMessages())
 
-			acted, castID := g.combat.SmartAttack()
+			action := g.combat.SmartAttack()
 
-			if castID != "" {
-				t.Errorf("no trap should have been armed, castID=%q", castID)
+			if action.Trap != "" {
+				t.Errorf("no trap should have been armed, trap=%q", action.Trap)
 			}
-			if !acted {
+			if !action.Acted {
 				t.Error("Space must still act (weapon swing fallback)")
 			}
 			if thief.SpellPoints != spBefore {
@@ -469,13 +475,13 @@ func TestSmartAttack_TrapFallbackIsSilent(t *testing.T) {
 	}
 }
 
-// Explicit F (CastEquippedSpell) announces WHY the trap was refused.
+// Explicit F announces WHY the trap was refused.
 func TestExplicitF_TrapRefusalAnnounces(t *testing.T) {
 	g, thief := newThiefTestGame(t)
 	thief.SpellPoints = 0
 	g.selectedChar = 0
 	msgsBefore := len(g.GetCombatMessages())
-	if g.combat.CastEquippedSpell() {
+	if fired, _ := NewInputHandler(g).useSlottedActionResolved(thief); fired {
 		t.Fatal("cast must fail without SP")
 	}
 	found := false
@@ -486,5 +492,52 @@ func TestExplicitF_TrapRefusalAnnounces(t *testing.T) {
 	}
 	if !found {
 		t.Error("explicit F must announce the SP shortfall")
+	}
+}
+
+// A slotted spell or trap is ready by the SP its use pays, read live: a saved
+// slot item keeps the SpellCost from before a spells.yaml/traps.yaml change.
+func TestSlottedActionReadinessUsesLiveSPCost(t *testing.T) {
+	newThiefTestGame(t) // loads the content tables
+	trapKey := config.TrapKeysOrdered()[0]
+	trapDef, _ := config.GetTrapDefinition(trapKey)
+	spellDef, err := spells.GetSpellDefinitionByID("fireball")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name string
+		slot func() items.Item
+		live int
+	}{
+		{"spell", func() items.Item {
+			return items.Item{Name: spellDef.Name, Type: items.ItemBattleSpell, SpellEffect: "fireball"}
+		}, spellDef.SpellPointsCost},
+		{"trap", func() items.Item {
+			it, _ := config.TrapItem(trapKey)
+			return it
+		}, trapDef.SPCost},
+	} {
+		for _, stale := range []int{-1, +10} {
+			t.Run(fmt.Sprintf("%s/stale%+d", tc.name, stale), func(t *testing.T) {
+				g, thief := newThiefTestGame(t)
+				slot := tc.slot()
+				slot.SpellCost = tc.live + stale
+				thief.Equipment[items.SlotQuickAction] = slot
+				price := thief.MeditatedSPCost(tc.live)
+				for _, sp := range []int{price - 1, price} {
+					thief.SpellPoints = sp
+					want := sp >= price
+					if got := g.actionCapable(0, rtActSlotted); got != want {
+						t.Errorf("SP %d, live price %d: ready=%v want %v", sp, price, got, want)
+					}
+					before := len(g.GetCombatMessages())
+					NewInputHandler(g).announceCastShortfall(0)
+					if shortfall := len(g.GetCombatMessages()) > before; shortfall == want {
+						t.Errorf("SP %d, live price %d: shortfall announced=%v", sp, price, shortfall)
+					}
+				}
+			})
+		}
 	}
 }

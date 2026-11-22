@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"ugataima/internal/collision"
+	"ugataima/internal/config"
 	"ugataima/internal/graphics"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
@@ -16,6 +17,9 @@ import (
 func deathTestGame(t *testing.T) *MMGame {
 	t.Helper()
 	cfg := loadTestConfig(t)
+	if _, err := config.LoadLootTables("../../assets/loots.yaml"); err != nil {
+		t.Fatal(err)
+	}
 	setTestWorldManager(t, nil)
 	g := newTestGame(cfg, newTestWorldSized(cfg, 7, 7))
 	g.combat = NewCombatSystem(g)
@@ -52,7 +56,11 @@ func TestMonsterDeathLifecycle(t *testing.T) {
 						m.SetupMonsterFromConfig(&withoutArt)
 					}
 					m.HitPoints = 0
-					m.Gold = 11
+					// The bandit carries the gold its loots.yaml entry rolled at spawn.
+					gold, ok := config.MonsterGold(key)
+					if !ok || m.Gold < gold.Min || m.Gold > gold.Max || m.Gold <= 0 {
+						t.Fatalf("spawned with %d gold, loot table gold %v %v", m.Gold, gold, ok)
+					}
 					if kind == "summon" {
 						m.SummonedBy = spellSummonOwnerPrefix + "test"
 					}
@@ -88,7 +96,7 @@ func TestMonsterDeathLifecycle(t *testing.T) {
 							t.Fatal("party summon paid loot")
 						}
 					} else {
-						if bags != 1 || g.groundContainers[0].Gold != 11 {
+						if bags != 1 || g.groundContainers[0].Gold != m.Gold {
 							t.Fatalf("reward changed: %+v", g.groundContainers)
 						}
 						c := &g.groundContainers[0]
@@ -206,6 +214,33 @@ func TestMonsterLootLandingAndHop(t *testing.T) {
 	}
 }
 
+// A bag pushed off a blocker lands by the same reach rule as the tile it fell
+// on: walkable ground on the map border is a valid landing, though the search
+// never passes through the border.
+func TestMonsterLootLandingReachesTheBorderRing(t *testing.T) {
+	for _, exit := range []string{"border", "none"} {
+		t.Run(exit, func(t *testing.T) {
+			g := deathTestGame(t)
+			ts := g.config.GetTileSize()
+			for y := range g.world.Tiles {
+				for x := range g.world.Tiles[y] {
+					g.world.Tiles[y][x] = world.TileWall
+				}
+			}
+			g.world.Tiles[3][1] = world.TileEmpty
+			g.collisionSystem.RegisterEntity(collision.NewEntity("closed_door", 1.5*ts, 3.5*ts, ts, ts, collision.CollisionTypeNPC, true))
+			wantX, wantY := 1.5*ts, 3.5*ts // nowhere better: the bag stays
+			if exit == "border" {
+				g.world.Tiles[3][0] = world.TileEmpty
+				wantX = 0.5 * ts
+			}
+			if x, y := g.reachableMonsterLootLanding(1.5*ts, 3.5*ts); x != wantX || y != wantY {
+				t.Fatalf("landing %v,%v want %v,%v", x, y, wantX, wantY)
+			}
+		})
+	}
+}
+
 // Flight x combat mode covers the shared finalizer. Save/load while falling
 // settles the persistent reward, just as saving during a ground loot hop does.
 func TestMonsterDeathFlight(t *testing.T) {
@@ -283,7 +318,7 @@ func TestMonsterDeathFlight(t *testing.T) {
 // animations through the runtime sprite manager and source prewarm plan.
 func TestMonsterAnimationAssets(t *testing.T) {
 	g := deathTestGame(t)
-	keys := monster.MonsterConfig.GetAllMonsterKeys()
+	keys := catalogMonsterKeys()
 	slices.Sort(keys)
 	for _, key := range keys {
 		t.Run(key, func(t *testing.T) {
@@ -303,19 +338,17 @@ func TestMonsterAnimationAssets(t *testing.T) {
 			requests := mapRenderSourceRequests(mapRenderPrewarmPlan{monsterSprites: []mapMonsterPrewarmResource{{key: key, spriteName: name}}})
 			for _, kind := range kinds {
 				resolved := kind + "_r"
-				a := g.sprites.GetAnimation(name, resolved)
-				if a == nil {
+				count := g.sprites.AnimationFrameCount(name, resolved)
+				if count == 0 {
 					resolved = kind + "_l"
-					a = g.sprites.GetAnimation(name, resolved)
+					count = g.sprites.AnimationFrameCount(name, resolved)
 				}
-				if a == nil || len(a.Frames) != 4 {
+				if count != 4 {
 					t.Fatalf("%s/%s: missing four-frame animation", key, kind)
 				}
-				for _, frame := range a.Frames {
-					if frame.Bounds().Dx() != 512 || frame.Bounds().Dy() != 512 {
-						t.Fatalf("%s/%s: changed logical frame size", key, resolved)
-					}
-				}
+				// Full pixel decoding, frame bounds and the per-sheet attack
+				// window live in the non-race sweep. The combat animation
+				// lifecycle tests still exercise that path under -race.
 				// Both facings stream, whichever one the sheet authors.
 				for _, side := range []string{kind + "_r", kind + "_l"} {
 					found := false
@@ -325,12 +358,6 @@ func TestMonsterAnimationAssets(t *testing.T) {
 					if !found {
 						t.Fatalf("%s missing from source prewarm", side)
 					}
-				}
-			}
-			if !passive && !fish {
-				g.armMonsterAttackAnimation(m)
-				if m.AttackAnimFrames != animationDurationFrames(g.config.GetTPS(), AuthoredMonsterAttackFPS, 4) {
-					t.Fatal("authored attack did not receive the full animation window")
 				}
 			}
 			m.HitPoints = 0
@@ -350,7 +377,9 @@ func TestMonsterAnimationAssets(t *testing.T) {
 }
 
 // Invariant: final hit effects, corpse and loot share the actor's visible
-// anchor, while dead actors never remain eligible combat targets.
+// anchor, while dead actors never remain eligible combat targets. The dead
+// actor stays drawn where it died when the camera turns or moves afterwards,
+// so shots still aimed at it land on the corpse.
 // Case table: RT diagonal = true position; TB front/back = true position;
 // TB clear left/right diagonal = pulled position; occluded diagonal = true
 // position; band/transit offsets remain additive in both modes. Persistence is
@@ -383,8 +412,7 @@ func TestMonsterDeathKeepsVisualAnchor(t *testing.T) {
 			}
 			m := monster.NewMonster3DFromConfig((2.5+float64(tc.dx))*ts, (2.5+float64(tc.dy))*ts, "bandit", g.config)
 			if tc.banded {
-				m.BandStackCount = 3
-				m.BandStackIndex = 1
+				m.Fan = settledTileFan(1, 3, ts)
 			}
 			_, _, _, pulled, ok := g.combat.pulledFrontSlot(m)
 			if (ok && pulled) != tc.wantPull {
@@ -402,6 +430,11 @@ func TestMonsterDeathKeepsVisualAnchor(t *testing.T) {
 			}
 			if len(g.groundContainers) == 0 || g.groundContainers[0].hop.fromX != x || g.groundContainers[0].hop.fromY != y {
 				t.Fatal("loot did not leave the visible body")
+			}
+			g.camera.Angle = math.Pi / 2
+			g.camera.X -= ts / 2
+			if dx, dy := g.combat.monsterVisualPos(m); dx != c.x || dy != c.y {
+				t.Fatalf("the dead actor's drawn spot followed the camera: (%.2f,%.2f) want the corpse (%.2f,%.2f)", dx/ts, dy/ts, c.x/ts, c.y/ts)
 			}
 		})
 	}

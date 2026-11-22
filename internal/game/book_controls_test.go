@@ -1,17 +1,25 @@
 package game
 
 import (
+	"cmp"
 	"fmt"
 	"reflect"
 	"testing"
 
-	"github.com/hajimehoshi/ebiten/v2"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/game/keytracker"
 	"ugataima/internal/items"
 	"ugataima/internal/world"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
+
+// quickSlotKey is the catalog key a quick-slot shortcut points at, whatever
+// its kind.
+func quickSlotKey(it items.Item) string {
+	return cmp.Or(it.Trap, it.Flask, it.Technique, string(it.SpellEffect))
+}
 
 func bookControlsHarness(t *testing.T, trap, tb bool) (*displayedModalHarness, *character.MMCharacter, string, layoutRect) {
 	t.Helper()
@@ -66,9 +74,9 @@ func bookControlsHarness(t *testing.T, trap, tb bool) (*displayedModalHarness, *
 		t.Fatal("test ability missing")
 	}
 	// A different existing quick action must survive direct book use.
-	actor.Equipment[items.SlotSpell] = items.Item{Name: "Previous quick action", Type: items.ItemUtilitySpell, SpellEffect: "heal"}
+	actor.Equipment[items.SlotQuickAction] = items.Item{Name: "Previous quick action", Type: items.ItemUtilitySpell, SpellEffect: "heal"}
 	menu := computeTabbedMenuLayout(g.config.GetScreenWidth(), gameplayViewportBottom(g))
-	book := computeBookLayout(menu.content)
+	book := computeBookLayout(menu.content, 1)
 	x, y := book.cardPos(index % book.cardsPerSpread())
 	// Real displayed controls must resolve art from the same root as the game.
 	t.Chdir("../..")
@@ -95,21 +103,21 @@ func TestBookPhysicalClicksOnlyEquip(t *testing.T) {
 					fp.moveTo(card.x+card.w/2, card.y+card.h/2)
 					fp.press()
 					h.pointerStep()
-					if string(actor.Equipment[items.SlotSpell].SpellEffect) == key {
+					if quickSlotKey(actor.Equipment[items.SlotQuickAction]) == key {
 						t.Fatal("single click equipped")
 					}
 					fp.hold()
 					for i := 0; i < 3; i++ {
 						h.pointerStep()
 					}
-					if string(actor.Equipment[items.SlotSpell].SpellEffect) == key {
+					if quickSlotKey(actor.Equipment[items.SlotQuickAction]) == key {
 						t.Fatal("held click became double-click")
 					}
 					fp.release()
 					h.pointerStep()
 					fp.press()
 					h.pointerStep()
-					if got := string(actor.Equipment[items.SlotSpell].SpellEffect); got != key {
+					if got := quickSlotKey(actor.Equipment[items.SlotQuickAction]); got != key {
 						t.Fatalf("double-click equipped %q, want %q", got, key)
 					}
 					if !g.menuOpen || actor.SpellPoints != beforeSP || actor.ActionsRemaining != beforeAction || len(g.traps) != 0 {
@@ -117,10 +125,10 @@ func TestBookPhysicalClicksOnlyEquip(t *testing.T) {
 					}
 					fp.release()
 					h.pointerStep()
-					delete(actor.Equipment, items.SlotSpell)
+					delete(actor.Equipment, items.SlotQuickAction)
 					fp.press()
 					h.pointerStep()
-					if _, ok := actor.Equipment[items.SlotSpell]; ok {
+					if _, ok := actor.Equipment[items.SlotQuickAction]; ok {
 						t.Fatal("third click reused the previous pair")
 					}
 				})
@@ -146,7 +154,7 @@ func TestBookEnterAndFUseSelection(t *testing.T) {
 						case "down":
 							actor.HitPoints = 0
 						case "stunned":
-							actor.StunFramesRemaining = 30
+							actor.Stun.Frames = 30
 						case "no action":
 							if tb {
 								actor.ActionsRemaining = 0
@@ -163,7 +171,7 @@ func TestBookEnterAndFUseSelection(t *testing.T) {
 							actor.Level = 0
 						}
 						beforeSP, beforeActions, beforeCooldown, beforeTraps := actor.SpellPoints, actor.ActionsRemaining, actor.RTCooldown, len(g.traps)
-						beforeEquipped := actor.Equipment[items.SlotSpell]
+						beforeEquipped := actor.Equipment[items.SlotQuickAction]
 						ih := h.loop.inputHandler
 						ih.keys = keytracker.NewWithSource(func(k ebiten.Key) bool { return k == key })
 						ih.handleSpellbookNavigation()
@@ -183,7 +191,7 @@ func TestBookEnterAndFUseSelection(t *testing.T) {
 						} else if !g.menuOpen || actor.SpellPoints != beforeSP || actor.ActionsRemaining != beforeActions || actor.RTCooldown != beforeCooldown || len(g.traps) != beforeTraps {
 							t.Fatal("refused use changed book/resources/world")
 						}
-						if !reflect.DeepEqual(actor.Equipment[items.SlotSpell], beforeEquipped) {
+						if !reflect.DeepEqual(actor.Equipment[items.SlotQuickAction], beforeEquipped) {
 							t.Fatal("direct use changed equipped quick action")
 						}
 						afterSP, afterTraps := actor.SpellPoints, len(g.traps)
@@ -201,7 +209,7 @@ func TestBookEnterAndFUseSelection(t *testing.T) {
 func TestTrapBookLockedEntryCannotEquip(t *testing.T) {
 	h, actor, _, card := bookControlsHarness(t, true, false)
 	actor.Level = 0
-	before := actor.Equipment[items.SlotSpell]
+	before := actor.Equipment[items.SlotQuickAction]
 	fp := installFakePointer(t)
 	fp.moveTo(card.x+card.w/2, card.y+card.h/2)
 	for i := 0; i < 2; i++ {
@@ -210,7 +218,7 @@ func TestTrapBookLockedEntryCannotEquip(t *testing.T) {
 		fp.release()
 		h.pointerStep()
 	}
-	if !reflect.DeepEqual(before, actor.Equipment[items.SlotSpell]) || !h.g.menuOpen {
+	if !reflect.DeepEqual(before, actor.Equipment[items.SlotQuickAction]) || !h.g.menuOpen {
 		t.Fatal("locked trap equipped or closed book")
 	}
 }
@@ -226,7 +234,7 @@ func TestBookUseRetainsTrapSaveContract(t *testing.T) {
 		t.Fatal("book trap lost its identity/owner on restore")
 	}
 	def, ok := config.TrapItem(key)
-	if !ok || actor.Equipment[items.SlotSpell].SpellEffect != def.SpellEffect {
+	if !ok || actor.Equipment[items.SlotQuickAction].Trap != def.Trap {
 		t.Fatal("equipped trap uses a different save representation")
 	}
 }
@@ -243,11 +251,11 @@ func TestBookClickContextDoesNotCarryEquipmentGestures(t *testing.T) {
 				h.pointerStep()
 				fp.release()
 				h.pointerStep()
-				before := actor.Equipment[items.SlotSpell]
+				before := actor.Equipment[items.SlotQuickAction]
 				switch change {
 				case "character":
 					replacement := character.CreateCharacter("Another hero", actor.Class, g.config)
-					replacement.Equipment[items.SlotSpell] = before
+					replacement.Equipment[items.SlotQuickAction] = before
 					g.party.Members[1] = replacement
 					g.selectPartyMemberManually(1)
 					actor = replacement
@@ -262,7 +270,7 @@ func TestBookClickContextDoesNotCarryEquipmentGestures(t *testing.T) {
 				h.pointerStep()
 				fp.release()
 				h.pointerStep()
-				if !reflect.DeepEqual(actor.Equipment[items.SlotSpell], before) || len(g.traps) != 0 {
+				if !reflect.DeepEqual(actor.Equipment[items.SlotQuickAction], before) || len(g.traps) != 0 {
 					t.Fatal("click crossed the book context boundary")
 				}
 			})
@@ -304,13 +312,13 @@ func TestBookDifferentEntriesDoNotFormDoubleClick(t *testing.T) {
 				}
 				g.selectedSpell, g.selectedTrap = -1, -1
 				menu := computeTabbedMenuLayout(g.config.GetScreenWidth(), gameplayViewportBottom(g))
-				book := computeBookLayout(menu.content)
+				book := computeBookLayout(menu.content, 1)
 				if book.cardsPerSpread() < 2 {
 					t.Fatal("fixture requires both entries on the displayed page")
 				}
 				beforeSP, beforeActions := actor.SpellPoints, actor.ActionsRemaining
 				beforeCooldown := actor.RTCooldown
-				wantEquipped := actor.Equipment[items.SlotSpell]
+				wantEquipped := actor.Equipment[items.SlotQuickAction]
 				fp := installFakePointer(t)
 				for step, click := range []struct {
 					index int
@@ -329,10 +337,10 @@ func TestBookDifferentEntriesDoNotFormDoubleClick(t *testing.T) {
 					if selected != click.index {
 						t.Fatalf("step %d: selected entry %d, want %d", step, selected, click.index)
 					}
-					got := actor.Equipment[items.SlotSpell]
+					got := actor.Equipment[items.SlotQuickAction]
 					if click.equip {
-						if string(got.SpellEffect) != entries[click.index] {
-							t.Fatalf("step %d: double-click equipped %q, want %q", step, got.SpellEffect, entries[click.index])
+						if quickSlotKey(got) != entries[click.index] {
+							t.Fatalf("step %d: double-click equipped %q, want %q", step, quickSlotKey(got), entries[click.index])
 						}
 						wantEquipped = got
 					} else if !reflect.DeepEqual(got, wantEquipped) {

@@ -62,7 +62,7 @@ func TestStatusReviewControlIdentity(t *testing.T) {
 				if got := monsterStatusVisuals(m, false); got != want {
 					t.Fatalf("control visual=%v, want %v", got, want)
 				}
-				g.combat.applyMonsterRoot(m, 2, 240)
+				g.combat.applyMonsterRoot(m, 2)
 				if got := monsterStatusVisuals(m, false); got != want|visualRoot {
 					t.Fatal("allegiance hid an unrelated root")
 				}
@@ -83,7 +83,7 @@ func TestStatusReviewTurnVisualLifetime(t *testing.T) {
 				m := monster.NewMonster3DFromConfig(400, 400, "wolf", g.config)
 				g.world.Monsters = []*monster.Monster3D{m}
 				g.turnBasedMode = true
-				tc.monster(m)
+				tc.monster(g, m)
 				for range 2 {
 					g.tickMonsterTurnStatuses(m, true)
 					gl.endMonsterTurn()
@@ -97,7 +97,7 @@ func TestStatusReviewTurnVisualLifetime(t *testing.T) {
 					t.Fatal("completed budget leaked outside the monster phase")
 				}
 				if reapply {
-					tc.monster(m)
+					tc.monster(g, m)
 				}
 				gl.endMonsterTurn()
 				want := statusVisuals(0)
@@ -127,9 +127,9 @@ func TestStatusReviewProvidenceCleanup(t *testing.T) {
 					g, _, wm := clockSaveFixture(t)
 					g.dayNightFrames = g.dayNightPhaseStartFrame(true) - 1
 					g.dayNightIsNight = false
-					g.addStatBuff(TimedStatBuff{SpellID: "bless", SourceID: celestialProvidenceSourceID, Frames: 1})
-					g.addCombatBuff(TimedCombatBuff{SpellID: "stone_skin", SourceID: celestialProvidenceSourceID, Frames: 1})
-					g.addCombatBuff(TimedCombatBuff{SpellID: "heroism", Frames: 1000})
+					g.addStatBuff(TimedStatBuff{SpellID: "bless", SourceID: celestialProvidenceSourceID, Clock: framesClock(1)})
+					g.addCombatBuff(TimedCombatBuff{ID: "stone_skin", SourceID: celestialProvidenceSourceID, Clock: framesClock(1)})
+					g.addCombatBuff(TimedCombatBuff{ID: "heroism", Clock: framesClock(1000)})
 					g.celestialBuffSpellID = marker
 					if saved {
 						save := auditSaveJSON(t, g.buildSave(wm))
@@ -273,10 +273,9 @@ func TestStatusReviewSavedTurnPhases(t *testing.T) {
 			g.turnBasedMode, g.currentTurn = phase != 2, phase%2
 			m := monster.NewMonster3DFromConfig(400, 400, "wolf", g.config)
 			m.ApplySlow(50, 1, 1)
-			m.TickSlowTurn()
 			m.ApplyWeaken(50, 1, 1)
-			m.TickWeakenTurn()
-			g.combat.applyMonsterRoot(m, 2, 240)
+			m.TickDebuffs(true)
+			g.combat.applyMonsterRoot(m, 2)
 			g.world.Monsters = []*monster.Monster3D{m}
 			save := auditSaveJSON(t, g.buildSave(wm))
 			g.restoreSavedMonsters(wm, &save)

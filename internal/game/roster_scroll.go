@@ -7,6 +7,16 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
+// wheelScrollPixels is the change a wheel delta makes to a pixel scroll
+// offset: step pixels per notch, and at least one pixel for a trackpad's
+// fractional delta, which int(wheel*step) would drop. Wheel up scrolls up.
+func wheelScrollPixels(wheel float64, step int) int {
+	if wheel == 0 {
+		return 0
+	}
+	return -int(math.Copysign(max(1, math.Abs(wheel*float64(step))), wheel))
+}
+
 // One row per wheel gesture, including fractional trackpad deltas.
 func rosterScrollAfterWheel(current, maximum int, wheel float64) int {
 	current = min(maximum, max(0, current))

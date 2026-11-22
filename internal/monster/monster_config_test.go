@@ -78,6 +78,27 @@ func TestMonsterBoxKeysRejected(t *testing.T) {
 	}
 }
 
+// Formless is a boss-only type; a regular monster may not claim it.
+func TestFormlessIsBossOnly(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		def  MonsterDefinition
+		want bool
+	}{
+		{"formless regular", MonsterDefinition{Name: "Shade", SizeClass: "person", Type: TypeFormless}, true},
+		{"formless boss", MonsterDefinition{Name: "Shade", SizeClass: "person", Type: TypeFormless, Boss: true}, false},
+		{"untyped regular", MonsterDefinition{Name: "Shade", SizeClass: "person"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateMonsterConfiguration(&MonsterYAMLConfig{Monsters: map[string]MonsterDefinition{"shade": tc.def}})
+			got := err != nil && strings.Contains(err.Error(), "reserved for bosses") && strings.Contains(err.Error(), "shade")
+			if got != tc.want {
+				t.Fatalf("formless rejection=%v want %v: %v", got, tc.want, err)
+			}
+		})
+	}
+}
+
 func TestMonsterSpawnLetterMustBeLowercase(t *testing.T) {
 	cfg := &MonsterYAMLConfig{Monsters: map[string]MonsterDefinition{
 		"bad_marker": {Name: "Bad Marker", Letter: "B", SizeClass: "person"},

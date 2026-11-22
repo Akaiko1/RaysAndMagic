@@ -12,8 +12,10 @@ import (
 )
 
 // Wide spans must preserve the exact column path's perspective, alpha and wall
-// clipping. Drawing one-column clips selects the production fallback without a
-// second rasterizer or a test-only switch in the renderer.
+// clipping, and trimming them to the art's rows must never cut art. Drawing
+// one-column clips selects the production fallback, and swapping a token's
+// measured rows selects the trim, without a second rasterizer or a test-only
+// switch in the renderer.
 func TestStandeeSpansPreserveColumnRendering(t *testing.T) {
 	if os.Getenv("RAM_DEBUG_SIM") == "" {
 		t.Skip("requires the live GPU harness")
@@ -48,7 +50,49 @@ func TestStandeeSpansPreserveColumnRendering(t *testing.T) {
 	spanImage, columnImage := ebiten.NewImage(w, h), ebiten.NewImage(w, h)
 	defer spanImage.Deallocate()
 	defer columnImage.Deallocate()
-	spanPixels, columnPixels := make([]byte, 4*w*h), make([]byte, 4*w*h)
+	spanPixels, columnPixels, trimPixels := make([]byte, 4*w*h), make([]byte, 4*w*h), make([]byte, 4*w*h)
+
+	// The trim check's art leaves most of its frame empty: a crown, a trunk,
+	// single texels near two corners and a faint line, all of which must
+	// draw. A solid token of the same size carrying the tree's rows shows
+	// where the trimmed mesh reaches.
+	newToken := func(name string, colour func(x, y int) color.RGBA) (*ebiten.Image, standeeCoreKey) {
+		pixels := image.NewRGBA(image.Rect(0, 0, 128, 128))
+		for y := 0; y < 128; y++ {
+			for x := 0; x < 128; x++ {
+				pixels.SetRGBA(x, y, colour(x, y))
+			}
+		}
+		token := ebiten.NewImage(128, 128)
+		token.WritePixels(pixels.Pix)
+		key := makeStandeeCoreKey(name, token, false)
+		r.standeeCoreSilhouetteFromCPU(key, token, pixels)
+		return token, key
+	}
+	tree, treeKey := newToken("trim-tree", func(x, y int) color.RGBA {
+		dx, dy := x-64, y-44
+		switch {
+		case dx*dx+dy*dy < 34*34, x >= 58 && x < 70 && y >= 70, x == 3 && y == 5, x == 124 && y == 30:
+			return color.RGBA{60, uint8(110 + y/2), 50, 255}
+		case x == 100 && y >= 80 && y < 120:
+			return color.RGBA{3, 3, 3, 3}
+		}
+		return color.RGBA{}
+	})
+	defer tree.Deallocate()
+	solid, solidKey := newToken("trim-solid", func(x, y int) color.RGBA { return color.RGBA{200, 200, 200, 255} })
+	defer solid.Deallocate()
+	treeRows := r.standeeMipCache[standeeMipKey{frame: treeKey, layer: standeeMipSticker}].rows
+	if len(treeRows) == 0 {
+		t.Fatal("the tree fixture measured no rows")
+	}
+	withRows := func(key standeeCoreKey, rows []standeeLevelRows) {
+		for _, layer := range []standeeMipLayer{standeeMipSticker, standeeMipCore} {
+			r.standeeMipCache[standeeMipKey{frame: key, layer: layer}].rows = rows
+		}
+	}
+	withRows(treeKey, nil)
+	trimmedTokens := 0
 
 	type spanCase struct {
 		name                   string
@@ -62,8 +106,11 @@ func TestStandeeSpansPreserveColumnRendering(t *testing.T) {
 	}
 	cases := []spanCase{
 		{name: "angled transparent stack", depth: 100, size: 350, yaw: 0.8},
-		{name: "mirrored fading stack", depth: 100, size: 350, yaw: 2.1, mirror: true, fade: 0.4},
+		{name: "mirrored fading stack", depth: 100, size: 350, yaw: 2.1, mirror: true, fade: 0.4, volume: true},
+		{name: "tinted fading token", depth: 100, size: 350, yaw: 0.8, fade: 0.4},
 		{name: "minified single face", depth: 600, size: 45, yaw: 1.2, single: true},
+		{name: "minified stack", depth: 300, size: 110, yaw: 0.8},
+		{name: "steep stack", depth: 100, size: 350, yaw: 1.4},
 		{name: "stepped foreground walls", depth: 100, size: 350, yaw: 0.8, walls: true},
 		{name: "backing wall and foreground wall", depth: 100, size: 350, yaw: math.Pi / 2, walls: true, mounted: true},
 		{name: "fully hidden", depth: 100, size: 350, yaw: 0.8, hidden: true},
@@ -88,18 +135,28 @@ func TestStandeeSpansPreserveColumnRendering(t *testing.T) {
 				g.camera.FOV = 108 * math.Pi / 180
 			}
 			bottom := float64(h)/2 + tc.size/2
-			slab, ok := r.prepareStandeeSlab(sprite, key, tc.depth, 0, tc.yaw, tc.depth, tc.size, bottom, 1, 0.7, 0.4, false, tc.mirror, 0, nil, -1)
-			if !ok {
-				t.Fatal("fixture did not project")
+			// The compositor carries one brightness: its rows draw untinted.
+			gg, bb := float32(0.7), float32(0.4)
+			if tc.volume {
+				gg, bb = 1, 1
 			}
-			slab.fade = tc.fade
-			slab.volumeComposite = tc.volume
-			if tc.volume && !canUseStandeeVolume(slab) {
-				t.Fatal("fixture did not engage the volume compositor")
+			prepare := func(sprite *ebiten.Image, key standeeCoreKey) standeeSlab {
+				slab, ok := r.prepareStandeeSlab(sprite, key, tc.depth, 0, tc.yaw, tc.depth, tc.size, bottom, 1, gg, bb, false, tc.mirror, 0, nil, -1)
+				if !ok {
+					t.Fatal("fixture did not project")
+				}
+				slab.fade = tc.fade
+				// Crosses opt in; a fading token takes the compositor by itself.
+				slab.volumeComposite = tc.volume && tc.fade == 0
+				if tc.volume != canUseStandeeVolume(slab) {
+					t.Fatalf("volume compositor engaged=%v, want %v", canUseStandeeVolume(slab), tc.volume)
+				}
+				if tc.single {
+					slab.thin(1)
+				}
+				return slab
 			}
-			if tc.single {
-				slab.firstSurface = len(slab.surfaces) - 1
-			}
+			slab := prepare(sprite, key)
 			r.standeeWallOcclusion = standeeWallOcclusion{}
 			if tc.mounted {
 				r.standeeWallOcclusion = standeeWallOcclusion{hasBackingWall: true, backingX: tc.depth - 2, backingYaw: tc.yaw}
@@ -198,7 +255,51 @@ func TestStandeeSpansPreserveColumnRendering(t *testing.T) {
 			if !tc.walls && !tc.brokenWall && tc.depth >= 100 && tc.yaw > 0.01 && spanVertices > columnVertices/4 {
 				t.Fatalf("affine geometry was not reduced: %d -> %d vertices", columnVertices, spanVertices)
 			}
+
+			// The trim never cuts art: wherever the trimmed mesh leaves the
+			// screen empty, the untrimmed tree draws nothing either.
+			drawToken := func(sprite *ebiten.Image, key standeeCoreKey, rows []standeeLevelRows, pixels []byte) {
+				withRows(key, rows)
+				token := prepare(sprite, key)
+				runOnDrawFrame(func(_ *ebiten.Image) {
+					previous := activeWorldRaster
+					defer func() { activeWorldRaster = previous }()
+					var raster paniniRasterizer
+					if tc.panini {
+						raster.configure(spanImage, g.widePaniniProjection())
+						activeWorldRaster = &raster
+					}
+					spanImage.Clear()
+					r.drawStandeeSlabColumns(spanImage, token, -1, -1)
+					spanImage.ReadPixels(pixels)
+				})
+			}
+			art, mesh, full := spanPixels, columnPixels, trimPixels
+			drawToken(tree, treeKey, nil, art)
+			drawToken(solid, solidKey, treeRows, mesh)
+			drawToken(solid, solidKey, nil, full)
+			lost, skipped := 0, 0
+			for i := 3; i < len(art); i += 4 {
+				if mesh[i] == 0 {
+					if art[i] != 0 {
+						lost++
+					}
+					if full[i] != 0 {
+						skipped++
+					}
+				}
+			}
+			t.Logf("the trim skips %d empty pixels", skipped)
+			if lost > 0 {
+				t.Fatalf("the trim cut %d pixels of art", lost)
+			}
+			if skipped > 0 {
+				trimmedTokens++
+			}
 		})
+	}
+	if trimmedTokens == 0 {
+		t.Fatal("no case trimmed the tree: the trim check proves nothing")
 	}
 	t.Run("packed flags tolerate interpolation rounding", func(t *testing.T) {
 		clear(g.depthBuffer)
@@ -232,7 +333,7 @@ func TestStandeeSpansPreserveColumnRendering(t *testing.T) {
 				material := ebiten.Vertex{ColorR: 1, ColorG: 1, ColorB: 1, ColorA: 1, Custom0: tc.blend, Custom1: tc.layer, Custom2: tc.filtered}
 				slab := standeeSlab{centerDepth: 100, centerSize: 300, bottomY: 400}
 				surface := standeeSurface{p0x: 100, p0y: -100, dy: 200}
-				vertices, indices, ok := r.appendStandeeSurfaceSpans(nil, nil, slab, surface, 200, 440, material, image.Point{})
+				vertices, indices, ok := r.appendStandeeSurfaceSpans(nil, nil, slab, surface, 200, 440, material, image.Point{}, false, standeeTrim{})
 				if !ok || len(vertices) == 0 {
 					t.Fatal("flag fixture did not project")
 				}

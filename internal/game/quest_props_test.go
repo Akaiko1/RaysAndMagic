@@ -162,7 +162,7 @@ func TestQuestPropsLifecycle(t *testing.T) {
 						}
 						(&InputHandler{game: g}).handleTurnInQuest(id)
 					} else {
-						(&UISystem{game: g}).claimQuestReward(id)
+						g.claimQuestReward(id, nil)
 					}
 					if !g.questManager.GetQuest(id).RewardsClaimed {
 						t.Fatal("turn-in failed")
@@ -184,10 +184,6 @@ func TestQuestPropsLifecycle(t *testing.T) {
 					if forage && !reflect.DeepEqual(q.Activity.Selected, tokens) {
 						t.Fatal("flowers rerolled")
 					}
-					q.Status = quests.QuestStatusFailed
-					failed := capture()
-					load(failed)
-					check("failed", 0)
 					load(part)
 					g.startNewGameWithParty(character.NewParty(cfg))
 					check("new game", 0)

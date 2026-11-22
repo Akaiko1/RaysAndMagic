@@ -36,6 +36,23 @@ func overlayInt(label string, p *int, help string) overlayField {
 		return nil
 	}}
 }
+
+// overlayExclusiveInt is overlayInt for one of two alternatives: a positive
+// value clears the other, so flat and percent damage never coexist.
+func overlayExclusiveInt(label string, p, other *int, help string) overlayField {
+	f := overlayInt(label, p, help)
+	apply := f.apply
+	f.apply = func(s string) error {
+		if err := apply(s); err != nil {
+			return err
+		}
+		if *p > 0 {
+			*other = 0
+		}
+		return nil
+	}
+	return f
+}
 func overlayFloat(label string, p *float64, help string) overlayField {
 	return overlayField{label: label, value: strconv.FormatFloat(*p, 'f', -1, 64), help: help, apply: func(s string) error {
 		n, e := strconv.ParseFloat(strings.TrimSpace(s), 64)
@@ -126,7 +143,7 @@ func (v *viewer) overlayFields(d *overlayDocument) []overlayField {
 	effects, controls, lanes := []string{}, []string{""}, []string{}
 	for _, e := range a.Effects {
 		effects = append(effects, e.ID)
-		if e.Kind == "lane" {
+		if e.Kind == config.EffectLane {
 			lanes = append(lanes, e.ID)
 		}
 	}
@@ -157,27 +174,27 @@ func (v *viewer) overlayFields(d *overlayDocument) []overlayField {
 			return nil
 		}
 		e := &a.Effects[p.selected]
-		fields = append(fields, overlayField{label: "ID", value: e.ID, help: "Renaming also updates links in this map.", apply: func(s string) error { return d.renameID("effect", p.selected, s) }}, overlayString("Name", &e.Name, "Shown in combat messages."), overlayField{label: "Behavior", value: e.Kind, help: "trap: hits once on entry. occupation: damages every second while standing in it. transfer: moves the party to a receiver tile. lane: a boss attack announced before it strikes.", choices: []string{"trap", "occupation", "transfer", "lane"}, apply: func(s string) error { return d.changeKind(p.selected, s) }})
+		fields = append(fields, overlayField{label: "ID", value: e.ID, help: "Renaming also updates links in this map.", apply: func(s string) error { return d.renameID("effect", p.selected, s) }}, overlayString("Name", &e.Name, "Shown in combat messages."), overlayField{label: "Behavior", value: string(e.Kind), help: "trap: hits once on entry. occupation: damages every second while standing in it. transfer: moves the party to a receiver tile. lane: a boss attack announced before it strikes.", choices: config.KindNames(config.EffectKinds), apply: func(s string) error { return d.changeKind(p.selected, config.EffectKind(s)) }})
 		fields = append(fields, overlayHeading("Area"))
 		box(&e.Rect)
 		fields = append(fields, overlayAction("Redraw area", "Drag a new rectangle on the map.", func() { p.tool = "redraw" }))
 		fields = append(fields, overlayHeading("Behavior"))
-		if e.Kind == "transfer" {
+		if e.Kind == config.EffectTransfer {
 			fields = append(fields, overlayInt("Receiver column", &e.Destination[0], "Destination must be walkable and outside the source."), overlayInt("Receiver row", &e.Destination[1], "Destination must be safe."), overlayAction("Pick receiver on map", "Click the destination tile.", func() { p.tool = "receiver" }), overlayString("Fires with lane", &e.TriggerLane, "Optional: wait until this boss lane fires.", append([]string{""}, lanes...)...), overlayString("Tile colour", &e.School, "Colours the transfer tiles by school. No damage.", "", "physical", "fire", "water", "earth", "air"))
 		} else {
-			fields = append(fields, overlayInt("Damage", &e.Damage, "Per entry for traps, per strike for lanes, per second for occupation."), overlayString("Damage school", &e.School, "Resistance used against the damage.", "physical", "fire", "water", "earth", "air"), overlayString("Second school", &e.SecondarySchool, "Optional: split the damage equally between two schools.", "", "physical", "fire", "water", "earth", "air"))
+			fields = append(fields, overlayExclusiveInt("Damage", &e.Damage, &e.DamagePercent, "Per entry for traps, per strike for lanes, per second for occupation. Setting it clears the percent."), overlayExclusiveInt("Damage (% of boss attack)", &e.DamagePercent, &e.Damage, "Instead of Damage: a percent of the boss's attack at the visit's level, so it grows with the chamber."), overlayString("Damage school", &e.School, "Resistance used against the damage.", "physical", "fire", "water", "earth", "air"), overlayString("Second school", &e.SecondarySchool, "Optional: split the damage equally between two schools.", "", "physical", "fire", "water", "earth", "air"))
 		}
-		if e.Kind == "lane" {
-			fields = append(fields, overlayInt("Lingering damage per second", &e.SustainDamage, "Damage per second on the struck tiles afterwards. 0: only the strike hurts."), overlayFloat("Lingering time (seconds)", &e.DurationSeconds, "Real-time lifetime of the lingering field."), overlayInt("Lingering time (rounds)", &e.DurationRounds, "Turn-based lifetime of the lingering field."))
+		if e.Kind == config.EffectLane {
+			fields = append(fields, overlayExclusiveInt("Lingering damage per second", &e.SustainDamage, &e.SustainPercent, "Damage per second on the struck tiles afterwards. 0: only the strike hurts."), overlayExclusiveInt("Lingering damage (% of boss attack)", &e.SustainPercent, &e.SustainDamage, "Instead of the flat lingering damage: a percent of the boss's attack per second."), overlayInt("Lingering time (seconds)", &e.DurationSeconds, "Lifetime of the lingering field: whole 3 s rounds, the same span in turn-based play."))
 		}
-		if e.Kind == "lane" || e.BossBelowPercent > 0 {
+		if e.Kind == config.EffectLane || e.BossBelowPercent > 0 {
 			help := "Time between the announcement and the strike, to leave the marked tiles."
-			if e.Kind != "lane" {
+			if e.Kind != config.EffectLane {
 				help = "Charge time after the boss falls below the HP threshold, before the effect starts."
 			}
 			fields = append(fields, overlayFloat("Warning (seconds)", &e.WarningSeconds, help), overlayInt("Warning (rounds)", &e.WarningRounds, "Turn-based warning. "+help))
 		}
-		if e.Kind == "trap" {
+		if e.Kind == config.EffectTrap {
 			fields = append(fields, overlayFloat("Rearm (seconds)", &e.RearmSeconds, "Delay before it can hit again on re-entry."), overlayInt("Rearm (rounds)", &e.RearmRounds, "Turn-based rearm delay."))
 		}
 		threshold := overlayInt("Starts at boss HP (%)", &e.BossBelowPercent, "0: always active. Otherwise it charges once the boss is at or below this HP, then starts after its warning.")
@@ -253,7 +270,7 @@ func (v *viewer) overlayFields(d *overlayDocument) []overlayField {
 			return nil
 		}
 		phase := &a.Boss.Phases[p.selected]
-		fields = append(fields, overlayHeading("Phase condition"), overlayInt("At or below HP (%)", &phase.BelowPercent, "Phases must be ordered from highest to lowest threshold."), overlayInt("Special every N actions", &phase.EveryActions, "0 inherits the boss cadence. 1 attacks every action."))
+		fields = append(fields, overlayHeading("Phase condition"), overlayInt("At or below HP (%)", &phase.BelowPercent, "Phases must be ordered from highest to lowest threshold."), overlayInt("Lane cooldown (seconds)", &phase.CooldownSeconds, "0 inherits the boss cooldown. 3 fires a lane every round."))
 		fields = append(fields, overlayHeading("Attack sequence"))
 		for i := range phase.Patterns {
 			fields = append(fields, overlayList(fmt.Sprintf("Volley %d", i+1), &phase.Patterns[i], "Selected lanes fire together. Volleys alternate in order.", lanes), overlayAction(fmt.Sprintf("Remove volley %d", i+1), "A phase needs at least one volley.", func() { d.checkpoint(); phase.Patterns = slices.Delete(phase.Patterns, i, i+1) }))
@@ -302,7 +319,11 @@ func (v *viewer) overlayFields(d *overlayDocument) []overlayField {
 			fields = append(fields, overlayAction("Add entrance schedule", "Configure the destination for every day and night.", func() { d.checkpoint(); a.Schedule = &config.AdventureSchedule{Days: make([][2]string, 7)} }))
 		} else {
 			s := a.Schedule
-			fields = append(fields, overlayString("Required quest", &s.RequiresQuest, "The entrance opens once this quest is done.", v.overlayCatalog("quests", "quests")...), overlayString("Required spell", &s.RequiresSpell, "A party member must know this spell. A Jump device also works.", v.overlayCatalog("spells", "spells")...), overlayString("Alternative technique", &s.AlternativeTechnique, "Optional technique accepted instead of the spell.", "", "fold_step"))
+			techniques := []string{""} // only a fold step can stand in for the spell
+			if fold := config.TechniqueOfKind(config.TechniqueFoldStep); fold != nil {
+				techniques = append(techniques, fold.Key)
+			}
+			fields = append(fields, overlayString("Required quest", &s.RequiresQuest, "The entrance opens once this quest is done.", v.overlayCatalog("quests", "quests")...), overlayString("Required spell", &s.RequiresSpell, "A party member must know this spell. A Jump device also works.", v.overlayCatalog("spells", "spells")...), overlayString("Alternative technique", &s.AlternativeTechnique, "Optional technique accepted instead of the spell.", techniques...))
 			maps := []string{}
 			for _, m := range v.maps {
 				if m.Key != d.key && m.Config != nil && m.Config.Adventure != nil && m.Config.Adventure.OpeningOwned {

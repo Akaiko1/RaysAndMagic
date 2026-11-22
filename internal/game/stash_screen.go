@@ -5,34 +5,34 @@ import (
 	"image/color"
 	"strconv"
 
+	uitext "ugataima/assets/text"
 	"ugataima/internal/items"
 	"ugataima/internal/stash"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
-// The tavern stash: a cross-save shared chest. The keeper's "Manage your stash"
-// choice opens this modal. Drag items between the party bag and the 8 chest
-// cells; each transfer is persisted immediately (stash.json) and the game is
-// autosaved so the bag side is committed too - keeping the two stores in step.
+// The tavern stash: a cross-save shared chest, shown whole beside a page of the
+// party bag (the tavern's Stash tab, or this modal from the Storage Clerk).
+// Drag or double-click items between them; each transfer is persisted
+// immediately (stash.json) and the game is autosaved so the bag side is
+// committed too - keeping the two stores in step.
 
 // stashDragFrom encodes the drag SOURCE in one int, decoded by decodeStashFrom:
-// a chest cell (0..SlotCount-1), a card cell (+stashCardDragBase), a bag index
-// (+stashDragInvBase), or a merchant shelf index (+stashShopDragBase). The bases
-// are disjoint (each far above any real bank size), so a single field addresses
-// every source the shared drag machine serves.
+// a chest cell (0..SlotCount-1), a bag index (+stashDragInvBase), or a merchant
+// shelf index (+stashShopDragBase). The bases are disjoint (each far above any
+// real bank size), so a single field addresses every source the shared drag
+// machine serves.
 const (
-	stashCardDragBase = 1000
 	stashDragInvBase  = 100000
 	stashShopDragBase = 200000
 )
 
 // Stash cell banks. kindBag addresses the party inventory (a slice, add/remove),
 // kindShop the open merchant's visible stock (buy source only, never a drop
-// target), the others fixed cell arrays via stashCellPtr.
+// target), kindChest the chest cells via stashCellPtr.
 const (
 	stashKindChest = iota
-	stashKindCard
 	stashKindBag
 	stashKindShop
 )
@@ -43,31 +43,22 @@ type stashAddr struct {
 	idx  int
 }
 
-const (
-	stashCellSize    = 56
-	stashCellGap     = 10
-	stashInvCols     = 4
-	stashInvRows     = 2
-	stashInvMaxShown = stashInvCols * stashInvRows
-)
-
 // openStash lazy-loads the shared chest and shows the stash modal. Called from
 // the tavern's "Manage your stash" action.
 func (g *MMGame) openStash() bool {
 	if !g.ensureStashLoaded() {
-		g.AddCombatMessage("Could not open the stash.")
+		g.AddCombatMessage(uitext.Text("combat.could_not_open_the_stash"))
 		return false
 	}
 	g.stashScreenOpen = true
 	g.stashInvPage = 0
-	g.stashShowCards = false
 	g.clearStashDrag()
 	return true
 }
 
 func (g *MMGame) clearStashDrag() {
-	g.stashDragArmed = false
-	g.stashDragActive = false
+	g.stashDrag.armed = false
+	g.stashDrag.active = false
 	g.stashDragDrop = false
 	g.stashDragFrom = -1
 	g.stashDragItem = items.Item{}
@@ -96,13 +87,13 @@ func (g *MMGame) commitStashTransfer(snapshot stashTransferSnapshot) bool {
 	}
 	if err := stash.SaveTransferJournal(journal); err != nil {
 		snapshot.restore(g)
-		g.AddCombatMessage("Stash transfer failed - nothing was moved.")
+		g.AddCombatMessage(uitext.Text("combat.stash_transfer_failed_nothing_was_moved"))
 		return false
 	}
 	if err := stash.Save(g.stash); err != nil {
 		snapshot.restore(g) // chest never committed -> just undo the in-memory move
 		_ = stash.ClearTransferJournal()
-		g.AddCombatMessage("Stash transfer failed - nothing was moved.")
+		g.AddCombatMessage(uitext.Text("combat.stash_transfer_failed_nothing_was_moved"))
 		return false
 	}
 	g.pendingStashTransferID = journal.ID
@@ -114,9 +105,9 @@ func (g *MMGame) commitStashTransfer(snapshot stashTransferSnapshot) bool {
 			snapshot.restore(g)
 			g.pendingStashTransferID = ""
 			_ = stash.ClearTransferJournal()
-			g.AddCombatMessage("Stash transfer failed - nothing was moved.")
+			g.AddCombatMessage(uitext.Text("combat.stash_transfer_failed_nothing_was_moved"))
 		} else {
-			g.AddCombatMessage("Stash saved, but autosave failed. Do not quit; save again.")
+			g.AddCombatMessage(uitext.Text("combat.stash_saved_but_autosave_failed_do"))
 		}
 		return false
 	}
@@ -133,26 +124,21 @@ func (g *MMGame) commitStashTransfer(snapshot stashTransferSnapshot) bool {
 // copies remain valid for rollback and durable journal recovery.
 type stashTransferSnapshot struct {
 	inventory []items.Item
-	slots     [stash.SlotCount]items.Item
-	cards     [stash.CardSlotCount]items.Item
+	chest     stash.Stash
 }
 
 func (g *MMGame) stashSnapshot() stashTransferSnapshot {
 	return stashTransferSnapshot{
 		inventory: append([]items.Item(nil), g.party.Inventory...),
-		slots:     g.stash.Slots,
-		cards:     g.stash.CardSlots,
+		chest:     g.stash.Clone(),
 	}
 }
 
-func (snapshot stashTransferSnapshot) stash() stash.Stash {
-	return stash.Stash{Slots: snapshot.slots, CardSlots: snapshot.cards}
-}
+func (snapshot stashTransferSnapshot) stash() stash.Stash { return snapshot.chest.Clone() }
 
 func (snapshot stashTransferSnapshot) restore(g *MMGame) {
 	g.party.Inventory = snapshot.inventory
-	g.stash.Slots = snapshot.slots
-	g.stash.CardSlots = snapshot.cards
+	*g.stash = snapshot.chest.Clone()
 }
 
 // finishPendingStashTransfer retries the party-side autosave after the rare
@@ -163,11 +149,11 @@ func (g *MMGame) finishPendingStashTransfer() bool {
 		return true
 	}
 	if err := g.autosaveErr(); err != nil {
-		g.AddCombatMessage("Stash autosave is still failing. Try again before moving more items.")
+		g.AddCombatMessage(uitext.Text("combat.stash_autosave_is_still_failing_try"))
 		return false
 	}
 	if err := stash.ClearTransferJournal(); err != nil {
-		g.AddCombatMessage("Stash is waiting for journal cleanup. Try again before moving more items.")
+		g.AddCombatMessage(uitext.Text("combat.stash_is_waiting_for_journal_cleanup"))
 		return false
 	}
 	g.pendingStashTransferID = ""
@@ -191,7 +177,7 @@ func (ui *UISystem) updateStashDrag(now int64) bool {
 			g.clearStashDrag()
 			return false
 		}
-		g.stashDragCurX, g.stashDragCurY = pointerPosition()
+		g.stashDrag.curX, g.stashDrag.curY = pointerPosition()
 		if pointerLeftJustPressed() {
 			g.stashDragDrop = true
 			return true // destination click is a drag drop, never a stash click
@@ -202,43 +188,37 @@ func (ui *UISystem) updateStashDrag(now int64) bool {
 		return false
 	}
 	if !g.stashDragSurfaceOpen() {
-		if g.stashDragArmed || g.stashDragActive {
+		if g.stashDrag.armed || g.stashDrag.active {
 			g.clearStashDrag()
 		}
 		return false
 	}
 	x, y := pointerPosition()
 	if pointerLeftJustPressed() {
-		g.stashDragArmed = true
-		g.stashDragActive = false
+		g.stashDrag.press(x, y)
 		g.stashDragDrop = false
 		g.stashDragFrom = -1
-		g.stashDragStartX, g.stashDragStartY = x, y
-		g.stashDragCurX, g.stashDragCurY = x, y
 		g.stashDragItem = items.Item{}
 		g.stashDragSplitQuantity = 0
 	}
-	if g.stashDragArmed && pointerLeftPressed() {
-		g.stashDragCurX, g.stashDragCurY = x, y
-		if !g.stashDragActive && (absInt(x-g.stashDragStartX) > quickDragThreshold || absInt(y-g.stashDragStartY) > quickDragThreshold) {
-			g.stashDragActive = true
-		}
+	if pointerLeftPressed() {
+		g.stashDrag.follow(x, y)
 	}
 	if pointerLeftJustRelease() {
-		wasArmed := g.stashDragArmed
-		g.stashDragCurX, g.stashDragCurY = x, y
-		if g.stashDragActive && g.stashDragFrom >= 0 {
+		wasArmed := g.stashDrag.armed
+		g.stashDrag.curX, g.stashDrag.curY = x, y
+		if g.stashDrag.active && g.stashDragFrom >= 0 {
 			g.stashDragDrop = true // Update resolves against the displayed cell
 		} else {
-			if wasArmed && !g.stashDragActive {
+			if wasArmed && !g.stashDrag.active {
 				// A press that never became a drag IS the click - queue it now,
 				// at the point it started, so grids act on completed gestures.
-				g.mouseLeftClicks = append(g.mouseLeftClicks, queuedClick{x: g.stashDragStartX, y: g.stashDragStartY, at: now})
-				g.mouseLeftClickX, g.mouseLeftClickY = g.stashDragStartX, g.stashDragStartY
+				g.mouseLeftClicks = append(g.mouseLeftClicks, queuedClick{x: g.stashDrag.startX, y: g.stashDrag.startY, at: now})
+				g.mouseLeftClickX, g.mouseLeftClickY = g.stashDrag.startX, g.stashDrag.startY
 			}
 			g.clearStashDrag()
 		}
-		g.stashDragArmed = false
+		g.stashDrag.armed = false
 	}
 	return false
 }
@@ -264,8 +244,7 @@ func (g *MMGame) stashInteractionOpen() bool {
 	return ok && tab.action == tavernStashAction
 }
 
-// decodeStashFrom turns the encoded stashDragFrom into a slot address. The bag
-// base sits far above the card base, so the bag test comes first.
+// decodeStashFrom turns the encoded stashDragFrom into a slot address.
 func decodeStashFrom(from int) (stashAddr, bool) {
 	switch {
 	case from < 0:
@@ -274,45 +253,85 @@ func decodeStashFrom(from int) (stashAddr, bool) {
 		return stashAddr{stashKindShop, from - stashShopDragBase}, true
 	case from >= stashDragInvBase:
 		return stashAddr{stashKindBag, from - stashDragInvBase}, true
-	case from >= stashCardDragBase:
-		return stashAddr{stashKindCard, from - stashCardDragBase}, true
 	default:
 		return stashAddr{stashKindChest, from}, true
 	}
 }
 
-// stashCellPtr returns the backing item slot for a chest/card cell (nil for the
+// stashCellPtr returns the backing item slot for a chest cell (nil for the
 // bag, which is a slice handled separately, or an out-of-range index).
 func (g *MMGame) stashCellPtr(a stashAddr) *items.Item {
-	switch a.kind {
-	case stashKindChest:
-		if a.idx >= 0 && a.idx < len(g.stash.Slots) {
-			return &g.stash.Slots[a.idx]
-		}
-	case stashKindCard:
-		if a.idx >= 0 && a.idx < len(g.stash.CardSlots) {
-			return &g.stash.CardSlots[a.idx]
-		}
+	if a.kind == stashKindChest && a.idx >= 0 && a.idx < len(g.stash.Slots) {
+		return &g.stash.Slots[a.idx]
 	}
 	return nil
 }
 
-// stashAcceptsCardSlot reports whether an item may occupy a card slot: only a
-// monster card, or nothing (empty). The card slots are the ONLY restricted bank.
-func stashAcceptsCardSlot(it items.Item) bool {
-	return stash.IsEmpty(it) || it.Type == items.ItemCard
+// resolveStashDrop moves the carried thing to dst.
+func (g *MMGame) resolveStashDrop(dst stashAddr) {
+	if src, ok := decodeStashFrom(g.stashDragFrom); ok {
+		g.moveStashItem(src, dst, g.stashDragSplitQuantity)
+	}
 }
 
-// resolveStashDrop moves the carried thing to dst. Cell<->cell is a swap; bag<->cell
-// moves with any displaced occupant returning to the bag. A card slot rejects
-// anything that isn't a monster card (including the item a swap would push into it).
-func (g *MMGame) resolveStashDrop(dst stashAddr) {
-	src, ok := decodeStashFrom(g.stashDragFrom)
-	if !ok || src == dst {
+// quickMoveStashItem is the double-click transfer: a chest item goes to the
+// bag, stacking automatically; a bag item goes whole onto its matching chest
+// stack, else into the first free cell.
+func (g *MMGame) quickMoveStashItem(src stashAddr) {
+	if src.kind == stashKindChest {
+		g.moveStashItem(src, stashAddr{stashKindBag, stashBagAutomatic}, 0)
 		return
 	}
-	if g.stashDragSplitQuantity > 0 {
-		g.resolvePartialStashDrop(src, dst, g.stashDragSplitQuantity)
+	if src.kind != stashKindBag || src.idx < 0 || src.idx >= len(g.party.Inventory) {
+		return
+	}
+	it := g.party.Inventory[src.idx]
+	free := -1
+	for i, cell := range g.stash.Slots {
+		if items.SameStack(cell, it) {
+			g.moveStashItem(src, stashAddr{stashKindChest, i}, 0)
+			return
+		}
+		if free < 0 && stash.IsEmpty(cell) {
+			free = i
+		}
+	}
+	if free < 0 {
+		g.AddCombatMessage(uitext.Text("stash.chest_full"))
+		return
+	}
+	g.moveStashItem(src, stashAddr{stashKindChest, free}, 0)
+}
+
+// A bag destination that stacks automatically (Bag.Place with a negative cell).
+const stashBagAutomatic = -1
+
+// moveStashItem moves quantity units of src to dst, or the whole item when
+// quantity is 0, under the inventory's placement rule (items.DropOnto): onto a
+// matching stack it merges, an empty cell keeps its own stack, a whole item
+// trades cells with any other item, and part of a stack onto another item
+// moves nothing. The automatic bag destination stacks like loot. A chest
+// change is one journalled transfer; a bag-only move is ordinary inventory
+// work.
+func (g *MMGame) moveStashItem(src, dst stashAddr, quantity int) {
+	moving := g.stashItem(src)
+	if src == dst || stash.IsEmpty(moving) {
+		return
+	}
+	n := carriedUnits(moving, quantity)
+	if dst.kind != stashKindBag && g.stashCellPtr(dst) == nil { // a shop shelf or no cell
+		return
+	}
+	if automatic := dst == (stashAddr{stashKindBag, stashBagAutomatic}); !automatic && g.refusedDrop(moving, g.stashItem(dst), n == moving.Count()) {
+		return
+	}
+	bag := g.party.Bag()
+	if src.kind == stashKindBag && dst.kind == stashKindBag {
+		bag.MoveWithin(src.idx, dst.idx, n)
+		return
+	}
+	if n < moving.Count() {
+		g.resolvePartialStashDrop(src, dst, n)
 		return
 	}
 	if !g.finishPendingStashTransfer() {
@@ -320,74 +339,55 @@ func (g *MMGame) resolveStashDrop(dst stashAddr) {
 	}
 	rollback := g.stashSnapshot()
 	switch {
-	case src.kind != stashKindBag && dst.kind != stashKindBag: // cell <-> cell (swap)
-		sp, dp := g.stashCellPtr(src), g.stashCellPtr(dst)
-		if sp == nil || dp == nil {
-			return
-		}
-		// After the swap *dp holds the carried item and *sp the displaced one;
-		// a card slot on either end must end up holding a card.
-		if (dst.kind == stashKindCard && !stashAcceptsCardSlot(*sp)) ||
-			(src.kind == stashKindCard && !stashAcceptsCardSlot(*dp)) {
-			g.AddCombatMessage("Only monster cards fit the card slots.")
-			return
-		}
-		*sp, *dp = *dp, *sp
+	case src.kind != stashKindBag && dst.kind != stashKindBag: // cell <-> cell
+		g.stash.Slots[src.idx] = items.Item{}
+		g.stash.Slots[src.idx] = g.stash.Place(dst.idx, moving) // a displaced item takes the source cell
 	case src.kind == stashKindBag: // bag -> cell
-		idx := src.idx
-		if idx < 0 || idx >= len(g.party.Inventory) {
-			return
+		bag.Remove(src.idx)
+		if occ := g.stash.Place(dst.idx, moving); !stash.IsEmpty(occ) {
+			g.releaseFromChest(&occ)
+			bag.Insert(src.idx, occ) // the displaced item takes the bag cell
 		}
-		item := g.party.Inventory[idx]
-		if dst.kind == stashKindCard && !stashAcceptsCardSlot(item) {
-			g.AddCombatMessage("Only monster cards fit the card slots.")
-			return
-		}
-		dp := g.stashCellPtr(dst)
-		if dp == nil {
-			return
-		}
-		occ := *dp
-		g.party.RemoveItem(idx)
-		*dp = item
-		if !stash.IsEmpty(occ) {
-			g.party.AddItem(occ) // displaced item returns to the bag
-		}
-	case dst.kind == stashKindBag: // cell -> bag
+	default: // cell -> bag
 		sp := g.stashCellPtr(src)
-		if sp == nil || stash.IsEmpty(*sp) {
-			return
-		}
-		g.party.AddItem(*sp)
 		*sp = items.Item{}
-	default:
-		return // bag -> bag: no-op
+		g.releaseFromChest(&moving)
+		*sp = bag.Place(moving, dst.idx) // a displaced bag item takes the chest cell
 	}
 	g.commitStashTransfer(rollback)
 }
 
-// resolvePartialStashDrop transfers a fragment without ever creating two
-// arbitrary copies in the bag. Stack provenance lives on items.Item, so a
-// partial deposit may safely merge into an occupied matching chest cell.
-func (g *MMGame) resolvePartialStashDrop(src, dst stashAddr, quantity int) {
-	if quantity < 1 || src == dst || (src.kind == stashKindBag && dst.kind == stashKindBag) {
-		return
+// stashItem is what a stash address holds; an empty chest cell, the bag's
+// free tail and an address out of range read as an empty cell.
+func (g *MMGame) stashItem(a stashAddr) items.Item {
+	if a.kind == stashKindBag {
+		return g.party.Bag().Cell(a.idx)
 	}
-	if dst.kind == stashKindCard {
-		return // cards never stack, so no partial transfer belongs in the vault
+	if cell := g.stashCellPtr(a); cell != nil {
+		return *cell
 	}
-	var dstCell *items.Item
-	if dst.kind != stashKindBag {
-		dstCell = g.stashCellPtr(dst)
-		if dstCell == nil {
-			return
-		}
-		if !stash.IsEmpty(*dstCell) && !items.SameStack(*dstCell, g.stashDragItem) {
-			g.AddCombatMessage("Partial stack transfer needs a matching stash stack.")
-			return
-		}
-	}
+	return items.Item{}
+}
 
+// releaseFromChest readies units leaving the chest for the party: components
+// the chest still holds elsewhere (a layout split inside the chest shares its
+// IDs) get fresh IDs, so a later load never strips them as stash-owned. Call
+// it once the units are out of their cell.
+func (g *MMGame) releaseFromChest(it *items.Item) {
+	claimed := map[uint64]bool{}
+	g.stash.Each(func(other *items.Item) {
+		for _, part := range other.StackLineageParts() {
+			claimed[part.ID] = true
+		}
+	})
+	it.RekeyClaimedLineages(func(id uint64) bool { return claimed[id] })
+}
+
+// resolvePartialStashDrop transfers part of a stack across the chest boundary
+// or within the chest, once moveStashItem has applied the placement rule: the
+// fragment merges onto a matching stack or fills an empty cell. Stack
+// provenance lives on items.Item, so any matching chest stack accepts it.
+func (g *MMGame) resolvePartialStashDrop(src, dst stashAddr, quantity int) {
 	if !g.finishPendingStashTransfer() {
 		return
 	}
@@ -397,7 +397,7 @@ func (g *MMGame) resolvePartialStashDrop(src, dst stashAddr, quantity int) {
 	switch src.kind {
 	case stashKindBag:
 		fragment, ok = g.party.TakeStackUnits(src.idx, quantity)
-	case stashKindChest, stashKindCard:
+	case stashKindChest:
 		source := g.stashCellPtr(src)
 		if source != nil {
 			if dst.kind == stashKindBag {
@@ -412,84 +412,74 @@ func (g *MMGame) resolvePartialStashDrop(src, dst stashAddr, quantity int) {
 	}
 
 	if dst.kind == stashKindBag {
-		g.party.AddItem(fragment)
-	} else if stash.IsEmpty(*dstCell) {
-		*dstCell = fragment
+		g.releaseFromChest(&fragment)
+		g.party.Bag().Place(fragment, dst.idx)
 	} else {
-		dstCell.MergeStack(fragment)
+		g.stash.Place(dst.idx, fragment) // the placement rule refused any occupant already
 	}
 	g.commitStashTransfer(rollback)
 }
 
+// The stash shows the whole chest (stashChestCols x stashChestRows) beside
+// one page of the bag at the same height, both sized from the host's area.
 const (
-	stashPopupW   = 560
-	stashPopupH   = 440
-	stashSubtitle = "Shared across all your saves. Drag items between your bag and the chest."
+	stashCellSize   = 44
+	stashCellGap    = 6
+	stashCellPitch  = stashCellSize + stashCellGap
+	stashChestCols  = 8
+	stashChestRows  = (stash.SlotCount + stashChestCols - 1) / stashChestCols
+	stashPad        = 14
+	stashHeadH      = 22 // section headings above the grids
+	stashSectionGap = 28
+	stashPopupW     = 740
+	stashPopupH     = 540
+	stashPopupHeadH = 56 // title and hint above the standalone modal's grids
 )
 
-// stashSectionRows is the row count shared by the top storage grid and the bag
-// grid (both stashInvCols wide). One place so layout + drop-scan can't drift.
-const stashSectionRows = 2
-
-// The top storage grid has a tab toggle (Items <-> Cards) where a pager would
-// sit; it flips between the general chest slots and the card-only vault.
-const (
-	stashToggleW = 96
-	stashToggleH = 18
-)
-
-// stashLayout holds the resolved anchor coordinates of the stash modal. Both the
-// renderer and the layout-collision test derive their geometry from here so the
-// two never drift.
+// stashLayout is the resolved stash geometry. The renderer and the layout
+// tests derive every rect from here so the two never drift.
 type stashLayout struct {
-	popupX, popupY     int
-	popupW, popupH     int
-	centerX            int
-	chestTop, invTop   int
-	gridW, pagerY      int
-	chestRows, bagRows int
+	chest, bag layoutRect // the two cell grids
+	bagCols    int
+	headY      int // section headings
+	noteY      int // the chest note and the bag pager, under the grids
 }
 
-func computeStashLayout(screenW, screenH int) stashLayout {
+func (L stashLayout) bagPageSize() int { return L.bagCols * stashChestRows }
+
+// computeStashLayout places the standalone modal; its grids use the same
+// area layout as the tavern tab.
+func computeStashLayout(screenW, screenH int) (layoutRect, stashLayout) {
 	popup := centeredRect(screenW, screenH, stashPopupW, stashPopupH)
-	popupX, popupY := popup.x, popup.y
-	return computeStashLayoutForArea(layoutRect{popupX, popupY, stashPopupW, stashPopupH}, 76)
+	area := layoutRect{popup.x + 16, popup.y + stashPopupHeadH, popup.w - 32, popup.h - stashPopupHeadH - 8}
+	return popup, computeStashLayoutForArea(area)
 }
 
-func computeStashLayoutForArea(area layoutRect, topInset int) stashLayout {
-	var L stashLayout
-	L.popupX, L.popupY = area.x, area.y
-	L.popupW, L.popupH = area.w, area.h
-	L.centerX = area.x + area.w/2
-	L.chestTop = area.y + topInset
-	L.invTop = L.chestTop + stashSectionRows*(stashCellSize+stashCellGap) + 30
-	L.gridW = stashInvCols*stashCellSize + (stashInvCols-1)*stashCellGap
-	L.pagerY = L.invTop + stashSectionRows*(stashCellSize+stashCellGap) + 8
-	L.chestRows, L.bagRows = stashSectionRows, stashSectionRows
-	return L
+func computeStashLayoutForArea(area layoutRect) stashLayout {
+	gridH := stashChestRows*stashCellPitch - stashCellGap
+	chestW := stashChestCols*stashCellPitch - stashCellGap
+	bagCols := max(1, (area.w-2*stashPad-chestW-stashSectionGap+stashCellGap)/stashCellPitch)
+	bagW := bagCols*stashCellPitch - stashCellGap
+	x := area.x + (area.w-chestW-stashSectionGap-bagW)/2
+	top := area.y + stashPad + stashHeadH
+	return stashLayout{
+		chest:   layoutRect{x, top, chestW, gridH},
+		bag:     layoutRect{x + chestW + stashSectionGap, top, bagW, gridH},
+		bagCols: bagCols,
+		headY:   area.y + stashPad,
+		noteY:   top + gridH + 10,
+	}
 }
 
-// stashToggleRect is the Items/Cards tab button, sitting at the right end of the
-// top-storage heading row. Single-sourced so draw + collision test agree.
-func stashToggleRect(L stashLayout) image.Rectangle {
-	x := L.popupX + L.popupW - stashToggleW - 16
-	y := L.chestTop - 20
-	return image.Rect(x, y, x+stashToggleW, y+stashToggleH)
-}
-
-// stashCellRect returns the rect of top-storage cell i (2 rows of stashInvCols).
-func stashCellRect(originX, originY, i int) image.Rectangle {
-	r, c := i/stashInvCols, i%stashInvCols
-	gridW := stashInvCols*stashCellSize + (stashInvCols-1)*stashCellGap
-	startX := originX - gridW/2
-	x := startX + c*(stashCellSize+stashCellGap)
-	y := originY + r*(stashCellSize+stashCellGap)
+// stashGridCell is cell i of a grid cols wide.
+func stashGridCell(grid layoutRect, cols, i int) image.Rectangle {
+	x := grid.x + i%cols*stashCellPitch
+	y := grid.y + i/cols*stashCellPitch
 	return image.Rect(x, y, x+stashCellSize, y+stashCellSize)
 }
 
-// drawStashScreen renders the chest modal: 8 chest cells over the party bag grid,
-// with drag-and-drop between them. Clicks/drag are resolved inline (roster-screen
-// convention). Closes on the X button or ESC.
+// drawStashScreen renders the standalone chest modal around the shared stash
+// manager. Closes on the X button or ESC.
 func (ui *UISystem) drawStashScreen(screen *ebiten.Image) {
 	g := ui.game
 	if g.stash == nil {
@@ -497,14 +487,12 @@ func (ui *UISystem) drawStashScreen(screen *ebiten.Image) {
 	}
 	screenW := g.config.GetScreenWidth()
 	screenH := g.config.GetScreenHeight()
-	L := computeStashLayout(screenW, screenH)
-	popupX, popupY := L.popupX, L.popupY
-	popupW, popupH := stashPopupW, stashPopupH
+	popup, L := computeStashLayout(screenW, screenH)
 
 	drawFilledRect(screen, 0, 0, screenW, screenH, color.RGBA{0, 0, 0, 150})
-	ui.drawThemeFrame(screen, frameGold, popupX, popupY, popupW, popupH)
-	drawUIText(screen, "Tavern Stash", popupX+16, popupY+14)
-	drawUIText(screen, stashSubtitle, popupX+16, popupY+34)
+	ui.drawThemeFrame(screen, frameGold, popup.x, popup.y, popup.w, popup.h)
+	drawUIText(screen, uitext.Text("stash.title"), popup.x+16, popup.y+14)
+	drawUIText(screen, clipUIText(uitext.Text("stash.hint"), popup.w-72), popup.x+16, popup.y+34)
 
 	interactive := ui.topModalLayer() == modalLayerStash
 	ui.drawStashManager(screen, L, interactive)
@@ -512,112 +500,58 @@ func (ui *UISystem) drawStashScreen(screen *ebiten.Image) {
 	// ESC is handled in the Update input loop (edge-tracked) so it closes the
 	// modal without leaking to the menu-open handler; here only the close button
 	// (click-inert while a drag is in flight).
-	ui.drawPopupCloseButton(screen, popupX+popupW-36, popupY+10, 24, interactive && !g.stashDragActive && !ui.stackSplitPicker.open, func() {
+	ui.drawPopupCloseButton(screen, popup.right()-36, popup.y+10, 24, interactive && !g.stashDrag.active && !ui.stackSplitPicker.open, func() {
 		g.closeStashScreen()
 	})
 }
 
-// drawStashManager renders and operates the actual stash grids. The caller owns
-// the surrounding panel, which lets the same manager live directly in a tavern
-// tab without opening a second modal.
+// drawStashManager renders and operates the chest and bag grids. The caller
+// owns the surrounding panel, which lets the same manager live directly in a
+// tavern tab without opening a second modal.
 func (ui *UISystem) drawStashManager(screen *ebiten.Image, L stashLayout, interactive bool) {
 	g := ui.game
 	if g.stash == nil {
 		return
 	}
 	mouseX, mouseY := uiCursorPosition()
+	heading := color.RGBA{220, 180, 90, 255}
+	muted := color.RGBA{150, 140, 120, 255}
 
-	// Top storage: a tabbed grid. The Items tab shows the general chest; the Cards
-	// tab shows the card-only vault (violet-tinted). A toggle where a pager would
-	// sit flips the tab in place of numeric pagination.
-	chestTop := L.chestTop
-	cards := g.stashShowCards
-	heading := "Chest"
-	kind := stashKindChest
-	count := stash.SlotCount
-	hoverBorder := color.RGBA{210, 170, 80, 230}
-	if cards {
-		heading = "Card Vault - cards only"
-		kind = stashKindCard
-		count = stash.CardSlotCount
-		hoverBorder = color.RGBA{190, 120, 220, 235}
+	used := 0
+	for _, it := range g.stash.Slots {
+		if !stash.IsEmpty(it) {
+			used++
+		}
 	}
-	drawCenteredUIText(screen, heading, L.popupX, chestTop-16, L.popupW, 14)
-	ui.drawStashTabToggle(screen, L, mouseX, mouseY, interactive)
-	for i := 0; i < count; i++ {
-		r := stashCellRect(L.centerX, chestTop, i)
-		var it items.Item
-		from := i
-		if cards {
-			it = g.stash.CardSlots[i]
-			from = stashCardDragBase + i
-			if interactive {
-				ui.stashCardSource(i, r)
-			}
-		} else {
-			it = g.stash.Slots[i]
-			if interactive {
-				ui.stashCellSource(i, r)
-			}
-		}
-		ui.drawStashCell(screen, it, r, g.stashDragActive && g.stashDragFrom == from && g.stashDragSplitQuantity == 0, cards)
-		if ptInRect(mouseX, mouseY, r) {
-			drawRectBorder(screen, r.Min.X-2, r.Min.Y-2, r.Dx()+4, r.Dy()+4, 2, hoverBorder)
-		}
-		ui.stashCellTooltip(it, r, mouseX, mouseY)
-		if interactive {
-			ui.stashSplitPickerTrigger(from, it, r)
-		}
-		ui.onDisplayedInput(uiCommandDrag, layoutRect{}, func() {
-			if interactive && g.stashDragDrop && g.stashDragFrom >= 0 && ptInRect(g.stashDragCurX, g.stashDragCurY, r) {
-				g.resolveStashDrop(stashAddr{kind, i})
-			}
-		})
+	counter := strconv.Itoa(used) + " / " + strconv.Itoa(stash.SlotCount)
+	drawUITextColored(screen, uitext.Text("stash.chest"), L.chest.x, L.headY, heading)
+	drawUITextColored(screen, counter, L.chest.right()-uiTextWidth(counter), L.headY, muted)
+	for i := range stash.SlotCount {
+		r := stashGridCell(L.chest, stashChestCols, i)
+		ui.drawStashSlot(screen, stashAddr{stashKindChest, i}, g.stash.Slots[i], r, interactive, mouseX, mouseY)
 	}
+	drawUITextColored(screen, clipUIText(uitext.Text("stash.shared"), L.chest.w), L.chest.x, L.noteY, muted)
 
-	// Party bag grid (bottom), paginated.
-	invTop := L.invTop
-	drawCenteredUIText(screen, "Your Bag", L.popupX, invTop-16, L.popupW, 14)
-	invPages := pageCount(len(g.party.Inventory), stashInvMaxShown)
-	if g.stashInvPage >= invPages {
-		g.stashInvPage = invPages - 1
-	}
-	if g.stashInvPage < 0 {
-		g.stashInvPage = 0
-	}
-	invStart := g.stashInvPage * stashInvMaxShown
-	gridW := stashInvCols*stashCellSize + (stashInvCols-1)*stashCellGap
-	for slot := 0; slot < stashInvMaxShown; slot++ {
-		idx := invStart + slot
-		r, c := slot/stashInvCols, slot%stashInvCols
-		x := L.centerX - gridW/2 + c*(stashCellSize+stashCellGap)
-		y := invTop + r*(stashCellSize+stashCellGap)
-		cell := image.Rect(x, y, x+stashCellSize, y+stashCellSize)
+	drawUITextColored(screen, uitext.Text("stash.bag"), L.bag.x, L.headY, heading)
+	pageSize := L.bagPageSize()
+	pages := pageCount(len(g.party.Inventory), pageSize)
+	clampPage(&g.stashInvPage, pages)
+	start := g.stashInvPage * pageSize
+	for slot := range pageSize {
+		idx := start + slot
 		var it items.Item
-		has := idx >= 0 && idx < len(g.party.Inventory)
-		if has {
+		if idx < len(g.party.Inventory) {
 			it = g.party.Inventory[idx]
-			if interactive {
-				ui.stashInvSource(idx, cell)
-			}
 		}
-		ui.drawStashCell(screen, it, cell, g.stashDragActive && g.stashDragFrom == stashDragInvBase+idx && g.stashDragSplitQuantity == 0, false)
-		if ptInRect(mouseX, mouseY, cell) {
-			drawRectBorder(screen, cell.Min.X-2, cell.Min.Y-2, cell.Dx()+4, cell.Dy()+4, 2, color.RGBA{120, 200, 120, 220})
-		}
-		ui.stashCellTooltip(it, cell, mouseX, mouseY)
-		if interactive {
-			ui.stashSplitPickerTrigger(stashDragInvBase+idx, it, cell)
-		}
-		// Dropping onto any bag cell returns a carried chest/card item to the bag.
-		ui.onDisplayedInput(uiCommandDrag, layoutRect{}, func() {
-			if interactive && g.stashDragDrop && g.stashDragFrom >= 0 && ptInRect(g.stashDragCurX, g.stashDragCurY, cell) {
-				g.resolveStashDrop(stashAddr{stashKindBag, idx})
-			}
-		})
+		ui.drawStashSlot(screen, stashAddr{stashKindBag, idx}, it, stashGridCell(L.bag, L.bagCols, slot), interactive, mouseX, mouseY)
 	}
-	pagerY := L.pagerY
-	ui.drawPager(screen, L.centerX-gridW/2, pagerY, gridW, &g.stashInvPage, invPages, interactive && !g.stashDragActive && !ui.stackSplitPicker.open)
+	pagerOpen := interactive && !g.stashDrag.active && !ui.stackSplitPicker.open
+	ui.drawPager(screen, L.bag.x, L.noteY, L.bag.w, &g.stashInvPage, pages, pagerOpen)
+	// The wheel turns bag pages, also while an item is carried.
+	ui.onWheelOver(L.bag, interactive && !ui.stackSplitPicker.open, func(dir int) {
+		g.stashInvPage += dir
+		clampPage(&g.stashInvPage, pages)
+	})
 
 	// Carried icon, drawn last so it floats above everything; then clear the drop.
 	ui.drawStashCarriedIcon(screen)
@@ -628,18 +562,67 @@ func (ui *UISystem) drawStashManager(screen *ebiten.Image, L stashLayout, intera
 	})
 }
 
+// drawStashSlot draws one chest or bag cell and registers its gestures: drag
+// source, drop target, right-click split and double-click transfer. A bag
+// address past the end of the inventory is an empty cell that still takes a
+// drop.
+func (ui *UISystem) drawStashSlot(screen *ebiten.Image, a stashAddr, it items.Item, r image.Rectangle, interactive bool, mouseX, mouseY int) {
+	g := ui.game
+	from := a.idx
+	if a.kind == stashKindBag {
+		from += stashDragInvBase
+	}
+	filled := !stash.IsEmpty(it)
+	if interactive && filled {
+		if a.kind == stashKindChest {
+			ui.stashCellSource(a.idx, r)
+		} else {
+			ui.stashInvSource(a.idx, r)
+		}
+	}
+	ui.drawStashCell(screen, it, r, g.stashDrag.active && g.stashDragFrom == from && g.stashDragSplitQuantity == 0)
+	if ptInRect(mouseX, mouseY, r) {
+		hover := color.RGBA{210, 170, 80, 230}
+		if a.kind == stashKindBag {
+			hover = color.RGBA{120, 200, 120, 220}
+		}
+		drawRectBorder(screen, r.Min.X-2, r.Min.Y-2, r.Dx()+4, r.Dy()+4, 2, hover)
+	}
+	ui.stashCellTooltip(it, r, mouseX, mouseY)
+	if !interactive {
+		return
+	}
+	if filled {
+		ui.stashSplitPickerTrigger(from, it, r)
+		zone := "stash_bag"
+		if a.kind == stashKindChest {
+			zone = "stash_chest"
+		}
+		ui.onDisplayedInput(uiCommandClick, layoutRectOf(r), func() {
+			if !g.stashDrag.active && !ui.stackSplitPicker.open && g.consumeDoubleClickIn(zone, a.idx, r.Min.X, r.Min.Y, r.Max.X, r.Max.Y) {
+				g.quickMoveStashItem(a)
+			}
+		})
+	}
+	ui.onDisplayedInput(uiCommandDrag, layoutRect{}, func() {
+		if g.stashDragDrop && g.stashDragFrom >= 0 && ptInRect(g.stashDrag.curX, g.stashDrag.curY, r) {
+			g.resolveStashDrop(a)
+		}
+	})
+}
+
 // stashCellSource captures a chest cell as a drag source.
 func (ui *UISystem) stashCellSource(i int, r image.Rectangle) {
 	if ui.displayedInput.building {
-		ui.onDisplayedInput(uiCommandDrag, layoutRect{r.Min.X, r.Min.Y, r.Dx(), r.Dy()}, func() { ui.stashCellSource(i, r) })
+		ui.onDisplayedInput(uiCommandDrag, layoutRectOf(r), func() { ui.stashCellSource(i, r) })
 		return
 	}
 
 	g := ui.game
-	if !g.stashDragArmed || g.stashDragFrom >= 0 {
+	if !g.stashDrag.armed || g.stashDragFrom >= 0 {
 		return
 	}
-	if stash.IsEmpty(g.stash.Slots[i]) || !ptInRect(g.stashDragStartX, g.stashDragStartY, r) {
+	if stash.IsEmpty(g.stash.Slots[i]) || !ptInRect(g.stashDrag.startX, g.stashDrag.startY, r) {
 		return
 	}
 	ui.beginStashDrag(i, g.stash.Slots[i])
@@ -648,15 +631,15 @@ func (ui *UISystem) stashCellSource(i int, r image.Rectangle) {
 // stashInvSource captures a bag cell as a drag source.
 func (ui *UISystem) stashInvSource(idx int, r image.Rectangle) {
 	if ui.displayedInput.building {
-		ui.onDisplayedInput(uiCommandDrag, layoutRect{r.Min.X, r.Min.Y, r.Dx(), r.Dy()}, func() { ui.stashInvSource(idx, r) })
+		ui.onDisplayedInput(uiCommandDrag, layoutRectOf(r), func() { ui.stashInvSource(idx, r) })
 		return
 	}
 
 	g := ui.game
-	if !g.stashDragArmed || g.stashDragFrom >= 0 {
+	if !g.stashDrag.armed || g.stashDragFrom >= 0 {
 		return
 	}
-	if idx < 0 || idx >= len(g.party.Inventory) || !ptInRect(g.stashDragStartX, g.stashDragStartY, r) {
+	if idx < 0 || idx >= len(g.party.Inventory) || !ptInRect(g.stashDrag.startX, g.stashDrag.startY, r) {
 		return
 	}
 	ui.beginStashDrag(stashDragInvBase+idx, g.party.Inventory[idx])
@@ -682,7 +665,7 @@ func (ui *UISystem) stashSplitPickerTrigger(from int, item items.Item, r image.R
 	}
 
 	g := ui.game
-	if g.stashDragActive || ui.stackSplitPicker.open || !item.Stackable() || item.Count() < 2 {
+	if g.stashDrag.active || ui.stackSplitPicker.open || !item.Stackable() || item.Count() < 2 {
 		return
 	}
 	if g.consumeRightClickIn(r.Min.X, r.Min.Y, r.Max.X, r.Max.Y) {
@@ -694,74 +677,38 @@ func (ui *UISystem) stashSplitPickerTrigger(from int, item items.Item, r image.R
 // the cursor - shared by the stash manager and the merchant's drag-to-sell.
 func (ui *UISystem) drawStashCarriedIcon(screen *ebiten.Image) {
 	g := ui.game
-	if g.stashDragActive && g.stashDragFrom >= 0 {
+	if g.stashDrag.active && g.stashDragFrom >= 0 {
 		const sz = 48
-		ui.drawInventoryItemIcon(screen, g.stashDragItem, g.stashDragCurX-sz/2, g.stashDragCurY-sz/2, sz, sz, 0, true)
+		ui.drawInventoryItemIcon(screen, g.stashDragItem, g.stashDrag.curX-sz/2, g.stashDrag.curY-sz/2, sz, sz, 0, true)
 	}
 }
 
-// drawStashCell draws one slot: the item icon when filled, an empty frame
-// otherwise. hidden suppresses the icon for the cell currently being carried out.
-// card tints the frame violet so the card-only bank reads apart from the chest.
-func (ui *UISystem) drawStashCell(screen *ebiten.Image, it items.Item, r image.Rectangle, hidden, card bool) {
-	ui.drawThemeFrame(screen, frameGold, r.Min.X, r.Min.Y, r.Dx(), r.Dy())
+// drawStashCell draws one slot: the item icon in a gold frame when filled, a
+// quieter bronze frame when empty. hidden suppresses the icon for the cell
+// currently being carried out.
+func (ui *UISystem) drawStashCell(screen *ebiten.Image, it items.Item, r image.Rectangle, hidden bool) {
+	frame := frameBronze
+	if !stash.IsEmpty(it) {
+		frame = frameGold
+	}
+	ui.drawThemeFrame(screen, frame, r.Min.X, r.Min.Y, r.Dx(), r.Dy())
 	if !stash.IsEmpty(it) && !hidden {
 		ui.drawInventoryItemIcon(screen, it, r.Min.X+2, r.Min.Y+2, r.Dx()-4, r.Dy()-4, 0, true)
 	}
 }
 
-// drawStashTabToggle draws the Items/Cards tab button and flips the tab on click.
-// It reads "Cards >" on the items tab and "< Items" on the cards tab. Disabled
-// while a drag is in flight so the source tab can't change mid-transfer.
-func (ui *UISystem) drawStashTabToggle(screen *ebiten.Image, L stashLayout, mouseX, mouseY int, interactive bool) {
-	g := ui.game
-	rt := stashToggleRect(L)
-	label := "Cards >"
-	if g.stashShowCards {
-		label = "< Items"
-	}
-	ui.drawButtonFrame(screen, rt.Min.X, rt.Min.Y, rt.Dx(), rt.Dy(), ptInRect(mouseX, mouseY, rt))
-	drawCenteredUIText(screen, label, rt.Min.X, rt.Min.Y+1, rt.Dx(), rt.Dy()-2)
-	ui.onDisplayedInput(uiCommandClick, layoutRect{rt.Min.X, rt.Min.Y, (rt.Max.X) - (rt.Min.X), (rt.Max.Y) - (rt.Min.Y)}, func() {
-		if interactive && !g.stashDragActive && !ui.stackSplitPicker.open && g.consumeLeftClickIn(rt.Min.X, rt.Min.Y, rt.Max.X, rt.Max.Y) {
-			g.stashShowCards = !g.stashShowCards
-			g.clearStashDrag()
-		}
-	})
-}
-
-// stashCellTooltip queues the item tooltip for a hovered, filled cell (chest,
-// card, or bag) - matching the inventory: nothing shows while a drag is active.
+// stashCellTooltip queues the item card for a hovered, filled storage cell
+// (chest, stash bag, the clerk's bag). Storage shows the base card, like a
+// shop: no hero is holding the item. Nothing shows while a drag is active.
 func (ui *UISystem) stashCellTooltip(it items.Item, cell image.Rectangle, mouseX, mouseY int) {
 	g := ui.game
-	if g.stashDragActive || stash.IsEmpty(it) || !ptInRect(mouseX, mouseY, cell) {
+	if g.stashDrag.active || stash.IsEmpty(it) || !ptInRect(mouseX, mouseY, cell) {
 		return
 	}
 	if key := itemCardKey(it); key != "" {
 		ui.fullArtCardKey = key
 	}
-	char := g.party.Members[g.selectedChar]
-	tip := GetItemTooltipRows(it, char, g.combat, tooltipDetailHeld())
-	if len(tip) == 0 {
-		return
+	if tip := GetItemTooltipRows(it, nil, g.combat, tooltipDetailHeld()); len(tip) > 0 {
+		ui.queueItemTooltip(tip, it, nil, mouseX+16, mouseY+8)
 	}
-	lines := tip
-	ui.queueItemTooltip(lines, it, char, mouseX+16, mouseY+8)
-}
-
-// stashCardSource captures a card cell as a drag source.
-func (ui *UISystem) stashCardSource(i int, r image.Rectangle) {
-	if ui.displayedInput.building {
-		ui.onDisplayedInput(uiCommandDrag, layoutRect{r.Min.X, r.Min.Y, r.Dx(), r.Dy()}, func() { ui.stashCardSource(i, r) })
-		return
-	}
-
-	g := ui.game
-	if !g.stashDragArmed || g.stashDragFrom >= 0 {
-		return
-	}
-	if stash.IsEmpty(g.stash.CardSlots[i]) || !ptInRect(g.stashDragStartX, g.stashDragStartY, r) {
-		return
-	}
-	ui.beginStashDrag(stashCardDragBase+i, g.stash.CardSlots[i])
 }

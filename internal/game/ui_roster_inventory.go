@@ -41,10 +41,8 @@ func (ui *UISystem) drawRosterInventoryWarning(screen *ebiten.Image, area layout
 			label = "Keep in party"
 		}
 		ui.drawMenuButton(screen, label, b.x, b.y, b.w, b.h, isMouseHoveringBox(mx, my, b.x, b.y, b.right(), b.bottom()))
-		ui.onDisplayedInput(uiCommandClick, b, func() {
-			if interactive && g.consumeLeftClickIn(b.x, b.y, b.right(), b.bottom()) {
-				g.resolveRosterSwap(i == 0)
-			}
+		ui.onClick(b, interactive, func() {
+			g.resolveRosterSwap(i == 0)
 		})
 	}
 }

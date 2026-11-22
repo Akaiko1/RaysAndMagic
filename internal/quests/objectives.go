@@ -95,7 +95,7 @@ func (qm *QuestManager) CreditObjective(id string, event ObjectiveEvent) (credit
 	qm.mu.Lock()
 	defer qm.mu.Unlock()
 	q := qm.activeQuests[id]
-	if q == nil || q.Status != QuestStatusActive || q.Definition.Activity == nil {
+	if q == nil || q.Completed || q.Definition.Activity == nil {
 		return
 	}
 	a := q.Definition.Activity

@@ -11,7 +11,7 @@ import (
 // (the channel lives in screen_banner.go). A DIFF WATCHER, not notification
 // calls - every event is derived by comparing the manager's state against last
 // frame's snapshot, so a new progress source raises banners with no call of its
-// own and none can be forgotten.
+// own and none can be forgotten. Hidden quests raise no banner until revealed.
 
 // questBannerSnapshot is the per-quest state the diff compares.
 type questBannerSnapshot struct {
@@ -64,9 +64,9 @@ func questBannerEventFor(q *quests.Quest, was questBannerSnapshot, known bool) (
 	switch {
 	case q.RewardsClaimed && !was.claimed:
 		return bannerQuestPaid, true
-	case q.Status == quests.QuestStatusCompleted && was.status != quests.QuestStatusCompleted:
+	case q.Status() == quests.QuestStatusCompleted && was.status != quests.QuestStatusCompleted:
 		return bannerQuestDone, true
-	case q.CurrentCount > was.peak && q.Status == quests.QuestStatusActive:
+	case q.CurrentCount > was.peak && q.Status() == quests.QuestStatusActive:
 		return bannerQuestProgress, true
 	default:
 		return bannerQuestTaken, false
@@ -80,9 +80,9 @@ func firstSightingBanner(q *quests.Quest) (screenBannerKind, bool) {
 	switch {
 	case q.RewardsClaimed:
 		return bannerQuestPaid, true
-	case q.Status == quests.QuestStatusCompleted:
+	case q.Status() == quests.QuestStatusCompleted:
 		return bannerQuestDone, true
-	case q.Status == quests.QuestStatusActive:
+	case q.Status() == quests.QuestStatusActive:
 		return bannerQuestTaken, true
 	default:
 		return bannerQuestTaken, false
@@ -112,13 +112,16 @@ func (g *MMGame) syncQuestBanners(announce bool) {
 		was, known := g.questBannerSeen[q.ID]
 		stamped++
 		g.questBannerSeen[q.ID] = questBannerSnapshot{
-			status:  q.Status,
+			status:  q.Status(),
 			peak:    max(was.peak, q.CurrentCount),
 			claimed: q.RewardsClaimed,
 			seenGen: gen,
 		}
 		if !announce {
 			return
+		}
+		if !g.questVisible(q) {
+			return // a hidden quest raises no banner until revealed
 		}
 		if kind, ok := questBannerEventFor(q, was, known); ok {
 			events = append(events, questBannerEvent{quest: q, kind: kind})

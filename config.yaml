@@ -35,14 +35,25 @@ display:
   # Keep Metal presentation paced. An unsynced loop can count Draw calls while
   # skipping displayed frames under GPU load (especially long tree corridors).
   disable_vsync_on_mac: false
+  # Windows laptops with two GPUs start a new program on the integrated one.
+  # true stores "High performance" for the game in Settings > Display >
+  # Graphics on launch when the player has no entry there; an existing entry
+  # is never changed. Windows applies it from the next launch.
+  prefer_discrete_gpu_on_windows: true
 
 # Engine settings
-# tps is the simulation tick rate and the yardstick for every frame-counted
-# duration in the code (config.DefaultTPS mirrors it; main.go pins the same
-# value when vsync is off). Changing it rescales any duration still written in
-# raw frames - durations authored in seconds convert themselves.
+# tps is the simulation tick rate (config.DefaultTPS mirrors it). Every
+# duration is authored in seconds and converts at this rate, and saves record
+# the rate they were written at, so changing it keeps all timing.
 engine:
   tps: 120
+  # Monsters of a map update on the worker pool from this count on; fewer
+  # update in a plain loop, because waking the workers costs more than it
+  # saves (the two ran level at 64 on an 8-core laptop). 1 = always the pool.
+  parallel_monster_minimum: 64
+
+# Per-hero interval shared by automatic techniques and spells (one round = 3 seconds).
+autocast_interval_rounds: 2
 
 camping:
   # Keep all four heads below the crop, including on ultrawide displays.
@@ -54,6 +65,23 @@ camping:
   fade_in_seconds: 0.65
   hold_seconds: 2.5
   fade_out_seconds: 0.8
+
+# Story event screen (assets/story_events.yaml). The plate uses the camping
+# dissolve above; the captain's light blinks before his text appears.
+story_screen:
+  text_fade_seconds: 0.3
+  light_blinks: 3
+  light_blink_seconds: 0.4
+
+# The Pursuers' captain (assets/watcher.yaml). Story-boss lines always play;
+# the rest are random remarks: chance per rest, chance per kill, at most
+# max_random_lines per run, min_days_between apart (3-4 a run on average).
+watcher:
+  camp_chance: 0.2
+  kill_chance: 0.35
+  max_random_lines: 5
+  min_days_between: 2
+  card_seconds: 6
 
 # Game world settings
 world:
@@ -93,8 +121,8 @@ camera:
 
 # UI settings
 ui:
-  spell_input_cooldown: 10
-  damage_blink_frames: 3    # Number of frames to blink red when taking damage
+  input_stagger_seconds: 0.08  # gap between accepted gameplay inputs (actions, Space pickup/talk, tabbed menus)
+  damage_blink_seconds: 0.025  # a hit party card blinks red this long
   turn_based_mouse_hold:
     delay_seconds: 0.6     # Wait after pressing before automatic attacks start.
     repeat_seconds: 0.35   # Gap between automatic attacks; manual input stays responsive.
@@ -132,6 +160,11 @@ characters:
     interval_seconds: 1
 
   # Class base attributes
+  # auto_stats is the class's default AUTO build: speed and endurance
+  # targets, a primary stat and an optional secondary, and 1-6 gear keys it is
+  # made for. auto_builds are the other builds offered in Settings > Gameplay >
+  # Builds (unique key, name, same fields). Gear is checked at boot against a
+  # level-45 hero of the build: usable by the class, raising one of its stats.
   classes:
     knight:
       description:
@@ -139,7 +172,11 @@ characters:
         - {skill: impenetrable_defense, text: "{defense:Impenetrable Defense} takes damage off every normal hit."}
         - {text: "Ranged enemies aim at the first party slot, so put the Knight there."}
         - {text: "Picks a {damage:Sword or Spear} mastery at level 3. No magic."}
-      auto_stats: {speed: 16, endurance: 28, primary: might}
+      auto_stats: {speed: 16, endurance: 28, primary: might, gear: [solstice_thermal_lance, broodspike, tarn_trident, drakefang_blade, warlords_signet, onryo_lamellar]}
+      auto_builds:
+        - {key: spearman, name: Spearman, speed: 16, endurance: 28, primary: might, secondary: accuracy, gear: [tonbogiri, obsidian_spear, trident, accuracy_talisman, warlords_signet]}
+        - {key: duelist, name: Duelist, speed: 16, endurance: 28, primary: might, secondary: speed, gear: [muramasa, solstice_thermal_lance, chitin_spear, puma_claw, belt_of_speed]}
+        - {key: windblade, name: Windblade, speed: 16, endurance: 28, primary: speed, secondary: might, gear: [muramasa, chitin_spear, vibro_blade, belt_of_speed, night_heron_do, jaguar_pelt_jerkin]}
       might: 15
       intellect: 10
       personality: 10
@@ -155,7 +192,11 @@ characters:
         - {text: "Elemental {damage:nuker}: Fire, Water and Air spells from the start, scaling with Intellect."}
         - {skill: elemental_mastery, text: "{damage:Elemental Mastery} pierces elemental resistance."}
         - {text: "Chooses {damage:Fireball} or {damage:Dark Bolt} at level 3; {utility:Torch Light} brightens dungeons. Fragile - keep out of the first slot."}
-      auto_stats: {speed: 16, endurance: 16, primary: intellect}
+      auto_stats: {speed: 16, endurance: 16, primary: intellect, gear: [solstice_sun_crucible, solstice_flowstaff, serpent_fang, lich_king_crown, archmage_robe, serpent_diadem]}
+      auto_builds:
+        - {key: bastion, name: Bastion, speed: 16, endurance: 30, primary: intellect, secondary: endurance, gear: [solstice_sun_crucible, solstice_flowstaff, jade_tortoise_do, vinewoven_cloak, solstice_tideglass_signet, solstice_heatshield_mantle]}
+        - {key: fateweaver, name: Fateweaver, speed: 16, endurance: 16, primary: intellect, secondary: luck, gear: [solstice_sun_crucible, solstice_flowstaff, lucky_paw, thief_king_signet, scarab_amulet]}
+        - {key: quickcaster, name: Quickcaster, speed: 16, endurance: 16, primary: intellect, secondary: speed, gear: [solstice_sun_crucible, solstice_flowstaff, spider_lily_obi, fivefold_ceremonial_ribbon, belt_of_speed]}
       might: 8
       intellect: 15
       personality: 12
@@ -176,7 +217,10 @@ characters:
         - {text: "The party {heal:healer}. {heal:Heal} mends any hero: point at a hero's card and press F (slotted) or C, and Space heals whoever is badly hurt."}
         - {skill: natural_healer, text: "{heal:Natural Healer} strengthens every heal."}
         - {text: "Body, Mind and Spirit magic: {buff:Bless} at level 3, {heal:Mass Heal} at level 9, and the lake priestess sells {buff:Heroism}, {heal:Raise Dead} and {control:Charm}. Fights with {damage:Harm}, {damage:Mind Blast} and {damage:Spirit Lash}."}
-      auto_stats: {speed: 16, endurance: 22, primary: personality}
+      auto_stats: {speed: 16, endurance: 22, primary: personality, gear: [lanista_scepter, archmage_robe, wizard_robe, kitsune_shrine_bell, isis_feather]}
+      auto_builds:
+        - {key: healer, name: Healer, speed: 16, endurance: 22, primary: personality, secondary: intellect, gear: [lanista_scepter, archmage_robe, lich_king_crown, wizard_robe, serpent_diadem]}
+        - {key: war_priest, name: War Priest, speed: 16, endurance: 28, primary: personality, secondary: might, gear: [solstice_anchor_hammer, scalebreaker_maul, bone_warclub, idol_breakers_maul, unbroken_handwraps, warlords_signet]}
       might: 10
       intellect: 12
       personality: 15
@@ -197,7 +241,11 @@ characters:
         - {skill: bow, text: "{damage:Bow} specialist with the best Accuracy - shoots from safety while the front line holds. Trained with blasters too."}
         - {text: "{utility:Wizard Eye} widens the view; can take {damage:Lightning} at level 3."}
         - {skill: disarm_trap, text: "{utility:Disarm Trap} can disarm trapped chests and softens hits on the Archer."}
-      auto_stats: {speed: 16, endurance: 18, primary: accuracy, secondary: intellect}
+      auto_stats: {speed: 16, endurance: 18, primary: accuracy, secondary: intellect, gear: [bow_of_hellfire, compound_bow, arena_shortbow, accuracy_talisman, lich_king_crown, night_heron_do]}
+      auto_builds:
+        - {key: quickshot, name: Quickshot, speed: 16, endurance: 18, primary: accuracy, secondary: speed, gear: [suppressor_gun, arena_shortbow, wyrmspine_bow, accuracy_talisman, night_heron_do, belt_of_speed]}
+        - {key: deadeye, name: Deadeye, speed: 16, endurance: 18, primary: accuracy, secondary: luck, gear: [suppressor_gun, arena_shortbow, compound_bow, lucky_paw, thief_king_signet, scarab_amulet]}
+        - {key: skirmisher, name: Skirmisher, speed: 16, endurance: 18, primary: speed, secondary: accuracy, gear: [solstice_returning_gale, kage_kunai, minute_hand, gale_war_fan, belt_of_speed, night_heron_do]}
       might: 12
       intellect: 10
       personality: 10
@@ -216,7 +264,11 @@ characters:
         - {text: "Holy {defense:guardian}: axe, sword or mace in chain or plate, with a shield."}
         - {skill: sacrifice, text: "{defense:Sacrifice}: the Paladin takes part of every hit that lands on another hero."}
         - {text: "{heal:First Aid} heals the Paladin; {heal:Heal} for others can be learned at level 3."}
-      auto_stats: {speed: 16, endurance: 24, primary: might, secondary: personality}
+      auto_stats: {speed: 16, endurance: 24, primary: might, secondary: personality, gear: [solstice_anchor_hammer, scalebreaker_maul, bone_warclub, warlords_signet, onryo_lamellar, kitsune_shrine_bell]}
+      auto_builds:
+        - {key: guardian, name: Guardian, speed: 16, endurance: 36, primary: might, secondary: endurance, gear: [idol_breakers_maul, solstice_anchor_hammer, warlords_signet, onryo_lamellar, grave_knight_sigil, mantle_of_the_idol_king]}
+        - {key: saint, name: Saint, speed: 16, endurance: 24, primary: personality, secondary: might, gear: [lanista_scepter, archmage_robe, lich_king_crown, isis_feather, kitsune_shrine_bell]}
+        - {key: duelist, name: Duelist, speed: 16, endurance: 24, primary: might, secondary: speed, gear: [muramasa, puma_claw, belt_of_speed, tideclasp_gauntlets]}
       might: 13
       intellect: 10
       personality: 13
@@ -236,7 +288,10 @@ characters:
         - {text: "Nature hybrid with Water, Mind and Earth magic."}
         - {skill: animal_bonding, text: "{auto:Animal Bonding}: every weapon attack and spell, heals included, may call a {auto:bear ally} (up to 2) built from the Druid's own HP and damage."}
         - {text: "{heal:Awaken} rouses every unconscious hero; {damage:Deadly Swarm} bursts over an area and {damage:Ice Bolt} hits one foe."}
-      auto_stats: {speed: 16, endurance: 20, primary: intellect, secondary: personality}
+      auto_stats: {speed: 16, endurance: 20, primary: intellect, secondary: personality, gear: [solstice_sun_crucible, solstice_flowstaff, verdant_eye_scepter, archmage_robe, lich_king_crown, white_fox_do]}
+      auto_builds:
+        - {key: beastmaster, name: Beastmaster, speed: 16, endurance: 30, primary: intellect, secondary: endurance, gear: [solstice_flowstaff, verdant_eye_scepter, battle_staff, jade_tortoise_do, kappa_shell_guard, vinewoven_cloak]}
+        - {key: quickcaster, name: Quickcaster, speed: 16, endurance: 20, primary: intellect, secondary: speed, gear: [solstice_sun_crucible, solstice_flowstaff, spider_lily_obi, fivefold_ceremonial_ribbon, belt_of_speed]}
       might: 10
       intellect: 13
       personality: 13
@@ -261,7 +316,13 @@ characters:
         - {skill: sleight_of_hand, text: "{utility:Sleight of Hand} steals loot or gold on melee hits."}
         - {skill: lockpicking, text: "{utility:Lockpicking} opens locked doors."}
         - {skill: disarm_trap, text: "{utility:Disarm Trap} can disarm trapped chests."}
-      auto_stats: {speed: 16, endurance: 18, primary: accuracy, secondary: intellect}
+      auto_stats: {speed: 16, endurance: 18, primary: accuracy, secondary: intellect, gear: [suppressor_gun, solstice_returning_gale, serpent_fang, accuracy_talisman, lich_king_crown, night_heron_do]}
+      auto_builds:
+        - {key: assassin, name: Assassin, speed: 16, endurance: 18, primary: speed, secondary: accuracy, gear: [solstice_returning_gale, kage_kunai, minute_hand, hatchling_fang, belt_of_speed, night_heron_do]}
+        - {key: gunslinger, name: Gunslinger, speed: 16, endurance: 18, primary: accuracy, secondary: speed, gear: [suppressor_gun, solstice_returning_gale, parry_dagger, accuracy_talisman, night_heron_do, belt_of_speed]}
+        - {key: gambler, name: Gambler, speed: 16, endurance: 18, primary: speed, secondary: luck, gear: [widow_hairpin, lucky_paw, thief_king_signet, belt_of_speed, sonar_pendant]}
+        - {key: saboteur, name: Saboteur, speed: 16, endurance: 18, primary: intellect, secondary: accuracy, gear: [serpent_fang, lich_king_crown, archmage_robe, foxfire_ofuda, solstice_ember_regulator_ring]}
+        - {key: brawler, name: Brawler, speed: 16, endurance: 18, primary: might, secondary: speed, gear: [bronze_cesti, warlords_signet, puma_claw, scarlet_crane_do]}
       might: 10
       intellect: 12
       personality: 8
@@ -279,7 +340,12 @@ characters:
         - {text: "Master of {damage:every weapon but the blaster}. Leather and shield, no magic."}
         - {skill: dual_wielding, text: "{damage:Dual Wielding} adds an off-hand weapon. In real time each hand attacks on its own recovery; in turn-based the hero gets at least two actions a round and every weapon swing takes the other hand - main, off, main, off."}
         - {skill: arms_master, text: "{damage:Arms Master} starts at Expert and adds damage to every weapon hit."}
-      auto_stats: {speed: 16, endurance: 26, primary: might}
+      auto_stats: {speed: 16, endurance: 26, primary: might, gear: [bronze_cesti, solstice_anchor_hammer, solstice_thermal_lance, idol_breakers_maul, warlords_signet, grave_knight_sigil]}
+      auto_builds:
+        - {key: whirlwind, name: Whirlwind, speed: 16, endurance: 26, primary: speed, secondary: might, gear: [bronze_cesti, muramasa, chitin_spear, vibro_blade, belt_of_speed, puma_claw]}
+        - {key: bladedancer, name: Bladedancer, speed: 16, endurance: 26, primary: speed, secondary: accuracy, gear: [solstice_returning_gale, kage_kunai, minute_hand, gale_war_fan, belt_of_speed, accuracy_talisman]}
+        - {key: ranger, name: Ranger, speed: 16, endurance: 26, primary: accuracy, secondary: speed, gear: [arena_shortbow, compound_bow, solstice_transfer_blade, accuracy_talisman, night_heron_do, belt_of_speed]}
+        - {key: colossus, name: Colossus, speed: 16, endurance: 36, primary: might, secondary: endurance, gear: [idol_breakers_maul, solstice_anchor_hammer, wyrmcleaver, warlords_signet, grave_knight_sigil, solstice_loadbearer_girdle]}
       card_rarity: rare
       might: 15
       intellect: 8
@@ -298,7 +364,10 @@ characters:
         - {skill: iron_body, text: "{defense:Iron Body} gives a large Armor Class bonus instead."}
         - {skill: spiritual_training, text: "{auto:Spiritual Training}: each melee swing, even a miss, may {auto:autocast} the slotted attack spell for free."}
         - {text: "Knows {heal:Heal}, {damage:Harm}, {damage:Mind Blast} and {damage:Spirit Lash}."}
-      auto_stats: {speed: 26, endurance: 28, primary: might, secondary: personality}
+      auto_stats: {speed: 26, endurance: 28, primary: might, secondary: personality, gear: [monk_fists, unbroken_handwraps, warlords_signet, grave_knight_sigil]}
+      auto_builds:
+        - {key: whirlwind, name: Whirlwind, speed: 26, endurance: 28, primary: speed, secondary: might, gear: [monk_fists, belt_of_speed, puma_claw, unbroken_sandals, isis_feather]}
+        - {key: mystic, name: Mystic, speed: 26, endurance: 28, primary: personality, secondary: might, gear: [monk_fists, archmage_robe, unbroken_headband, kitsune_shrine_bell, isis_feather]}
       card_rarity: rare
       might: 13
       intellect: 8
@@ -324,7 +393,10 @@ characters:
         - {text: "Spellblade in plate. Starts with {heal:Resurrect}, {damage:Rock Blast}, {damage:Firewall} and {damage:Sparks}."}
         - {skill: spell_absorption, text: "{defense:Spell Absorption} can swallow a hostile spell hit and turn it into HP and SP."}
         - {skill: strong_magic, text: "{damage:Strong Magic} makes attack spells hit up to twice as hard, paid for in HP."}
-      auto_stats: {speed: 16, endurance: 36, primary: intellect, secondary: might}
+      auto_stats: {speed: 16, endurance: 36, primary: intellect, secondary: might, gear: [solstice_stone_script, solstice_anchor_hammer, scalebreaker_maul, lich_king_crown, deathgod_helm, onryo_lamellar]}
+      auto_builds:
+        - {key: rune_knight, name: Rune Knight, speed: 16, endurance: 36, primary: intellect, secondary: endurance, gear: [solstice_stone_script, deathgod_helm, onryo_lamellar, lich_king_crown]}
+        - {key: vanguard, name: Vanguard, speed: 16, endurance: 36, primary: might, secondary: intellect, gear: [solstice_anchor_hammer, scalebreaker_maul, muramasa, drakefang_blade, warlords_signet, onryo_lamellar]}
       card_rarity: legendary
       might: 13
       intellect: 13
@@ -350,7 +422,10 @@ characters:
         - {skill: designate_target, text: "{buff:Designate Target}: ranged hits mark a foe and raise the party's critical chance."}
         - {skill: ballistics, text: "{damage:Ballistics} adds shot speed and crits, and range from Master."}
         - {skill: field_medicine, text: "{heal:Field Medicine} strengthens the potions the Sniper drinks and adds to an Alchemist's Pharmacology."}
-      auto_stats: {speed: 16, endurance: 18, primary: accuracy}
+      auto_stats: {speed: 16, endurance: 18, primary: accuracy, gear: [suppressor_gun, arena_shortbow, compound_bow, longlance_rifle, accuracy_talisman, night_heron_do]}
+      auto_builds:
+        - {key: deadeye, name: Deadeye, speed: 16, endurance: 18, primary: accuracy, secondary: luck, gear: [suppressor_gun, arena_shortbow, compound_bow, lucky_paw, thief_king_signet, scarab_amulet]}
+        - {key: quickshot, name: Quickshot, speed: 16, endurance: 18, primary: accuracy, secondary: speed, gear: [suppressor_gun, arena_shortbow, wyrmspine_bow, accuracy_talisman, night_heron_do, belt_of_speed]}
       card_rarity: legendary
       might: 9
       intellect: 12
@@ -370,7 +445,9 @@ characters:
         - {skill: alchemy, text: "{utility:Alchemy} raises the batch size."}
         - {skill: pharmacology, text: "{heal:Pharmacology} makes every party potion restore more."}
         - {skill: bomb_throwing, text: "{damage:Bomb Throwing}: fire, harm and venom flasks burst over 2 tiles."}
-      auto_stats: {speed: 16, endurance: 20, primary: intellect, secondary: accuracy}
+      auto_stats: {speed: 16, endurance: 20, primary: intellect, secondary: accuracy, gear: [serpent_fang, solstice_returning_gale, lich_king_crown, accuracy_talisman, archmage_robe]}
+      auto_builds:
+        - {key: bomber, name: Bomber, speed: 16, endurance: 20, primary: intellect, secondary: speed, gear: [serpent_fang, spider_lily_obi, fivefold_ceremonial_ribbon, belt_of_speed]}
       card_rarity: rare
       might: 8
       intellect: 15
@@ -393,7 +470,9 @@ characters:
         - {text: "Staff adept who {utility:folds space}: {utility:Fold Step} jumps 3 or more tiles ahead, and from level 6 {utility:Return Step} snaps back to the start. Techniques set to {auto:autocast} in the technique book guard the party: {auto:Phase Veil} raises dodge, {auto:Purify} clears afflictions, {auto:Quickening} speeds recovery."}
         - {skill: flowing_staff, text: "{damage:Flowing Staff}: every tile walked charges a critical staff blow."}
         - {skill: pathfinding, text: "{utility:Pathfinding} speeds the whole party."}
-      auto_stats: {speed: 26, endurance: 22, primary: intellect, secondary: speed}
+      auto_stats: {speed: 26, endurance: 22, primary: intellect, secondary: speed, gear: [solstice_sun_crucible, solstice_flowstaff, verdant_eye_scepter, spider_lily_obi, lich_king_crown, fivefold_ceremonial_ribbon]}
+      auto_builds:
+        - {key: phantom, name: Phantom, speed: 26, endurance: 22, primary: intellect, secondary: luck, gear: [solstice_sun_crucible, solstice_flowstaff, lucky_paw, thief_king_signet, scarab_amulet]}
       card_rarity: rare
       might: 9
       intellect: 15
@@ -407,6 +486,9 @@ characters:
       main_hand: oak_staff
       equipment: [leather_armor]
 
+  # Celestial Providence draws one of these party buffs at every dawn and dusk.
+  providence_pool: [day_of_the_gods, hour_of_power, bless, stone_skin, heroism]
+
   # Race stat shifts are listed in the party-creation pitch from these numbers;
   # description points follow them (same shape as a class description).
   races:
@@ -418,6 +500,8 @@ characters:
       intellect: -2
       personality: -2
       speed: -1
+      card_rarity: uncommon
+      replaces: {class: knight, skill: impenetrable_defense, with: orcish_fury}
       description:
         - {skill: orcish_fury, text: "{damage:Orcish Fury} takes the place of Impenetrable Defense: every normal weapon hit deals extra damage."}
     halfling:
@@ -427,6 +511,8 @@ characters:
       luck: 2
       might: -3
       endurance: -1
+      card_rarity: uncommon
+      passive_skill: halfling_guile
       description:
         - {skill: halfling_guile, text: "{defense:Halfling Guile}: enemies that pick a random hero to hit pick this one half as often."}
     dark_elf:
@@ -437,8 +523,10 @@ characters:
       might: -2
       endurance: -2
       luck: -1
+      card_rarity: uncommon
+      passive_skill: dark_elf_binding
       description:
-        - {skill: dark_elf_binding, text: "{control:Dark Elf Binding}: a weapon, spell or trap hit may turn the foe into an ally for this map instead of hurting it (not undead or bosses)."}
+        - {skill: dark_elf_binding, text: "{control:Dark Elf Binding}: a weapon or spell hit may turn the foe into an ally for this map instead of hurting it (not undead or bosses)."}
     celestial:
       name: Celestial
       personality: 3
@@ -446,6 +534,8 @@ characters:
       luck: 1
       might: -2
       endurance: -2
+      card_rarity: uncommon
+      passive_skill: celestial_providence
       description:
         - {skill: celestial_providence, text: "{auto:Celestial Providence}: while the Celestial is alive in the active party, every dawn and dusk gives the party a {auto:random Master-tier buff} until the next dawn or dusk."}
 
@@ -480,31 +570,37 @@ characters:
 
 # Monster stats and AI
 monster_ai:
-  # State timers are update ticks (game.tps = 120).
-  idle_patrol_timer: 60         # Time before starting patrol from idle (0.5 seconds at 120 TPS)
-  patrol_idle_timer: 1200       # Time before returning to idle (10 seconds)
-  attack_cooldown: 120          # Attack delay duration (1 second at 120 TPS)
-  flee_duration: 840            # How long to flee (7 seconds RT / 7 TB turns)
-
-  # Behavior chances (0.0 to 1.0)
-  idle_to_patrol_chance: 0.1    # 10% chance per frame to start patrolling
+  # State timers in seconds.
+  idle_patrol_seconds: 0.5      # Time before starting patrol from idle
+  patrol_idle_seconds: 10       # Time before returning to idle
+  attack_cooldown_seconds: 1    # Attack delay duration
+  flee_seconds: 7               # How long to flee (7 s RT / 7 TB turns; Timer exception: 1 TB turn = 1 s)
+  idle_to_patrol_mean_seconds: 0.079  # mean extra wait before an idle monster starts patrolling
 
   # Movement parameters
   normal_speed_multiplier: 0.5  # Normal movement speed multiplier
   flee_speed_multiplier: 1.5    # Speed multiplier when fleeing
+  # Turn-based steps per movement action = monster speed / this. Speed 2.0 and
+  # slower walk one tile; faster monsters bank the fraction and take extra
+  # steps (2.4 -> 1 1 2 1 1 over five turns). Range 1..4 steps.
+  turn_step_speed: 2.0
 
   # Vision and pathfinding
   flee_distance_tiles: 4        # How far a fleeing monster runs before reconsidering
 
-  # AI frequency checks (in frames)
-  path_check_frequency: 30      # Check for blocked paths every N frames
+  path_check_seconds: 0.25      # Check for blocked paths this often
 
   # Detection (distances in tiles, the rest are multipliers)
   pursuit:
     max_radius_tiles: 16
-    retaliation_seconds: 10
+    retaliation_seconds: 10      # Timer exception: own RT/TB pair with retaliation_turns, not 1 round = 3 s
     retaliation_turns: 4
     retaliation_margin_tiles: 2  # extra reach beyond the incoming shot distance
+  phase_shift:                   # abilities.phase_shift planner (costly: for small dungeon maps)
+    detour_factor: 2             # blink only when the pursuit route is over this x the plan
+    window_tiles: 24             # search margin around the party and the monster
+    max_walk_tiles: 16           # farthest walk to a launch tile
+    replan_seconds: 0.25         # real-time plans refresh at least this often
   default_alert_radius_tiles: 4        # fallback when a monster omits alert_radius
   # No detection without line of sight: an unaware monster never aggros through
   # walls/trees (hard rule in PlayerDetectionRange, not a multiplier).
@@ -532,6 +628,18 @@ graphics:
     # Classic HUD clearance fades out before a creature crosses the camera.
     lift_fade_tiles: 0.5
     lift_full_tiles: 1.0
+    # Turn-based: seconds the view and the monsters slide over one step
+    # (0 = instant jump). A held key takes its next step when the slide ends,
+    # never sooner than the 0.15 s step repeat: above 0.15 this is the walking
+    # pace, below it the view stands between steps.
+    turn_step_seconds: 0.15
+  ranged_held:
+    # Camera-local bodies, compared with the melee weapon catalog. Projectiles
+    # retain their independently authored sizes and flight paths.
+    model_scale: 0.45
+    # Recovery follows the real attack cooldown, capped for slow weapons.
+    max_duration_seconds: 0.65
+    cooldown_fraction: 0.8
   elemental_attack:
     duration_seconds: 0.48
     radius_tiles: 0.35
@@ -562,6 +670,33 @@ graphics:
 
   # Distance effects
   brightness_min: 0.3
+
+  # Open-world region loading. A region the party can see (view distance + 4
+  # tiles) must be loaded; one still missing pauses the game with "Loading
+  # area...". prefetch_lead_tiles starts its background load that many tiles
+  # earlier: more lead = fewer pauses, more regions in memory.
+  # background_steps_per_tick is how many preparation steps (each at most
+  # 256 KiB of pixels, 1.5 ms in total) run per simulation tick during play:
+  # more = regions ready sooner, too many shows as hitches while walking.
+  # release_images_per_tick is how many textures of a region the party left
+  # are disposed per simulation tick: all of them in one frame (hundreds)
+  # stalled presentation for 50 to 120 ms.
+  streaming:
+    prefetch_lead_tiles: 24
+    background_steps_per_tick: 4
+    release_images_per_tick: 16
+    # While the loading screen holds the game nothing has to stay smooth, so
+    # regions load at these limits instead of the play quotas (in brackets).
+    # workers: sprite decoders, and as many again building tree and monument
+    #   sheets [2 and 1]; 0 = logical CPUs minus 2, from 2 to 8.
+    # queue_megabytes: decoded pixels waiting for the game loop [32].
+    # upload_megabytes_per_frame, upload_images_per_frame: texture data handed
+    #   to the GPU in one frame [8 and 32].
+    loading_screen:
+      workers: 0
+      queue_megabytes: 256
+      upload_megabytes_per_frame: 64
+      upload_images_per_frame: 512
 
   # Board-game standees: monsters, NPCs and scenery render as thick wooden
   # tokens standing in the world (monsters turn with their travel direction)
@@ -625,6 +760,9 @@ graphics:
     large_prop: 1.60
     structure: 2.00
     tree: 2.00      # standard crossed-tree width; height follows texture aspect
+    # Settings > Display > Fit to tile (off by default) scales an object whose
+    # visible art reaches past its own tile down as a whole: art filling the
+    # frame at `tree` then renders 1.41 tiles wide, the tile's diagonal.
 
   # Ground container sprite heights in tile units (dropped loot / reward chests).
   # Fixed - not scaled by the dropping monster. Chests read bigger than bags.
@@ -641,79 +779,268 @@ graphics:
     fold_density: 7.75 # broad animated folds per tile edge (2..8)
     alpha: 0.5             # base glow strength (0..1)
 
-  # Load-time color key: make stray magenta (left by imperfect sprite background
-  # removal) transparent when sprites load. A pixel is keyed when each RGB channel
-  # is within `tolerance` of `color`. color [0,0,0]/absent defaults to magenta.
+  # Load-time color key: stray magenta left by imperfect sprite background
+  # removal becomes transparent when sprites load (modes and lists below).
   color_key:
-    enabled: true
-    color: [255, 0, 255]   # magenta
-    tolerance: 60          # per-channel slack for the fully-transparent core
-    despill: true          # fringe (semitone) pixels: strip the magenta cast, keep the base tone opaque (don't erase)
-    # Preserve original colours, including edges, for these sprite families.
-    # Key-colour transparency still applies.
-    despill_exclusions: [alien_enforcer]
-    # Despill is intentionally aggressive (strips ANY magenta hue), which greys
-    # out sprites whose purple/magenta is real art. List those here (basenames;
-    # naming any directional animation also covers its base and sibling sheets)
-    # to despill ONLY their edge fringe
-    # within edge_despill_radius px, preserving the interior. Curated from the
-    # despill audit - extend as new purple art is added.
-    edge_despill_radius: 3
+    # Load-time chroma key for every indexed sprite (sky/ and floor/ are not
+    # indexed). Each animation family gets one mode; a list entry is a sprite
+    # basename, and naming a base or any <name>_<motion>_<l|r> sheet covers the
+    # whole family. A name with no sprite, a frameless icon alias hud_<icon> (it
+    # keys as its framed icon: list the icon) or a family on both lists aborts
+    # the boot. Recommendations and the audit procedure:
+    # docs/content-authoring.md#sprite-colour-key.
+    #
+    # default (on no list): key pixels joined to the image border or to a
+    #   transparent pixel (8-connected) become transparent; every other pixel,
+    #   key-close art inside the body included, stays exactly as drawn. For
+    #   clean art, painted illustrations and art whose purple or pink is real.
+    # edge_only_despill: default, then the magenta cast is subtracted within
+    #   edge_despill_radius px of that background or of the image border. For a
+    #   pink or purple halo left on the rim by background removal; the body
+    #   stays as drawn.
+    # full_despill: every key pixel anywhere becomes transparent and the
+    #   magenta cast is subtracted from every pixel. Only for key residue inside
+    #   the body; it greys real purple, turns pink salmon and darkens crimson.
+    #
+    # The lists come from a review of every sprite (2026-11-06): rim despill
+    # where a magenta rim shows on art that is not purple or pink; full despill
+    # where magenta residue sits inside such art (specks in gaps and holes,
+    # creases in dark fur, background trapped between tentacles).
+    enabled: true           # false: every sprite loads exactly as its PNG
+    color: [255, 0, 255]    # key RGB (magenta); [0, 0, 0] or absent means magenta
+    tolerance: 60           # per-channel slack: a pixel this close to the key is a key pixel
+    despill: true           # subtract the cast in listed families; false: no colour change (full still keys)
+    edge_despill_radius: 3  # px band from the background that edge_only_despill cleans
     edge_only_despill:
-      - projectile_harm_flask
-      # Purple/magenta creatures
-      - octopus
-      - medusa
-      - alien
-      - archmage
-      - lich
-      - lich_king
-      - forest_spider
-      # Ice crystal highlights read as violet
+      # A visible magenta rim on art that is not purple or pink (2026-11-06 review)
+      # characters
+      - city_weapon_merchant
+      - clockmaker
+      - elf_ranger_captain
+      - gladiator_gatekeeper
+      - human
+      - lake_bather
+      - miko_shiori
+      - nomad_caravan_merchant
+      - nomad_combat_trainer
+      - nomad_oasis_spell_seller
+      - onmyoji_hina
+      - ronin_outcast
+      - solstice_sera
+      - solstice_tovan
+      - solstice_velna
+      - storage_clerk
+      - tengu_exile_kuroha
+      # environment
+      - alchemy_embercap
+      - arena_bones
+      - arena_gate
+      - bag
+      - bag_common
+      - bag_rare
+      - bag_uncommon
+      - barrel_blue
+      - barrel_blue_open
+      - barrel_green
+      - barrel_green_open
+      - barrel_red
+      - barrel_red_open
+      - broken_grandfather_clock
+      - campfire
+      - chest_chrono
+      - chest_gearwood
+      - chest_regal
+      - city_shop_potions
+      - clocktower_door
+      - clocktower_stairs_down
+      - clocktower_stairs_up
+      - culvert_chest
+      - culvert_valve
+      - desert_buried_saddlebags
+      - desert_buried_saddlebags_used
+      - dragon_cliffs_bone_lair
+      - dragon_cliffs_ember_lair
+      - dragon_cliffs_wind_pine
+      - eastern_ship
+      - elf_city_exterior
+      - elf_ivy_bench
+      - elf_moon_fountain
+      - elf_moon_pavilion
+      - elf_planter
+      - elf_ranger_hall
+      - fern_patch
+      - grass
+      - grass0
+      - grass1
+      - highlands_heather
+      - highlands_mist_collector_used
+      - highlands_pine
+      - highlands_rock_outcrop
+      - large_coral
+      - lich_nexus_chest
+      - lich_nexus_exit
+      - mushroom_ring
+      - nomad_city_exterior
+      - old_platan
+      - pilgrim_moonbell
+      - pyramid_entrance
+      - pyramid_facade
+      - sakura_azalea_shrub
+      - sakura_bamboo_fence
+      - sakura_clover_flowers
+      - sakura_ema_rack
+      - sakura_fallen_petals
+      - sakura_garden_bench
+      - sakura_garden_exit
+      - sakura_garden_signpost
+      - sakura_incense_brazier
+      - sakura_kitsune_statues
+      - sakura_main_shrine
+      - sakura_omikuji_box
+      - sakura_sake_barrels
+      - sakura_stone_lantern
+      - sakura_taiko_drum
+      - sakura_tea_house
+      - sakura_torii_gate
+      - sakura_tsukubai_basin
+      - shoji_screen
+      - solstice_deepvein_moss
+      - solstice_furnace_bloom
+      - solstice_rain_pearl
+      - solstice_ruins_facade
+      - solstice_sky_reed
+      - solstice_sluice_control
+      - solstice_sun_resin
+      - solstice_survey_marker
+      - solstice_whisper_silk
+      - spell_lectern_cleric
+      - steam_boiler
+      - sword_rack
+      - thieves_guild
+      - wall_anim_landscape
+      - wall_anim_portrait
+      - wall_blueprint
+      - wall_dragon
+      - wall_gear_cluster
+      - wall_landscape
+      - wall_lever
+      - wall_pendulum_clock
+      - wall_pipe_valve
+      - wall_portrait
+      - wall_sigil
+      - wooden_planks
+      # interface
+      - buff_fx_bless
+      - buff_fx_day_of_the_gods
+      - buff_fx_heroism
+      - buff_fx_stone_skin
+      - spellbook_tab_air
+      - spellbook_tab_body
+      - spellbook_tab_dark
+      - spellbook_tab_earth
+      - spellbook_tab_fire
+      - spellbook_tab_light
+      - spellbook_tab_water
+      # mobs
+      - ancient_god_of_death
+      - bandit
+      - bear
+      - bronze_gatekeeper
+      - dark_elf_sorceress_attacking_r
+      - desert_dervish
+      - dire_wolf
+      - dragon
+      - dragon_gold
+      - dragon_green
+      - dragon_red
+      - dust_slime
+      - elder_dragon_gold
+      - elder_dragon_red
+      - elf_archer
       - frost_elemental
-      # Sorcerer hero art (purple robes)
-      - lysander
-      - lysander_full
-      - lysander_archmage
-      - lysander_archmage_full
-      - lysander_lich
-      - lysander_lich_full
-      # Dark-elf sorcerer hero art (violet skin)
-      - vaelith
-      - vaelith_full
-      - vaelith_archmage
-      - vaelith_archmage_full
-      - vaelith_lich
-      - vaelith_lich_full
-      # Environment
-      - bonsai_tree
-      # Spellbook school tabs (mind/spirit are purple)
-      - spellbook_tab_mind
-      - spellbook_tab_spirit
-      # Spell icons (dark / spirit / mind / arcane)
-      - icon_spell_darkness
-      - icon_spell_charm
-      - icon_spell_psychic_shock
-      - icon_spell_spirit_lash
-      - icon_spell_disintegrate
-      - icon_spell_bind_undead
-      - icon_spell_wizard_eye
-      - icon_spell_raise_dead
-      - icon_spell_awaken
-      - icon_spell_darkbolt
-      - icon_spell_alien_dark_bolt
-      # Item / weapon icons (lich / archmage / wizard themed)
-      - icon_item_lich_phylactery
-      - icon_item_archmage_robe
-      - icon_item_wizard_robe
-      - icon_item_lich_king_crown
-      - icon_item_lich_card
-      - icon_item_archmage_card
-      - icon_item_medusa_card
-      - icon_item_soul_phylactery_gem
-      - icon_weapon_book_of_darkness
-      - icon_weapon_battle_staff
-      - icon_weapon_archmage_staff
+      - gale_novice
+      - giant_spider
+      - goblin
+      - grandfather_clock
+      - hobbit_archer_attacking_r
+      - isis
+      - karasu_tengu
+      - kasa_obake
+      - kitsune_onmyoji
+      - koi_leaping_r
+      - lich_king
+      - minotaur
+      - ningyo
+      - octopus
+      - puma
+      - rainbow_salmon_leaping_r
+      - rat
+      - red_ruffed_lemur
+      - revenant
+      - ring_tailed_lemur
+      - ronin_marksman
+      - sakura_jorogumo
+      - solstice_anchor_automaton
+      - solstice_aureth
+      - solstice_cinder_hound
+      - solstice_cistern_eel
+      - solstice_dusk_moth
+      - solstice_ember_elemental
+      - solstice_flow_automaton
+      - solstice_gale_elemental
+      - solstice_jade_elemental
+      - solstice_kiln_automaton
+      - solstice_neressa
+      - solstice_rain_serpent
+      - solstice_rootbound_sentinel
+      - solstice_shardback_burrower
+      - solstice_storm_kite
+      - solstice_sunscarab
+      - solstice_talura
+      - solstice_tide_elemental
+      - solstice_transfer_automaton
+      - solstice_vaelith
+      - thief_bug
+      - treant
+      - weapon_master_attacking_l
+      - wolf
+    full_despill:
+      # Key residue inside the body, where no rim mode reaches it: magenta lines
+      # between tentacles, specks in gear holes and gaps, creases in dark fur
+      # (2026-11-06 interior review; none of these has purple or pink art)
+      # mobs
+      - alarm_clock
+      - ashigaru_firelock
+      - bat
+      - deep_jungle_idol
+      - elder_dragon
+      - elder_dragon_green
+      - elf_swordsman
+      - forest_orc
+      - golden_thief_bug
+      - gorilla_titan
+      - jellyfish
+      - jungle_goblin
+      - masked_huntress
+      - masked_serpent_dancer
+      - mountain_troll
+      - mummy
+      - ocelot
+      - old_samurai
+      - orc
+      - orc_warlord
+      - pixie
+      - possessed_tome
+      - skeleton
+      - troll
+      # environment
+      - bag_legendary
+      - coral_reef
+      - deep_jungle_fern
+      - deep_jungle_log
+      - gear_pile
+      - parts_crate
+      - wall_skull
 
 day_night:
   half_cycle_seconds: 420
@@ -770,12 +1097,65 @@ day_night:
       count: 5
       require_map_clear: true
 
-# Shared by all existing and new burn sources.
-status_damage:
-  burn_percent: 3
-  boss_burn_percent: 1
-
+# Control-spell saves. Each status's own numbers live in assets/statuses.yaml.
 status_effects:
-  # A slowed monster loses one turn in this many turn-based turns (RT slows
-  # movement and attack cadence by the debuff's percent instead).
-  slow_skip_every_turns: 3
+  control_saves:
+    mechanics: [turn_undead, mass_fear, feeblemind]
+    diminishing_mechanics: [turn_undead, mass_fear]
+    # Monster level minus caster level; Grandmaster, zero school resistance.
+    curve:
+      - {level_difference: -5, percent: 25}
+      - {level_difference: 0, percent: 40}
+      - {level_difference: 5, percent: 50}
+      - {level_difference: 10, percent: 60}
+      - {level_difference: 15, percent: 75}
+    min_percent: 25
+    max_percent: 75
+    mastery_penalty_percent: 5
+    resistance_weight: 0.5
+    resisted_message: "%s resists %s."
+    summary: "Targets may resist."
+    details: "Each target resists independently. Higher-level targets and greater resistance to this school increase the chance; spell mastery reduces it."
+    diminishing_summary: "Repeated fear and stun share diminishing returns."
+
+# Auto-level of every map an adventure schedule opens (map_configs.yaml
+# adventure.schedule.days). A visit's level is the party average +
+# visit_level_bonus; each monster there moves from its authored level to it by
+# curve(visit) / curve(own level), keeping its archetype ratio. The editor's
+# Actionables page (Auto-level view) shows the curves and every such map.
+# Each curve grows exponentially piece by piece (growth: up to to_level by
+# slope per level), then by flat_per_level past its last piece:
+#   curve(L) = exp(base + sum of slope x levels in each piece) + flat
+#   hp: max HP; hit: the average of damage_min and damage_max
+#   AC = authored AC * (L / own level)^armor_exponent
+#   XP = experience_level_percent of the XP a hero of the party's level
+#        (L - visit_level_bonus) needs for the next level
+# Percent hazards are a share of the scaled boss hit (map_configs.yaml).
+# Flats past L45 were set on testdata/real_parties (L21-38): median hero HP
+# grows ~9.7 per level and the regular hit holds ~50% of it; boss HP over
+# regular HP stays ~3.6, its L45 ratio. Authored bosses outside the chambers
+# outgrow regular monsters in damage (~6% vs ~3% per level over L18-35), so
+# the boss hit starts lower and grows faster.
+adventure_scaling:
+  visit_level_bonus: 5
+  armor_exponent: 0.5
+  regular:
+    hp:
+      base: 4.181
+      growth: [{to_level: 25, slope: 0.1255}, {to_level: 45, slope: 0.04}]
+      flat_per_level: 139
+    hit:
+      base: 2.634
+      growth: [{to_level: 45, slope: 0.057}]
+      flat_per_level: 5
+    experience_level_percent: 24
+  boss:
+    hp:
+      base: 5.333
+      growth: [{to_level: 35, slope: 0.101}]
+      flat_per_level: 500
+    hit:   # 0.85x the regular hit at L24, 1.12x from L45: bosses outgrow mobs
+      base: 2.16
+      growth: [{to_level: 45, slope: 0.07}]
+      flat_per_level: 5.6
+    experience_level_percent: 109

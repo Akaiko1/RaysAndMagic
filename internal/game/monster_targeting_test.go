@@ -80,7 +80,7 @@ func TestRangedProjectile_UsesSharedTankBiasedTargeting(t *testing.T) {
 					member.HitPoints = member.MaxHitPoints
 				}
 				cs.applyMonsterProjectileDamage(nil, "Test", monsterCharacterHit{
-					Parts: damagecalc.Parts{True: 1}, DamageType: "true", IgnoresDodge: true,
+					Parts: damagecalc.Parts{True: 1}, DamageType: "true",
 				})
 				if members[0].HitPoints == members[0].MaxHitPoints {
 					offTank++

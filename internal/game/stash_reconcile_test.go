@@ -77,10 +77,12 @@ func TestReconcileAgainstStashStripsOwnedIDs(t *testing.T) {
 				return false
 			}},
 	}
+	// Every stash container owns its units: the chest, the legendary
+	// collection and the card album.
 	for _, loc := range locations {
-		for _, vault := range []bool{false, true} {
+		for _, container := range []string{"chest", "collection", "album"} {
 			for _, id := range []string{"owned", "foreign", "zero"} {
-				t.Run(fmt.Sprintf("%s/vault=%v/%s", loc.name, vault, id), func(t *testing.T) {
+				t.Run(fmt.Sprintf("%s/%s/%s", loc.name, container, id), func(t *testing.T) {
 					member := &character.MMCharacter{Equipment: map[items.EquipSlot]items.Item{}}
 					reserve := &character.MMCharacter{Equipment: map[items.EquipSlot]items.Item{}}
 					g := &MMGame{
@@ -88,7 +90,7 @@ func TestReconcileAgainstStashStripsOwnedIDs(t *testing.T) {
 						stash: &stash.Stash{},
 					}
 					itemType := items.ItemWeapon
-					if vault {
+					if container == "album" {
 						itemType = items.ItemCard
 					}
 					partyID, stashID := uint64(100), uint64(100)
@@ -102,10 +104,13 @@ func TestReconcileAgainstStashStripsOwnedIDs(t *testing.T) {
 					neighbour := items.Item{Name: "Neighbour Item", Type: itemType, InstanceID: 200}
 					loc.place(g, it, neighbour)
 					stashed := items.Item{Name: "Fixture Item", Type: itemType, InstanceID: stashID}
-					if vault {
-						g.stash.CardSlots[0] = stashed
-					} else {
+					switch container {
+					case "chest":
 						g.stash.Slots[0] = stashed
+					case "collection":
+						g.stash.Collection = map[string]items.Item{"fixture": stashed}
+					case "album":
+						g.stash.Album = map[string][]items.Item{"fixture": {stashed}}
 					}
 
 					g.reconcilePartyAgainstStash()

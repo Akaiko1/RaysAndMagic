@@ -5,41 +5,62 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
 
 // Run the real build entry points against small assets. Compilation, lipo,
-// otool and signing are stand-ins here; copying, filtering and output layouts
-// are production code. Content ships once per install unit: the game bundle
-// and the Windows folder carry it, the editor bundle only its icon, and the
-// release mac folder holds nothing but the two bundles.
+// otool and signing are stand-ins here (a stand-in binary records the target it
+// was built for); copying, filtering and output layouts are production code. Content ships once per install unit: the game bundle
+// and the Windows and Linux folders carry it, the editor bundle only its icon,
+// and the release mac folder holds nothing but the two bundles.
 func TestBuildRuntimePackaging(t *testing.T) {
 	bash, err := exec.LookPath("bash")
 	if err != nil {
 		t.Skip("bash is required for the macOS build scripts")
 	}
+	lib, err := os.ReadFile(filepath.Join("..", "_build_lib.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	floorLine := regexp.MustCompile(`(?m)^MACOS_MIN_VERSION="([0-9.]+)"$`).FindSubmatch(lib)
+	if floorLine == nil {
+		t.Fatal("_build_lib.sh declares no MACOS_MIN_VERSION")
+	}
+	floor := string(floorLine[1]) // the stand-in otool reports it unless a case overrides
 	for _, tc := range []struct {
-		script string
-		roots  []string            // carry the full runtime content
-		exact  map[string][]string // directory -> its complete entry list
-		fat    []string            // executables that must be universal
+		script  string
+		roots   []string            // carry the full runtime content
+		exact   map[string][]string // directory -> its complete entry list
+		targets map[string]string   // executable -> the GOOS/GOARCH and cgo it was built with
 	}{
 		{"build_bin.sh", []string{
 			"bin/RaysAndMagic.app/Contents/Resources",
 		}, map[string][]string{
 			"bin/RaysAndMagicMapViewer.app/Contents/Resources": {"rays_and_magic_map_editor.icns"},
-		}, nil},
+		}, map[string]string{
+			"bin/RaysAndMagic.app/Contents/MacOS/RaysAndMagic": "host/host cgo=0",
+			"bin/map_viewer":                "host/host cgo=0",
+			"bin/RaysAndMagic.exe":          "windows/amd64 cgo=0",
+			"bin/RaysAndMagicMapViewer.exe": "windows/amd64 cgo=0",
+		}},
 		{"build_mac_release.sh", []string{
 			"dist/windows_amd64",
+			"dist/linux_amd64",
 			"dist/mac_universal/RaysAndMagic.app/Contents/Resources",
 		}, map[string][]string{
-			"dist":               {"mac_universal", "windows_amd64"},
+			"dist":               {"linux_amd64", "mac_universal", "windows_amd64"},
+			"dist/linux_amd64":   {"RaysAndMagic", "RaysAndMagicMapViewer", "assets", "config.yaml"},
 			"dist/mac_universal": {"RaysAndMagic.app", "RaysAndMagicMapViewer.app"},
 			"dist/mac_universal/RaysAndMagicMapViewer.app/Contents/Resources": {"rays_and_magic_map_editor.icns"},
-		}, []string{
-			"dist/mac_universal/RaysAndMagic.app/Contents/MacOS/RaysAndMagic",
-			"dist/mac_universal/RaysAndMagicMapViewer.app/Contents/MacOS/RaysAndMagicMapViewer",
+		}, map[string]string{
+			"dist/mac_universal/RaysAndMagic.app/Contents/MacOS/RaysAndMagic":                   "universal darwin/arm64 cgo=0 darwin/amd64 cgo=0",
+			"dist/mac_universal/RaysAndMagicMapViewer.app/Contents/MacOS/RaysAndMagicMapViewer": "universal darwin/arm64 cgo=0 darwin/amd64 cgo=0",
+			"dist/windows_amd64/RaysAndMagic.exe":                                               "windows/amd64 cgo=0",
+			"dist/windows_amd64/RaysAndMagicMapViewer.exe":                                      "windows/amd64 cgo=0",
+			"dist/linux_amd64/RaysAndMagic":                                                     "linux/amd64 cgo=0",
+			"dist/linux_amd64/RaysAndMagicMapViewer":                                            "linux/amd64 cgo=0",
 		}},
 	} {
 		t.Run(tc.script, func(t *testing.T) {
@@ -89,7 +110,7 @@ while [ "$#" -gt 0 ]; do
   if [ "$1" = "-o" ]; then
     shift
     mkdir -p "$(dirname "$1")"
-    printf 'compiled binary\n' > "$1"
+    printf '%s/%s cgo=%s\n' "${GOOS:-host}" "${GOARCH:-host}" "${CGO_ENABLED:-default}" > "$1"
     exit 0
   fi
   shift
@@ -97,20 +118,22 @@ done
 exit 1
 `), 0755)
 			write("tools/codesign", []byte("#!/bin/bash\nexit 0\n"), 0755)
-			write("tools/otool", []byte("#!/bin/bash\nprintf '      cmd LC_BUILD_VERSION\\n    minos %s\\n' \"${FAKE_MINOS:-12.0}\"\n"), 0755)
+			write("tools/otool", []byte("#!/bin/bash\nprintf '      cmd LC_BUILD_VERSION\\n    minos %s\\n' \"${FAKE_MINOS:-"+floor+"}\"\n"), 0755)
 			write("tools/lipo", []byte(`#!/bin/bash
 set -eu
 [ "$1" = "-create" ] && [ "$2" = "-output" ]
 out="$3"; shift 3
-{ printf 'universal'; for slice in "$@"; do printf ' %s' "$(basename "$(dirname "$slice")")"; done; printf '\n'; } > "$out"
+{ printf 'universal'; for slice in "$@"; do printf ' %s' "$(cat "$slice")"; done; printf '\n'; } > "$out"
 `), 0755)
-			env := append(os.Environ(), "PATH="+filepath.Join(dir, "tools")+string(os.PathListSeparator)+os.Getenv("PATH"))
+			// An exported GOOS/GOARCH/CGO_ENABLED in the caller's shell must not
+			// leak into the scripts' host builds.
+			env := append(os.Environ(), "GOOS=", "GOARCH=", "CGO_ENABLED=", "PATH="+filepath.Join(dir, "tools")+string(os.PathListSeparator)+os.Getenv("PATH"))
 			t.Run("newer macOS floor fails", func(t *testing.T) {
 				cmd := exec.Command(bash, tc.script)
 				cmd.Dir = dir
 				cmd.Env = append(env, "FAKE_MINOS=27.0")
 				output, err := cmd.CombinedOutput()
-				if err == nil || !strings.Contains(string(output), "requires macOS 27.0, bundles promise 12.0") {
+				if err == nil || !strings.Contains(string(output), "requires macOS 27.0, bundles promise "+floor) {
 					t.Fatalf("a binary needing macOS 27 was packaged: %v\n%s", err, output)
 				}
 				_ = os.Remove(filepath.Join(dir, "shader-build.log"))
@@ -175,9 +198,9 @@ out="$3"; shift 3
 							t.Errorf("%s holds %v (%v), want exactly %v", root, got, err, want)
 						}
 					}
-					for _, exe := range tc.fat {
-						if data, err := os.ReadFile(filepath.Join(dir, exe)); err != nil || string(data) != "universal arm64 amd64\n" {
-							t.Errorf("%s is not the arm64+amd64 universal binary: %q, %v", exe, data, err)
+					for exe, want := range tc.targets {
+						if data, err := os.ReadFile(filepath.Join(dir, exe)); err != nil || string(data) != want+"\n" {
+							t.Errorf("%s built as %q (%v), want %q", exe, data, err, want)
 						}
 					}
 					for _, path := range sources {

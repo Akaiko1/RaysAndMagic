@@ -83,15 +83,15 @@ func (b *worldModelBuilder) cone(x, y, r0, r1, z0, z1 float64, col [3]int, mat i
 // Open jaws share two fixed hinge pins. Closing rotates each jaw as one rigid
 // piece, including its teeth; the pan and springs remain planted on the tile.
 func (b *worldModelBuilder) bear() {
-	b.ring(.245, .026, .018, .025, 0, 2*math.Pi, 24, trapIron, 0, nil)
-	b.box(0, 0, .023, .24, .035, .024, 0, trapIron, 0)
-	b.disc(0, 0, .11, .047, .014, b.accent, 1)
-	b.ring(.108, .01, .061, .004, 0, 2*math.Pi, 20, trapSteel, 2, nil)
+	b.ring(.245, .026, .018, .025, 0, 2*math.Pi, 24, trapIron, worldIron, nil)
+	b.box(0, 0, .023, .24, .035, .024, 0, trapIron, worldIron)
+	b.disc(0, 0, .11, .047, .014, b.accent, worldBrass)
+	b.ring(.108, .01, .061, .004, 0, 2*math.Pi, 20, trapSteel, worldSteel, nil)
 	for _, side := range []float64{-1, 1} {
-		b.box(side*.32, 0, .016, .065, .22, .027, 0, trapIron, 0)
-		b.box(side*.32, 0, .043, .044, .17, .014, 0, trapSteel, 2)
-		b.disc(side*.255, 0, .043, .06, .055, b.accent, 1)
-		b.box(side*.255, 0, .116, .026, .005, .002, 0, trapIron, 0)
+		b.box(side*.32, 0, .016, .065, .22, .027, 0, trapIron, worldIron)
+		b.box(side*.32, 0, .043, .044, .17, .014, 0, trapSteel, worldSteel)
+		b.disc(side*.255, 0, .043, .06, .055, b.accent, worldBrass)
+		b.box(side*.255, 0, .116, .026, .005, .002, 0, trapIron, worldIron)
 		close := .12
 		if b.progress >= 0 {
 			close += 1.3 * math.Min(1, b.progress*8)
@@ -103,38 +103,38 @@ func (b *worldModelBuilder) bear() {
 		if side < 0 {
 			start = math.Pi
 		}
-		b.ring(.29, .045, 0, .032, start, math.Pi, 18, trapIron, 0, transform)
-		b.ring(.287, .008, .032, .006, start, math.Pi, 18, trapSteel, 2, transform)
+		b.ring(.29, .045, 0, .032, start, math.Pi, 18, trapIron, worldIron, transform)
+		b.ring(.287, .008, .032, .006, start, math.Pi, 18, trapSteel, worldSteel, transform)
 		for i := 0; i < 9; i++ {
 			angle := start + (float64(i)+.5)*math.Pi/9
 			a, c := polarTrap(.25, angle-.065, .025), polarTrap(.25, angle+.065, .025)
 			tip := polarTrap(.19, angle, .102)
 			back := polarTrap(.274, angle, .038)
 			a, c, tip, back = transform(a), transform(c), transform(tip), transform(back)
-			b.triangle(a, c, tip, trapSteel, 2, 1)
-			b.triangle(c, back, tip, trapIron, 0, 1)
-			b.triangle(back, a, tip, trapSteel, 2, 1)
+			b.triangle(a, c, tip, trapSteel, worldSteel, 1)
+			b.triangle(c, back, tip, trapIron, worldIron, 1)
+			b.triangle(back, a, tip, trapSteel, worldSteel, 1)
 		}
 	}
 	// Short, solid oval chain links lie beside the frame, not floating motes.
 	for i := 0; i < 3; i++ {
 		off := .30 + float64(i)*.055
-		b.ring(.036, .009, .012, .014, 0, math.Pi*2, 10, trapIron, 0, func(p worldModelPoint) worldModelPoint { p.y = p.y*.62 + off; p.x += .09; return p })
+		b.ring(.036, .009, .012, .014, 0, math.Pi*2, 10, trapIron, worldIron, func(p worldModelPoint) worldModelPoint { p.y = p.y*.62 + off; p.x += .09; return p })
 	}
 }
 
 // Three hooked scythes are bolted to one rotor. Their raised spine, flat face
 // and sharpened bevel remain distinct even at the floor's grazing angle.
 func (b *worldModelBuilder) cleave() {
-	b.disc(0, 0, .18, .014, .032, trapIron, 0)
-	b.ring(.173, .023, .046, .01, 0, 2*math.Pi, 24, trapBrass, 1, nil)
+	b.disc(0, 0, .18, .014, .032, trapIron, worldIron)
+	b.ring(.173, .023, .046, .01, 0, 2*math.Pi, 24, trapBrass, worldBrass, nil)
 	rotation := 0.0
 	if b.progress >= 0 {
 		rotation = 7 * (1 - math.Pow(1-b.progress, 3))
 	}
 	for i := 0; i < 12; i++ {
 		a := float64(i) * math.Pi / 6
-		b.box(.175*math.Cos(a), .175*math.Sin(a), .025, .027, .016, .027, a, trapBrass, 1)
+		b.box(.175*math.Cos(a), .175*math.Sin(a), .025, .027, .016, .027, a, trapBrass, worldBrass)
 	}
 	for i := 0; i < 3; i++ {
 		root := rotation + float64(i)*math.Pi*2/3
@@ -148,57 +148,57 @@ func (b *worldModelBuilder) cleave() {
 			}
 			a, c := point(j, -1, .076), point(j+1, -1, .076)
 			d, e := point(j+1, 1, .076), point(j, 1, .076)
-			b.quad(a, c, d, e, b.accent, 2, 1)
-			b.quad(point(j, -1, .059), point(j+1, -1, .059), c, a, trapIron, 0, 1)
-			b.quad(point(j, .6, .077), point(j+1, .6, .077), point(j+1, 1, .061), point(j, 1, .061), trapSteel, 2, 1)
-			b.quad(point(j, 1, .061), point(j+1, 1, .061), point(j+1, -1, .059), point(j, -1, .059), trapIron, 0, 1)
+			b.quad(a, c, d, e, b.accent, worldSteel, 1)
+			b.quad(point(j, -1, .059), point(j+1, -1, .059), c, a, trapIron, worldIron, 1)
+			b.quad(point(j, .6, .077), point(j+1, .6, .077), point(j+1, 1, .061), point(j, 1, .061), trapSteel, worldSteel, 1)
+			b.quad(point(j, 1, .061), point(j+1, 1, .061), point(j+1, -1, .059), point(j, -1, .059), trapIron, worldIron, 1)
 		}
 		a := root + .04
-		b.disc(.13*math.Cos(a), .13*math.Sin(a), .019, .077, .016, trapBrass, 1)
+		b.disc(.13*math.Cos(a), .13*math.Sin(a), .019, .077, .016, trapBrass, worldBrass)
 	}
-	b.disc(0, 0, .087, .057, .035, trapBrass, 1)
-	b.disc(0, 0, .034, .092, .014, trapSteel, 2)
-	b.box(0, 0, .107, .025, .005, .001, rotation, trapIron, 0)
+	b.disc(0, 0, .087, .057, .035, trapBrass, worldBrass)
+	b.disc(0, 0, .034, .092, .014, trapSteel, worldSteel)
+	b.box(0, 0, .107, .025, .005, .001, rotation, trapIron, worldIron)
 }
 
 func (b *worldModelBuilder) stasis() {
-	b.disc(0, 0, .245, .012, .024, trapIron, 0)
-	b.ring(.238, .016, .036, .005, 0, 2*math.Pi, 32, trapBrass, 1, nil)
-	b.ring(.20, .004, .038, .003, 0, 2*math.Pi, 32, b.accent, 5, nil)
+	b.disc(0, 0, .245, .012, .024, trapIron, worldIron)
+	b.ring(.238, .016, .036, .005, 0, 2*math.Pi, 32, trapBrass, worldBrass, nil)
+	b.ring(.20, .004, .038, .003, 0, 2*math.Pi, 32, b.accent, worldGlow, nil)
 	for i := 0; i < 12; i++ {
 		a := float64(i) * math.Pi / 6
-		b.box(.22*math.Cos(a), .22*math.Sin(a), .039, .009, .003, .003, a, b.accent, 5)
+		b.box(.22*math.Cos(a), .22*math.Sin(a), .039, .009, .003, .003, a, b.accent, worldGlow)
 	}
 	// Sand drains through an actual waist inside the two glass chambers.
-	b.cone(0, 0, .079, .006, .073, .139, b.accent, 4)
-	b.disc(0, 0, .004, .137, .113, b.accent, 4)
-	b.cone(0, 0, .004, .067, .197, .271, b.accent, 4)
-	b.disc(0, 0, .067, .269, .002, b.accent, 4)
-	b.cone(0, 0, .096, .016, .071, .188, trapCyan, 3)
-	b.cone(0, 0, .016, .096, .188, .305, trapCyan, 3)
+	b.cone(0, 0, .079, .006, .073, .139, b.accent, worldSand)
+	b.disc(0, 0, .004, .137, .113, b.accent, worldSand)
+	b.cone(0, 0, .004, .067, .197, .271, b.accent, worldSand)
+	b.disc(0, 0, .067, .269, .002, b.accent, worldSand)
+	b.cone(0, 0, .096, .016, .071, .188, trapCyan, worldGlass)
+	b.cone(0, 0, .016, .096, .188, .305, trapCyan, worldGlass)
 	for _, z := range []float64{.049, .304} {
-		b.disc(0, 0, .126, z, .015, trapBrass, 1)
-		b.ring(.126, .012, z+.015, .005, 0, 2*math.Pi, 24, trapSteel, 2, nil)
+		b.disc(0, 0, .126, z, .015, trapBrass, worldBrass)
+		b.ring(.126, .012, z+.015, .005, 0, 2*math.Pi, 24, trapSteel, worldSteel, nil)
 	}
 	for i := 0; i < 4; i++ {
 		a := math.Pi/4 + float64(i)*math.Pi/2
 		x, y := .11*math.Cos(a), .11*math.Sin(a)
-		b.box(x, y, .062, .009, .009, .245, a, trapBrass, 1)
-		b.disc(x, y, .019, .323, .013, trapSteel, 2)
+		b.box(x, y, .062, .009, .009, .245, a, trapBrass, worldBrass)
+		b.disc(x, y, .019, .323, .013, trapSteel, worldSteel)
 	}
 	if b.progress >= 0 {
 		for i := 0; i < 3; i++ {
 			p := math.Max(0, b.progress-float64(i)*.12)
-			b.ring(.14+p*.32, .005, .065+p*.55, .012, 0, 2*math.Pi, 32, b.accent, 5, nil)
+			b.ring(.14+p*.32, .005, .065+p*.55, .012, 0, 2*math.Pi, 32, b.accent, worldGlow, nil)
 		}
 	}
 }
 
 func (b *worldModelBuilder) blast() {
-	b.disc(0, 0, .265, .012, .027, trapIron, 0)
-	b.cone(0, 0, .26, .215, .039, .085, trapBrass, 1)
-	b.disc(0, 0, .211, .071, .013, b.accent, 6)
-	b.ring(.256, .012, .04, .008, 0, 2*math.Pi, 32, trapSteel, 2, nil)
+	b.disc(0, 0, .265, .012, .027, trapIron, worldIron)
+	b.cone(0, 0, .26, .215, .039, .085, trapBrass, worldBrass)
+	b.disc(0, 0, .211, .071, .013, b.accent, worldEmber)
+	b.ring(.256, .012, .04, .008, 0, 2*math.Pi, 32, trapSteel, worldSteel, nil)
 	open := 0.0
 	if b.progress >= 0 {
 		open = math.Sin(math.Min(1, b.progress*4)*math.Pi/2) * .07
@@ -212,20 +212,20 @@ func (b *worldModelBuilder) blast() {
 			p.z += open
 			return p
 		}
-		b.ring(.213, .10, .085, .012, a, .43, 3, trapIron, 0, shift)
-		b.ring(.213, .012, .097, .004, a, .43, 3, trapBrass, 1, shift)
-		b.disc(.238*math.Cos(a), .238*math.Sin(a), .012, .061, .014, trapSteel, 2)
+		b.ring(.213, .10, .085, .012, a, .43, 3, trapIron, worldIron, shift)
+		b.ring(.213, .012, .097, .004, a, .43, 3, trapBrass, worldBrass, shift)
+		b.disc(.238*math.Cos(a), .238*math.Sin(a), .012, .061, .014, trapSteel, worldSteel)
 	}
-	b.disc(0, 0, .101, .084, .035, trapBrass, 1)
-	b.disc(0, 0, .075, .119, .008, trapIron, 0)
-	b.ring(.068, .006, .129, .003, 0, 2*math.Pi, 24, b.accent, 5, nil)
+	b.disc(0, 0, .101, .084, .035, trapBrass, worldBrass)
+	b.disc(0, 0, .075, .119, .008, trapIron, worldIron)
+	b.ring(.068, .006, .129, .003, 0, 2*math.Pi, 24, b.accent, worldGlow, nil)
 	if b.progress >= 0 {
 		// Crossed, world-fixed plume planes inherit the same ground projection.
 		height := .22 + .85*math.Sin(math.Pi*b.progress)
 		for i := 0; i < 3; i++ {
 			a := float64(i) * math.Pi / 3
 			x, y := .33*math.Cos(a), .33*math.Sin(a)
-			b.quad(worldModelPoint{-x, -y, .10}, worldModelPoint{x, y, .10}, worldModelPoint{x * .45, y * .45, height}, worldModelPoint{-x * .45, -y * .45, height}, b.accent, 7, .86)
+			b.quad(worldModelPoint{-x, -y, .10}, worldModelPoint{x, y, .10}, worldModelPoint{x * .45, y * .45, height}, worldModelPoint{-x * .45, -y * .45, height}, b.accent, worldPlume, .86)
 		}
 	}
 }

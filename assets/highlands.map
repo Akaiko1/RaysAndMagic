@@ -53,8 +53,8 @@
 %..##########........................RR..........%
 %..##########....T..........................A....%
 %.T..@..........................RR.RR.....v......%  >[npc:clock_tower_entrance]
-%.......TTT.S.h.TT..............R.............A..%
-%.TTT...TTT.S......#####.#####.....v....#####A...%
+%.......TTT.S.h.TT..............R@............A..%  >[npc:highlands_traveler_cairn]
+%.TTT...TTT.S......#####.#####.....v....#####A@..%  >[npc:highlands_mist_collector]
 %.TTT.......S......#j.......j#..........#.@.#.A..%  >[npc:spell_lectern]
 %...........STTT...#.BBBBBBB.#.A........#...#..A.%
 %h..........STTT...#.B.....B.#......RR..#####....%
@@ -64,16 +64,16 @@
 %.TT..TTT...S..h...#j.......j#...A...............%
 %.....TTT...S......#####.#####............RR.....%
 %..T...h....S.......................RR...........%
-%.TT.......hS....T...............A..........v....%
+%.TT.......hS....T...............A...@......v....%  >[npc:highlands_traveler_cairn]
 %.......T...S.....................A.....A........%
-%AAAAAAAAAA.S....AAAAAAAAAA......AAAAAAAAAA......%
-%........AAASSAAAAA......AAA..AAAAA......AAAAAAAA%
+%AAAAAAAAAA@S...@AAAAAAAAAA......AAAAAAAAAA......%  >[npc:highlands_traveler_cairn], [npc:highlands_traveler_cairn]
+%.......@AAASSAAAAA.@...@AAA..AAAAA......AAAAAAAA%  >[npc:highlands_traveler_cairn], [npc:highlands_mist_collector], [npc:highlands_mist_collector]
 %..........WWW..A...A...A.......................@%  >[npc:sister_mira]
 %...........SS..A...A...A..........HWWWWWWW....AA%
 %....TT....................h......HWWWWWWWWWW...R%
 %.A.....HH.......S.S..............WWQQQQQQQQW....%
 %....TT..............S.S.........HWWQQQQQQQQW....%
-%.....h...TT.............S.S......WWQQQQQQQQW....%
+%.@...h...TT.............S.S......WWQQQQQQQQW....%  >[npc:highlands_traveler_cairn]
 %.A.BB.......................S.W..WWQQQ@QQQQW....%  >[npc:chest_golden]
 %...c.........A..................SWWQQQQQQQQW....%
 %........h........HH..............HWQQQQQQQQW....%
@@ -82,7 +82,7 @@
 %.........T..HH......AA.............WWWWWWW......%
 %..c.............HH..............................%
 %AAAAAAAAAA......AAAAAAAAAA......AA.SAAAAAA......%
-%........AAAA..AAAA......AAAAAAAAAA.S....AAAAAAAA%
+%.......@AAAA..AAAA@....@AAAAAAAAAA.S...@AAAAAAAA%  >[npc:highlands_mist_collector], [npc:highlands_traveler_cairn], [npc:highlands_traveler_cairn], [npc:highlands_traveler_cairn]
 %..HH........................c.....S.............%
 %....c............................S..............%
 %...A.A...................HH.....S....BBBB.BBBB..%

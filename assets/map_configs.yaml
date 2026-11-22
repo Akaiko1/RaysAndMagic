@@ -13,13 +13,18 @@ shared_floor_texture_groups:
   water:
     - "water_0"
     - "water_1"
+  deep_water:
+    - "deep_water_0"
+    - "deep_water_1"
 
 shared_floor_transitions:
   water: water
+  deep_water: water
 
 # floor_transitions maps texture-group names to visual blending profiles.
 # After shared inheritance, unlisted groups use hard (no neighbor blending).
-# Profiles: hard, natural, water, void, cliff_east, cliff_west.
+# Profiles: hard, natural, water, void, cliff_east, cliff_west, chasm. Surf on
+# lakes and seas comes from each map's water_bodies, not from a profile.
 # Cliff names describe the authored drop side; they do not rotate the artwork.
 # Rules, compatibility, shoreline behavior: docs/floor-transitions.md
 biomes:
@@ -40,6 +45,7 @@ biomes:
       thermal: "hard"
       circulation: "hard"
       pressure: "hard"
+
   solstice_water:
     elemental_attack_school: "water"
     out_of_bounds_tile: "solstice_water_wall"
@@ -57,6 +63,7 @@ biomes:
       thermal: "hard"
       circulation: "hard"
       pressure: "hard"
+
   solstice_earth:
     elemental_attack_school: "earth"
     out_of_bounds_tile: "solstice_earth_wall"
@@ -74,6 +81,7 @@ biomes:
       thermal: "hard"
       circulation: "hard"
       pressure: "hard"
+
   solstice_air:
     elemental_attack_school: "air"
     out_of_bounds_tile: "solstice_air_wall"
@@ -91,6 +99,7 @@ biomes:
       thermal: "hard"
       circulation: "hard"
       pressure: "hard"
+
   solstice_vestibule:
     elemental_attack_school: "earth"
     out_of_bounds_tile: "wall"
@@ -490,6 +499,14 @@ biomes:
       jungle_ford:
         - "deep_jungle_floor_1"
 
+# water_bodies (per map): every 8-connected body of water tiles (type: water
+# in tiles.yaml: water, deep water, streams, fords, koi) in the .map file gets
+# exactly one entry, named by any of its cells (map-local [x, y]):
+#   - {at: [x, y], kind: lake}
+# kind: river, lake, sea, pool (a puddle or small pond), stream. Waves break
+# on the bank of a lake or sea only. A body may mix tiles; its kind covers
+# every cell. An unlisted body, an entry off water or two entries on one body
+# fail the boot; the message lists each unlisted body by its first cell.
 maps:
   solstice_fire:
     name: "Thermal Chamber"
@@ -506,16 +523,16 @@ maps:
       experience_cap: 7000
       reset_days: 3
       element: "fire"
-      effects: [{"id": "kiln_lava", "kind": "occupation", "name": "Kiln Lava", "rect": [16, 18, 22, 18], "school": "fire", "damage": 12}, {"id": "overheat_west", "kind": "occupation", "name": "Overheat West", "rect": [26, 3, 26, 7], "school": "fire", "damage": 12, "boss_below_percent": 50, "warning_seconds": 1.2, "warning_rounds": 1}, {"id": "overheat_east", "kind": "occupation", "name": "Overheat East", "rect": [28, 3, 28, 7], "school": "fire", "damage": 12, "boss_below_percent": 50, "warning_seconds": 1.2, "warning_rounds": 1}, {"id": "regulator_lane_0", "kind": "lane", "name": "Regulator Lane 0", "rect": [26, 3, 28, 3], "school": "fire", "damage": 45, "warning_seconds": 1.2, "warning_rounds": 1, "duration_seconds": 4, "duration_rounds": 2, "sustain_damage": 12}, {"id": "regulator_lane_1", "kind": "lane", "name": "Regulator Lane 1", "rect": [26, 5, 28, 5], "school": "fire", "damage": 45, "warning_seconds": 1.2, "warning_rounds": 1, "duration_seconds": 4, "duration_rounds": 2, "sustain_damage": 12}, {"id": "archive_heat", "kind": "occupation", "name": "Archive Heat Vent", "rect": [6, 8, 6, 8], "school": "fire", "damage": 12}]
+      effects: [{"id": "kiln_lava", "kind": "occupation", "name": "Kiln Lava", "rect": [16, 18, 22, 18], "school": "fire", "damage_percent": 25}, {"id": "overheat_west", "kind": "occupation", "name": "Overheat West", "rect": [26, 3, 26, 7], "school": "fire", "damage_percent": 25, "boss_below_percent": 50, "warning_seconds": 1.2, "warning_rounds": 1}, {"id": "overheat_east", "kind": "occupation", "name": "Overheat East", "rect": [28, 3, 28, 7], "school": "fire", "damage_percent": 25, "boss_below_percent": 50, "warning_seconds": 1.2, "warning_rounds": 1}, {"id": "regulator_lane_0", "kind": "lane", "name": "Regulator Lane 0", "rect": [26, 3, 28, 3], "school": "fire", "damage_percent": 150, "warning_seconds": 1.2, "warning_rounds": 1, "duration_seconds": 6, "sustain_percent": 25}, {"id": "regulator_lane_1", "kind": "lane", "name": "Regulator Lane 1", "rect": [26, 5, 28, 5], "school": "fire", "damage_percent": 150, "warning_seconds": 1.2, "warning_rounds": 1, "duration_seconds": 6, "sustain_percent": 25}, {"id": "archive_heat", "kind": "occupation", "name": "Archive Heat Vent", "rect": [6, 8, 6, 8], "school": "fire", "damage_percent": 25}]
       controls: [{"id": "coolant_west", "disable": ["overheat_west", "kiln_lava", "archive_heat"], "message": "The archive vent and kiln channel cool. The western arena strip will stay safe.", "tiles": [{"x": 6, "y": 8, "tile": "empty"}, {"x": 16, "y": 18, "tile": "empty"}, {"x": 17, "y": 18, "tile": "empty"}, {"x": 18, "y": 18, "tile": "empty"}, {"x": 19, "y": 18, "tile": "empty"}, {"x": 20, "y": 18, "tile": "empty"}, {"x": 21, "y": 18, "tile": "empty"}, {"x": 22, "y": 18, "tile": "empty"}]}, {"id": "coolant_east", "disable": ["overheat_east", "regulator_lane_1"], "message": "The eastern strip cools. Aureth's lower firing row loses pressure."}]
       boss:
         monster: "solstice_aureth"
-        phases: [{"below_percent": 25, "patterns": [["regulator_lane_0"], ["regulator_lane_1"]], "every_actions": 1}]
+        phases: [{"below_percent": 25, "patterns": [["regulator_lane_0"], ["regulator_lane_1"]], "cooldown_seconds": 3}]
         arena: [24, 1, 30, 9]
         lanes: ["regulator_lane_0", "regulator_lane_1"]
-        every_actions: 2
-        armor_floor: 20
+        cooldown_seconds: 6
     clear_encounters: [{"monsters": [{"type": "solstice_aureth", "count": 1}], "rewards": {"completion_message": "The regulator falls. Its sealed equipment drawer opens.", "treasure_chest": {"id": "solstice_fire_boss_reward", "map": "solstice_fire", "tile_x": 27, "tile_y": 6, "loot_table": "solstice_fire_signature", "items": ["solstice_thermal_core"], "sprite": "chest"}}}]
+
   solstice_water:
     name: "Flow Chamber"
     file: "solstice_water.map"
@@ -531,18 +548,18 @@ maps:
       experience_cap: 7000
       reset_days: 3
       element: "water"
-      effects: [{"id": "regulator_lane_0", "kind": "lane", "name": "Regulator Lane 0", "rect": [14, 19, 16, 19], "school": "water", "damage": 45, "warning_seconds": 1.2, "warning_rounds": 1, "duration_seconds": 4, "duration_rounds": 2}, {"id": "regulator_lane_1", "kind": "lane", "name": "Regulator Lane 1", "rect": [14, 21, 16, 21], "school": "water", "damage": 45, "warning_seconds": 1.2, "warning_rounds": 1, "duration_seconds": 4, "duration_rounds": 2}, {"id": "cistern_current", "kind": "transfer", "name": "Entrance Return Current", "rect": [28, 17, 28, 17], "destination": [4, 5], "requires_control": "return_sluice", "school": "water"}]
+      effects: [{"id": "regulator_lane_0", "kind": "lane", "name": "Regulator Lane 0", "rect": [14, 19, 16, 19], "school": "water", "damage_percent": 150, "warning_seconds": 1.2, "warning_rounds": 1, "duration_seconds": 6}, {"id": "regulator_lane_1", "kind": "lane", "name": "Regulator Lane 1", "rect": [14, 21, 16, 21], "school": "water", "damage_percent": 150, "warning_seconds": 1.2, "warning_rounds": 1, "duration_seconds": 6}, {"id": "cistern_current", "kind": "transfer", "name": "Entrance Return Current", "rect": [28, 17, 28, 17], "destination": [4, 5], "requires_control": "return_sluice", "school": "water"}]
       controls: [{"id": "intake_sluice", "disable": [], "stop_healing": true, "message": "The intake closes. Neressa's healing supply runs dry."}, {"id": "return_sluice", "disable": [], "message": "The return current now leads to the chamber entrance. Step onto the marked water beyond this console."}]
       boss:
         monster: "solstice_neressa"
         low_health_range: 7
         arena: [11, 18, 20, 24]
         lanes: ["regulator_lane_0", "regulator_lane_1"]
-        every_actions: 2
-        armor_floor: 20
-        heal_percent: 1
-        heal_cap_percent: 10
+        cooldown_seconds: 6
+        heal_percent: 5
+        heal_ceiling_percent: 50
     clear_encounters: [{"monsters": [{"type": "solstice_neressa", "count": 1}], "rewards": {"completion_message": "The regulator falls. Its sealed equipment drawer opens.", "treasure_chest": {"id": "solstice_water_boss_reward", "map": "solstice_water", "tile_x": 15, "tile_y": 22, "loot_table": "solstice_water_signature", "items": ["solstice_flow_core"], "sprite": "chest"}}}]
+
   solstice_earth:
     name: "Anchor Chamber"
     file: "solstice_earth.map"
@@ -558,16 +575,16 @@ maps:
       experience_cap: 7000
       reset_days: 3
       element: "earth"
-      effects: [{"id": "plate_row_0", "kind": "trap", "name": "Plate Row 0", "rect": [3, 15, 10, 15], "school": "physical", "secondary_school": "earth", "damage": 35, "rearm_seconds": 6, "rearm_rounds": 2}, {"id": "plate_row_1", "kind": "trap", "name": "Plate Row 1", "rect": [16, 19, 23, 19], "school": "physical", "secondary_school": "earth", "damage": 35, "rearm_seconds": 6, "rearm_rounds": 2}, {"id": "plate_row_2", "kind": "trap", "name": "Plate Row 2", "rect": [27, 4, 27, 4], "school": "physical", "secondary_school": "earth", "damage": 35, "rearm_seconds": 6, "rearm_rounds": 2}, {"id": "plate_row_3", "kind": "trap", "name": "Plate Row 3", "rect": [27, 7, 27, 7], "school": "physical", "secondary_school": "earth", "damage": 35, "rearm_seconds": 6, "rearm_rounds": 2}, {"id": "regulator_lane_0", "kind": "lane", "name": "Regulator Lane 0", "rect": [27, 3, 29, 3], "school": "earth", "damage": 45, "warning_seconds": 1.2, "warning_rounds": 1, "duration_seconds": 4, "duration_rounds": 2}, {"id": "regulator_lane_1", "kind": "lane", "name": "Regulator Lane 1", "rect": [27, 5, 29, 5], "school": "earth", "damage": 45, "warning_seconds": 1.2, "warning_rounds": 1, "duration_seconds": 4, "duration_rounds": 2}, {"id": "ground_shock", "kind": "lane", "name": "Ground Shock", "rect": [26, 4, 29, 6], "school": "earth", "damage": 45, "warning_seconds": 1.2, "warning_rounds": 1, "duration_seconds": 0.5, "duration_rounds": 1}]
-      controls: [{"id": "brace_one", "disable": [], "armor_reduction": 18, "message": "The load brace releases. Talura's armor loses eighteen points, down to its minimum."}, {"id": "brace_two", "disable": ["plate_row_2", "regulator_lane_1"], "message": "The north brace locks. Its pressure plate and the lower firing row are safe."}, {"id": "brace_three", "disable": ["plate_row_3", "ground_shock"], "message": "The south brace locks. Its plate is safe, and Talura's final ground shock cannot fire."}]
+      effects: [{"id": "plate_row_0", "kind": "trap", "name": "Plate Row 0", "rect": [3, 15, 10, 15], "school": "physical", "secondary_school": "earth", "damage_percent": 100, "rearm_seconds": 6, "rearm_rounds": 2}, {"id": "plate_row_1", "kind": "trap", "name": "Plate Row 1", "rect": [16, 19, 23, 19], "school": "physical", "secondary_school": "earth", "damage_percent": 100, "rearm_seconds": 6, "rearm_rounds": 2}, {"id": "plate_row_2", "kind": "trap", "name": "Plate Row 2", "rect": [27, 4, 27, 4], "school": "physical", "secondary_school": "earth", "damage_percent": 100, "rearm_seconds": 6, "rearm_rounds": 2}, {"id": "plate_row_3", "kind": "trap", "name": "Plate Row 3", "rect": [27, 7, 27, 7], "school": "physical", "secondary_school": "earth", "damage_percent": 100, "rearm_seconds": 6, "rearm_rounds": 2}, {"id": "regulator_lane_0", "kind": "lane", "name": "Regulator Lane 0", "rect": [27, 3, 29, 3], "school": "earth", "damage_percent": 150, "warning_seconds": 1.2, "warning_rounds": 1, "duration_seconds": 6}, {"id": "regulator_lane_1", "kind": "lane", "name": "Regulator Lane 1", "rect": [27, 5, 29, 5], "school": "earth", "damage_percent": 150, "warning_seconds": 1.2, "warning_rounds": 1, "duration_seconds": 6}, {"id": "ground_shock", "kind": "lane", "name": "Ground Shock", "rect": [26, 4, 29, 6], "school": "earth", "damage_percent": 150, "warning_seconds": 1.2, "warning_rounds": 1, "duration_seconds": 3}]
+      controls: [{"id": "brace_one", "disable": [], "armor_reduction_percent": 55, "message": "The load brace releases. Talura's armor loses more than half its strength."}, {"id": "brace_two", "disable": ["plate_row_2", "regulator_lane_1"], "message": "The north brace locks. Its pressure plate and the lower firing row are safe."}, {"id": "brace_three", "disable": ["plate_row_3", "ground_shock"], "message": "The south brace locks. Its plate is safe, and Talura's final ground shock cannot fire."}]
       boss:
         monster: "solstice_talura"
-        phases: [{"below_percent": 100, "patterns": [["regulator_lane_0"]]}, {"below_percent": 50, "patterns": [["regulator_lane_0"], ["regulator_lane_1"]]}, {"below_percent": 25, "patterns": [["ground_shock"]], "every_actions": 1}]
+        phases: [{"below_percent": 100, "patterns": [["regulator_lane_0"]]}, {"below_percent": 50, "patterns": [["regulator_lane_0"], ["regulator_lane_1"]]}, {"below_percent": 25, "patterns": [["ground_shock"]], "cooldown_seconds": 3}]
         arena: [24, 1, 30, 9]
         lanes: ["regulator_lane_0", "regulator_lane_1"]
-        every_actions: 2
-        armor_floor: 20
+        cooldown_seconds: 6
     clear_encounters: [{"monsters": [{"type": "solstice_talura", "count": 1}], "rewards": {"completion_message": "The regulator falls. Its sealed equipment drawer opens.", "treasure_chest": {"id": "solstice_earth_boss_reward", "map": "solstice_earth", "tile_x": 28, "tile_y": 6, "loot_table": "solstice_earth_signature", "items": ["solstice_anchor_core"], "sprite": "chest"}}}]
+
   solstice_air:
     name: "Transfer Chamber"
     file: "solstice_air.map"
@@ -583,16 +600,16 @@ maps:
       experience_cap: 7000
       reset_days: 3
       element: "air"
-      effects: [{"id": "transfer_jet", "kind": "transfer", "name": "Transfer Jet", "rect": [17, 15, 17, 15], "destination": [23, 15], "requires_control": "gallery_vane", "school": "air"}, {"id": "regulator_lane_0", "kind": "lane", "name": "Regulator Lane 0", "rect": [22, 3, 28, 4], "school": "air", "damage": 45, "warning_seconds": 1.2, "warning_rounds": 1, "duration_seconds": 4, "duration_rounds": 2}, {"id": "regulator_lane_1", "kind": "lane", "name": "Regulator Lane 1", "rect": [22, 5, 28, 6], "school": "air", "damage": 45, "warning_seconds": 1.2, "warning_rounds": 1, "duration_seconds": 4, "duration_rounds": 2}, {"id": "narrow_lane_0", "kind": "lane", "name": "Narrow Lightning Lane 1", "rect": [24, 3, 24, 7], "school": "air", "damage": 22, "warning_seconds": 1.2, "warning_rounds": 1, "duration_seconds": 1, "duration_rounds": 1}, {"id": "narrow_lane_1", "kind": "lane", "name": "Narrow Lightning Lane 2", "rect": [26, 3, 26, 7], "school": "air", "damage": 23, "warning_seconds": 1.2, "warning_rounds": 1, "duration_seconds": 1, "duration_rounds": 1}, {"id": "return_jet", "kind": "transfer", "name": "Return Jet", "rect": [22, 15, 22, 15], "destination": [16, 15], "requires_control": "hub_vane", "school": "air"}, {"id": "arena_jet_0", "kind": "transfer", "name": "West Escape Current", "rect": [23, 4, 23, 4], "destination": [27, 8], "requires_control": "hub_vane", "school": "air"}, {"id": "arena_jet_1", "kind": "transfer", "name": "East Escape Current", "rect": [27, 4, 27, 4], "destination": [23, 8], "requires_control": "hub_vane", "school": "air"}]
+      effects: [{"id": "transfer_jet", "kind": "transfer", "name": "Transfer Jet", "rect": [17, 15, 17, 15], "destination": [23, 15], "requires_control": "gallery_vane", "school": "air"}, {"id": "regulator_lane_0", "kind": "lane", "name": "Regulator Lane 0", "rect": [22, 3, 28, 4], "school": "air", "damage_percent": 150, "warning_seconds": 1.2, "warning_rounds": 1, "duration_seconds": 6}, {"id": "regulator_lane_1", "kind": "lane", "name": "Regulator Lane 1", "rect": [22, 5, 28, 6], "school": "air", "damage_percent": 150, "warning_seconds": 1.2, "warning_rounds": 1, "duration_seconds": 6}, {"id": "narrow_lane_0", "kind": "lane", "name": "Narrow Lightning Lane 1", "rect": [24, 3, 24, 7], "school": "air", "damage_percent": 75, "warning_seconds": 1.2, "warning_rounds": 1, "duration_seconds": 3}, {"id": "narrow_lane_1", "kind": "lane", "name": "Narrow Lightning Lane 2", "rect": [26, 3, 26, 7], "school": "air", "damage_percent": 75, "warning_seconds": 1.2, "warning_rounds": 1, "duration_seconds": 3}, {"id": "return_jet", "kind": "transfer", "name": "Return Jet", "rect": [22, 15, 22, 15], "destination": [16, 15], "requires_control": "hub_vane", "school": "air"}, {"id": "arena_jet_0", "kind": "transfer", "name": "West Escape Current", "rect": [23, 4, 23, 4], "destination": [27, 8], "requires_control": "hub_vane", "school": "air"}, {"id": "arena_jet_1", "kind": "transfer", "name": "East Escape Current", "rect": [27, 4, 27, 4], "destination": [23, 8], "requires_control": "hub_vane", "school": "air"}]
       controls: [{"id": "gallery_vane", "disable": [], "message": "The gallery current opens a crossing to the far platform."}, {"id": "hub_vane", "disable": [], "message": "The return crossing and both arena escape currents are ready. Their green marks show the landings."}]
       boss:
         monster: "solstice_vaelith"
         phases: [{"below_percent": 100, "patterns": [["regulator_lane_0"]]}, {"below_percent": 50, "patterns": [["regulator_lane_0"], ["regulator_lane_1"]]}, {"below_percent": 25, "patterns": [["narrow_lane_0", "narrow_lane_1"]]}]
         arena: [22, 1, 29, 10]
         lanes: ["regulator_lane_0", "regulator_lane_1"]
-        every_actions: 2
-        armor_floor: 20
+        cooldown_seconds: 6
     clear_encounters: [{"monsters": [{"type": "solstice_vaelith", "count": 1}], "rewards": {"completion_message": "The regulator falls. Its sealed equipment drawer opens.", "treasure_chest": {"id": "solstice_air_boss_reward", "map": "solstice_air", "tile_x": 25, "tile_y": 6, "loot_table": "solstice_air_signature", "items": ["solstice_vector_core"], "sprite": "chest"}}}]
+
   solstice_approach:
     name: "Solstice Ruins - Approach"
     file: "solstice_approach.map"
@@ -601,6 +618,12 @@ maps:
     sky_color: [70, 120, 110]
     default_floor_color: [60, 80, 45]
     ambient_light: 1
+    water_bodies:
+      - {at: [1, 4], kind: river}     # the west edge, the jungle river's arm
+      - {at: [15, 10], kind: pool}    # the hedged pond with the islet chest
+      - {at: [15, 18], kind: pool}
+      - {at: [8, 20], kind: pool}     # the south pond
+
   solstice_vestibule:
     name: "Solstice Ruins - Vestibule"
     file: "solstice_vestibule.map"
@@ -628,6 +651,13 @@ maps:
       radius_tiles: 3.0
       start_density: 2
       full_density: 8
+    water_bodies:
+      - {at: [42, 1], kind: sea}      # the north-east shore
+      - {at: [20, 21], kind: lake}    # the lake with the islet
+      - {at: [1, 11], kind: stream}   # the north brook, cut by trees
+      - {at: [9, 11], kind: stream}
+      - {at: [37, 11], kind: stream}
+      - {at: [1, 36], kind: stream}   # the south brook
 
   desert:
     name: "Scorching Desert"
@@ -636,6 +666,12 @@ maps:
     sky_color: [255, 218, 185]        # Sandy beige sky
     sky_texture: "desert_panorama"
     default_floor_color: [238, 203, 173]  # Desert sand
+    water_bodies:
+      - {at: [22, 23], kind: lake}    # the central oasis
+      - {at: [10, 8], kind: pool}     # the north-west palm oasis
+      - {at: [35, 41], kind: pool}    # the south-east palm oasis
+      - {at: [46, 8], kind: pool}
+      - {at: [46, 13], kind: pool}
     # Two independent bandit camps, one per oasis. Each monster is bound to
     # the encounter whose chest tile is nearest, so clearing the 5 bandits
     # around an oasis drops that oasis's chest at its water's edge.
@@ -672,6 +708,8 @@ maps:
     sky_color: [72, 61, 139]          # Dark slate blue underwater
     sky_texture: "water_panorama"
     default_floor_color: [25, 25, 112]  # Midnight blue ocean floor
+    water_bodies:
+      - {at: [31, 41], kind: pool}
 
   church:
     name: "Abandoned Church"
@@ -815,6 +853,12 @@ maps:
     default_floor_color: [58, 54, 48]
     ambient_light: 0.3   # pitch-dark sewers: bring a torch (or a fireball)
     wall_torches: true   # flickering torches at inner wall corners light the maze
+    water_bodies:
+      - {at: [24, 13], kind: river}   # the channel cross
+      - {at: [24, 1], kind: river}    # the four channel arms
+      - {at: [1, 24], kind: river}
+      - {at: [39, 24], kind: river}
+      - {at: [24, 39], kind: river}
 
   japanese_castle:
     name: "Eastern Isle Castle"
@@ -825,6 +869,8 @@ maps:
     sky_texture: "japanese_castle_panorama"
     default_floor_color: [70, 64, 56]
     wall_torches: true   # paper lanterns flicker at inner wall corners; day/night clock sets brightness
+    water_bodies:
+      - {at: [0, 45], kind: sea}      # the dock where the ship moors
 
   # The garden behind the eastern castle: higher-tier (L18-24) open region on
   # the same island. Entered from the castle's south edge; see open_world.yaml
@@ -839,6 +885,8 @@ maps:
     # corridor to the castle, which wears the granite paving (see the biome's
     # "default" floor group above). Authored cells all carry their own color.
     default_floor_color: [84, 88, 76]
+    water_bodies:
+      - {at: [7, 5], kind: pool}      # the koi pond: the party wades it, calm
 
   city:
     name: "Seabright"
@@ -883,6 +931,22 @@ maps:
     sky_color: [150, 165, 180]          # Overcast highland sky
     sky_texture: "highlands_panorama"
     default_floor_color: [86, 110, 74]  # Muted highland grass
+    water_bodies:
+      - {at: [36, 20], kind: lake}    # the tarn
+      - {at: [12, 4], kind: stream}   # the west brook and its pool
+      - {at: [17, 22], kind: stream}  # the stepping brook into the tarn
+      - {at: [19, 22], kind: stream}
+      - {at: [21, 23], kind: stream}
+      - {at: [23, 23], kind: stream}
+      - {at: [25, 24], kind: stream}
+      - {at: [27, 24], kind: stream}
+      - {at: [29, 25], kind: stream}
+      - {at: [31, 25], kind: stream}
+      - {at: [36, 32], kind: stream}  # the south brook
+      - {at: [31, 37], kind: stream}
+      - {at: [29, 38], kind: stream}
+      - {at: [27, 39], kind: stream}
+      - {at: [10, 41], kind: pool}
 
   dragon_cliffs:
     name: "Dragon Cliffs"
@@ -891,6 +955,9 @@ maps:
     sky_color: [86, 66, 72]             # Ashen, dragon-smoke sky
     sky_texture: "dragon_cliffs_panorama"
     default_floor_color: [92, 112, 64]  # Cliff grass
+    water_bodies:
+      - {at: [35, 22], kind: lake}
+      - {at: [5, 1], kind: stream}
 
   deep_jungle:
     name: "Deep Jungle"
@@ -899,6 +966,12 @@ maps:
     sky_color: [54, 84, 64]             # Humid green canopy haze
     sky_texture: "deep_jungle_panorama"
     default_floor_color: [34, 78, 40]   # Dark jungle green
+    water_bodies:
+      - {at: [39, 1], kind: river}    # the Great River with its fords
+      - {at: [5, 24], kind: lake}     # the west-bank lake with the islet
+      - {at: [2, 21], kind: pool}
+      - {at: [14, 23], kind: pool}
+      - {at: [14, 39], kind: pool}
     # Slay the warlord (only possible once his idols are broken) -> the lost
     # city's treasury opens in the plaza. Zone gear + gold only; his uniques
     # drop from the boss itself (loots.yaml), so none can leak here.

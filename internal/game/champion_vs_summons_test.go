@@ -71,7 +71,7 @@ func TestChampionVsCardSummonedAllies(t *testing.T) {
 			// can't make this flaky.
 			maxSwing := 0
 			for i := 0; i < 40; i++ {
-				if d := cs.monsterAttackDamage(champ); d > maxSwing {
+				if d, _ := cs.monsterAttackDamage(champ); d > maxSwing {
 					maxSwing = d
 				}
 			}
@@ -92,8 +92,8 @@ func TestChampionVsCardSummonedAllies(t *testing.T) {
 			champHPBefore := champ.HitPoints
 			cs.monsterStrikeMonster(huntress, champ)
 			hit := champHPBefore - champ.HitPoints
-			minHit := applyMonsterArmor(huntress.DamageMin, monsterPkg.DamagePhysical.String(), champ.EffectiveArmorClass(), false) + huntress.TrueDamage
-			maxHit := applyMonsterArmor(huntress.DamageMax, monsterPkg.DamagePhysical.String(), champ.EffectiveArmorClass(), false) + huntress.TrueDamage
+			minHit := cs.applyMonsterArmor(huntress.DamageMin, monsterPkg.DamagePhysical.String(), champ.EffectiveArmorClass(), false, false) + huntress.TrueDamage
+			maxHit := cs.applyMonsterArmor(huntress.DamageMax, monsterPkg.DamagePhysical.String(), champ.EffectiveArmorClass(), false, false) + huntress.TrueDamage
 			if hit < minHit || hit > maxHit {
 				t.Errorf("huntress hit the champion for %d, want armor-mitigated packet [%d,%d]", hit, minHit, maxHit)
 			}

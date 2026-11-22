@@ -69,28 +69,28 @@ func TestEcologyCombatMessagePolicy(t *testing.T) {
 						case "melee":
 							source.DamageMin, source.DamageMax = 20, 20
 							if outcome == "true_dodge" {
-								cs.strikeMonsterPacketFor(source, target, singleMonsterDamagePacket(damagecalc.Parts{Normal: 20, True: 3}, "physical", 0), nil, false, false, false, true)
+								cs.strikeMonsterPacketFor(source, target, singleMonsterDamagePacket(damagecalc.Parts{Normal: 20, True: 3}, "physical", 0), nil, false, false, true, false)
 							} else {
 								cs.monsterStrikeMonster(source, target)
 							}
 						case "arrow":
-							p := &Arrow{ID: "test", Active: true, LifeTime: 10, Damage: 20, DamageType: "physical", SourceName: source.Name, SourceMonster: source, Owner: ProjectileOwnerMonsterAtBound}
+							p := &Arrow{ID: "test", Active: true, LifeTime: 10, Damage: 20, DamageType: "physical", SourceName: source.Name, SourceMonster: source, Owner: ProjectileOwnerMonsterAtActor}
 							if outcome == "true_dodge" {
 								p.TrueDamage = 3
 							}
 							if outcome == "disintegrate" {
 								p.DisintegrateChance = 1
 							}
-							cs.resolveMonsterProjectileVsMonster(p, "arrow", target, p.ID)
+							cs.resolveMonsterProjectileVsMonster(p, target, p.ID)
 						case "spell":
-							p := &MagicProjectile{ID: "test", Active: true, LifeTime: 10, Damage: 20, SpellType: "fireball", SourceName: source.Name, SourceMonster: source, Owner: ProjectileOwnerMonsterAtBound}
+							p := &MagicProjectile{ID: "test", Active: true, LifeTime: 10, Damage: 20, SpellType: "fireball", SourceName: source.Name, SourceMonster: source, Owner: ProjectileOwnerMonsterAtActor}
 							if outcome == "true_dodge" {
 								p.TrueDamage = 3
 							}
 							if outcome == "disintegrate" {
 								p.DisintegrateChance = 1
 							}
-							cs.resolveMonsterProjectileVsMonster(p, "magic_projectile", target, p.ID)
+							cs.resolveMonsterProjectileVsMonster(p, target, p.ID)
 						}
 						switch kind {
 						case "wildlife":
@@ -156,7 +156,7 @@ func TestCaravanAlertCooldownSharedAcrossMapsAndAttackers(t *testing.T) {
 	target.HitPoints = 10000
 	source := monster.NewMonster3DFromConfig(400, 500, "bandit", cfg)
 	hit := func(g *MMGame) {
-		NewCombatSystem(g).strikeMonsterPacketFor(source, target, singleMonsterDamagePacket(damagecalc.Parts{True: 1}, "physical", 0), nil, false, true, true, false)
+		NewCombatSystem(g).strikeMonsterPacketFor(source, target, singleMonsterDamagePacket(damagecalc.Parts{True: 1}, "physical", 0), nil, false, true, false, false)
 	}
 	config.GlobalEcology.Caravan.AttackAlertCooldownSeconds = 37
 	before := time.Now()
@@ -216,7 +216,7 @@ func TestCaravanKeepsMovingUnderCommittedAttacks(t *testing.T) {
 					if spent && (caravan.IsEngagingPlayer || len(caravan.PathTiles) != pathLen) {
 						t.Fatal("hit interrupted caravan path")
 					}
-					caravan.UpdateAmbient(g.collisionSystem, caravan.AITargetX, caravan.AITargetY, turn)
+					caravan.UpdateAmbient(g.collisionSystem, caravan.AITargetX, caravan.AITargetY, turn, nil)
 					g.collisionSystem.UpdateEntity(caravan.ID, caravan.X, caravan.Y)
 				}
 				if caravan.X <= start || caravan.HitPoints >= hp {
@@ -241,7 +241,7 @@ func TestCaravanRangedLaunchWarnsBeforeImpactAndCancelsRest(t *testing.T) {
 			g.world.Monsters = append(g.world.Monsters, source)
 			g.world.RegisterMonstersWithCollisionSystem(g.collisionSystem)
 			g.turnBasedMode = turn
-			g.ecology.StopFrames = 15 * g.config.GetTPS()
+			g.armCaravanStop()
 			hp := target.HitPoints
 			cadence := monsterAttackRealtime
 			if turn {
@@ -254,7 +254,7 @@ func TestCaravanRangedLaunchWarnsBeforeImpactAndCancelsRest(t *testing.T) {
 				t.Fatal("expected projectile still in flight")
 			}
 			assertCaravanAlerts(t, g, 1)
-			if g.ecology.StopFrames != 0 {
+			if g.ecology.Stop.Active() {
 				t.Fatal("caravan waits under attack")
 			}
 			g.setCaravanTarget(target)
@@ -273,7 +273,7 @@ func TestCaravanTargetDoesNotTurnSupportActionsIntoAttackAlerts(t *testing.T) {
 	source := monster.NewMonster3DFromConfig(target.X-ts, target.Y, "bandit", g.config)
 	source.AIFoe = target
 	source.HitPoints = source.MaxHitPoints / 2
-	source.AllyHealChance, source.AllyHealAmount = 1, 5
+	source.Abilities.AllyHeal.Chance, source.Abilities.AllyHeal.Amount = 1, 5
 	g.world.Monsters = append(g.world.Monsters, source)
 	g.world.RegisterMonstersWithCollisionSystem(g.collisionSystem)
 	if !g.combat.commitMonsterAttack(source, monsterAttackDestination{foe: target}, monsterAttackRealtime) {
@@ -298,8 +298,8 @@ func TestCaravanProjectileStunDoesNotSpamLog(t *testing.T) {
 	// Force the stun roll; verify the rider retains its effect without
 	// adding a white stun/resist line beside the single red caravan alert.
 	for i := 0; i < 5; i++ {
-		p := &MagicProjectile{ID: fmt.Sprint(i), Active: true, LifeTime: 10, Damage: 1, SpellType: "psychic_shock", SourceName: source.Name, SourceMonster: source, Owner: ProjectileOwnerMonsterAtBound}
-		g.combat.resolveMonsterProjectileVsMonster(p, "magic_projectile", target, p.ID)
+		p := &MagicProjectile{ID: fmt.Sprint(i), Active: true, LifeTime: 10, Damage: 1, SpellType: "psychic_shock", SourceName: source.Name, SourceMonster: source, Owner: ProjectileOwnerMonsterAtActor}
+		g.combat.resolveMonsterProjectileVsMonster(p, target, p.ID)
 	}
 	assertCaravanAlerts(t, g, 1)
 	if target.StunDRStacks == 0 {
@@ -405,6 +405,6 @@ func TestCaravanAlertNewGameReset(t *testing.T) {
 	target := monster.NewMonster3DFromConfig(500, 500, "desert_caravan", cfg)
 	source := monster.NewMonster3DFromConfig(400, 500, "bandit", cfg)
 	g.combatLogHistory = nil
-	NewCombatSystem(g).strikeMonsterPacketFor(source, target, singleMonsterDamagePacket(damagecalc.Parts{True: 1}, "physical", 0), nil, false, true, true, false)
+	NewCombatSystem(g).strikeMonsterPacketFor(source, target, singleMonsterDamagePacket(damagecalc.Parts{True: 1}, "physical", 0), nil, false, true, false, false)
 	assertCaravanAlerts(t, g, 1)
 }

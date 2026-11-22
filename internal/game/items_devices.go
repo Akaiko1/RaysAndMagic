@@ -6,6 +6,7 @@ import (
 	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/spells"
+	"ugataima/internal/status"
 )
 
 func (g *MMGame) useDeviceFromInventory(index, charIndex int, owner ...*character.MMCharacter) bool {
@@ -56,13 +57,29 @@ func (g *MMGame) useDevice(item *items.Item, charIndex int) bool {
 	if item == nil || item.Type != items.ItemDevice || g.party == nil || g.combat == nil {
 		return false
 	}
+	if item.UseAction == "throw_flask" {
+		if key, d := flaskDefinition(*item); d != nil {
+			return g.equipFlask(charIndex, key)
+		}
+		return false
+	}
 	if !g.canSpendCombatAction(charIndex) {
 		g.AddCombatMessage(uitext.Text("item.device_cannot_act"))
 		return false
 	}
-	if item.DeviceCooldownFrames > 0 {
+	if deviceClock(item).Active() {
 		g.AddCombatMessage(uitext.Text("item.device_recharging", item.Name))
 		return false
+	}
+	if item.UseAction == "summon" && item.Attributes["summon_distance_tiles"] > 0 && item.Attributes["use_cooldown_seconds"] > 0 {
+		if !g.SummonRandomMonsterNearPlayer(float64(item.Attributes["summon_distance_tiles"])) {
+			g.AddCombatMessage(uitext.Text("item.device_summon_failed"))
+			return false
+		}
+		g.armDeviceRecharge(item)
+		g.AddCombatMessage(uitext.Text("item.device_summon_success"))
+		g.commitHeroAction(charIndex, g.combat.CalculateActionCooldownFrames(g.party.Members[charIndex]))
+		return true
 	}
 	jump, ok := deviceJump(*item)
 	if !ok {
@@ -72,12 +89,25 @@ func (g *MMGame) useDevice(item *items.Item, charIndex int) bool {
 	hero := g.party.Members[charIndex]
 	cooldown := g.combat.SpellCooldownFrames(hero, jump.ID)
 	return g.combat.tryPartyJump(item.Name, jump.JumpTiles+float64(item.Attributes["use_jump_extra_tiles"]), func() {
-		item.DeviceCooldownFrames = item.Attributes["use_cooldown_seconds"] * g.config.GetTPS()
-		g.combat.deviceClock.remaining = max(g.combat.deviceClock.remaining, item.DeviceCooldownFrames)
+		g.armDeviceRecharge(item)
 		// Jump itself ends the entire TB movement turn. Do not spend a preliminary
 		// attack slot: that would incorrectly grant the monsters an extra action.
 		hero.RTCooldown = max(hero.RTCooldown, cooldown)
 	}) == castCommitted
+}
+
+// deviceClock is a device's recharge on the one RT/TB clock.
+func deviceClock(item *items.Item) *status.DualClock {
+	return (*status.DualClock)(&item.DeviceCooldown)
+}
+
+// armDeviceRecharge starts a used device's recharge (use_cooldown_seconds,
+// never Speed-scaled).
+func (g *MMGame) armDeviceRecharge(item *items.Item) {
+	recharge := deviceClock(item)
+	*recharge = status.DualClock{}
+	recharge.Arm(item.Attributes["use_cooldown_seconds"], g.config.GetTPS())
+	g.combat.deviceClock.remaining = max(g.combat.deviceClock.remaining, recharge.Frames)
 }
 
 // An idle world needs no inventory walk. A use arms the bounded sweep; carried
@@ -91,8 +121,10 @@ type deviceCooldownSweep struct {
 	remaining  int
 }
 
-func (g *MMGame) tickDeviceCooldowns(frames int) {
-	if frames <= 0 || g.party == nil || g.combat == nil {
+// tickDeviceCooldowns spends one tick of every carried device's recharge: a
+// frame in real time, a turn at a turn-based party turn.
+func (g *MMGame) tickDeviceCooldowns(turn bool) {
+	if g.party == nil || g.combat == nil {
 		return
 	}
 	clock := &g.combat.deviceClock
@@ -102,43 +134,43 @@ func (g *MMGame) tickDeviceCooldowns(frames int) {
 	}
 	clock.party, clock.revision, clock.rosters, clock.containers = g.party, g.party.ContentRevision(), rosters, len(g.groundContainers)
 	clock.remaining = 0
-	advance := func(it *items.Item) {
-		if it != nil && it.DeviceCooldownFrames > 0 {
-			it.DeviceCooldownFrames = max(0, it.DeviceCooldownFrames-frames)
-			clock.remaining = max(clock.remaining, it.DeviceCooldownFrames)
+	g.eachLiveItem(func(it *items.Item) bool {
+		if recharge := deviceClock(it); recharge.Active() {
+			recharge.Tick(turn)
+			clock.remaining = max(clock.remaining, recharge.Frames)
 		}
+		return false
+	})
+}
+
+// eachLiveItem visits every item the live game holds outside the stash - the
+// party's own, worn and carried (party.OwnedItems), then ground containers -
+// until visit reports true. Changes through the pointer stick.
+func (g *MMGame) eachLiveItem(visit func(*items.Item) bool) bool {
+	if g.party == nil {
+		return false
 	}
-	bag := func(stock []items.Item) {
-		for i := range stock {
-			advance(&stock[i])
-		}
-	}
-	bag(g.party.Inventory)
-	for _, roster := range [][]*character.MMCharacter{g.party.Members, g.party.Reserve, g.party.Captive} {
-		for _, hero := range roster {
-			if hero == nil {
-				continue
-			}
-			bag(hero.Inventory)
-			for _, it := range hero.QuickSlots {
-				advance(it)
-			}
+	for it := range g.party.OwnedItems() {
+		if visit(it) {
+			return true
 		}
 	}
 	for i := range g.groundContainers {
-		bag(g.groundContainers[i].Items)
+		for j := range g.groundContainers[i].Items {
+			if visit(&g.groundContainers[i].Items[j]) {
+				return true
+			}
+		}
 	}
+	return false
 }
 
 func deviceCooldownProgress(item items.Item) float64 {
 	total := item.Attributes["use_cooldown_seconds"] * config.GetTargetTPS()
-	if item.Type != items.ItemDevice || total <= 0 || item.DeviceCooldownFrames <= 0 {
+	if item.Type != items.ItemDevice || total <= 0 || item.DeviceCooldown.Frames <= 0 {
 		return 1
 	}
-	return max(0, min(1, 1-float64(item.DeviceCooldownFrames)/float64(total)))
+	return max(0, min(1, 1-float64(item.DeviceCooldown.Frames)/float64(total)))
 }
 
-func deviceCooldownTurns(item items.Item) int {
-	round := config.GetTargetTPS() * TurnBasedPeriodicEffectSeconds
-	return (max(0, item.DeviceCooldownFrames) + round - 1) / round
-}
+func deviceCooldownTurns(item items.Item) int { return item.DeviceCooldown.Turns }

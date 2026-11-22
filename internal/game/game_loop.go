@@ -5,9 +5,12 @@ import (
 	"image"
 	"math"
 	"time"
+	uitext "ugataima/assets/text"
 	"ugataima/internal/monster"
 	"ugataima/internal/quests"
 	"ugataima/internal/spells"
+	"ugataima/internal/status"
+	"ugataima/internal/threading/entities"
 	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -31,17 +34,17 @@ type GameLoop struct {
 	timedBuffRegistry []timedBuff
 
 	// Per-tick scratch buffers, reset with [:0]/clear instead of reallocating.
-	monsterFrameBuf       []monsterFramePosition
-	monsterWalkPlayback   map[*monster.Monster3D]monsterWalkPlayback
-	bandersBuf            []*monster.Monster3D
-	bandSinglesBuf        []*monster.Monster3D
-	bandIDsBuf            []int
-	bandParentBuf         []int
-	bandHandled           map[*monster.Monster3D]bool
-	bandUsedSingles       map[*monster.Monster3D]bool
-	attackPostBuf         []*monster.Monster3D
-	combatTransitStackBuf []*monster.Monster3D
-	combatTransitTileBuf  map[attackPostTile]struct{}
+	monsterFrameBuf     []monsterFramePosition
+	monsterWalkPlayback map[*monster.Monster3D]monsterWalkPlayback
+	bandersBuf          []*monster.Monster3D
+	bandSinglesBuf      []*monster.Monster3D
+	bandIDsBuf          []int
+	bandParentBuf       []int
+	bandHandled         map[*monster.Monster3D]bool
+	bandUsedSingles     map[*monster.Monster3D]bool
+	attackPostBuf       []*monster.Monster3D
+	tileFanBuf          []*monster.Monster3D
+	lootGuards          lootGuardScratch
 }
 
 type monsterFramePosition struct {
@@ -62,11 +65,13 @@ func NewGameLoop(game *MMGame) *GameLoop {
 
 // Update handles all game logic updates for one frame
 func (gl *GameLoop) Update() error {
+	defer gl.game.syncIdentifyCursor()
 	// Click queues route this Update's edges through UI, then world input.
 	// Misses must expire here, including early returns: a later camera pose or
 	// widget must never acquire an old press. Holds have their own gesture state.
 	defer gl.ui.dropQueuedClicks()
 	updateStart := time.Now()
+	defer func() { gl.game.worldTicked = false }()
 	beforeCamera, cameraEpoch := gl.game.cameraPose(), gl.game.cameraPresentation.epoch
 	defer func() { gl.game.finishCameraTick(beforeCamera, cameraEpoch, updateStart) }()
 	defer func() { gl.game.updatePlayerProfile(time.Now()) }()
@@ -169,7 +174,7 @@ func (gl *GameLoop) updateExploration() {
 	// same step, so clocks and overlay lifetimes cannot drift apart.
 	gl.game.updateInterfacePresentation()
 	// Hub navigation remains responsive while its overlay pauses the world.
-	// Keep this separate from spellInputCooldown: that field also spaces combat
+	// Keep this separate from actionInputStagger: that field also spaces combat
 	// actions and therefore belongs to the paused simulation below.
 	if gl.game.menuOpen && gl.game.tabbedMenuInputCooldown > 0 {
 		gl.game.tabbedMenuInputCooldown--
@@ -207,11 +212,14 @@ func (gl *GameLoop) updateExploration() {
 	// ticks here and nowhere else. Everything drawn FROM the world reads it, which
 	// is what makes a paused overlay a still picture.
 	gl.game.frameCount++
+	gl.game.worldTicked = true
 	gl.game.updateMonsterDeaths()
 	gl.game.updateTacticalClocks()
+	gl.game.updateFightOpeners()
+	gl.game.updateFightTurnMode()
 	gl.game.updateAutomaticConsumables()
 	if !gl.game.turnBasedMode {
-		gl.game.tickRareClassClocks(1)
+		gl.game.tickPartyClocks(false)
 	}
 	gl.updateAutomaticTechniques()
 	gl.inputHandler.performPendingRepeat()
@@ -236,25 +244,31 @@ func (gl *GameLoop) updateExploration() {
 	gl.game.updateEcology()
 	gl.game.updateAlchemyHarvest()
 
-	// Each summon card's proc cooldown ticks independently in real time in both
-	// modes; these timers silence only their own proc.
-	gl.game.tickCardSummonCooldowns()
-
 	// Update all special effects and timers
 	gl.updateSpecialEffects()
 
+	gl.runWorldFrame()
+
+	// Update performance metrics
+	gl.updatePerformanceMetrics()
+}
+
+// runWorldFrame is the world's step of a frame: monsters, then shots and
+// impacts, then the bosses' answers to every hero blow of the frame (adds
+// join after this frame's combat, as attack summons do), then the bodies.
+func (gl *GameLoop) runWorldFrame() {
 	gl.runMonsterFrame()
 
 	gl.updateProjectilesAndImpacts()
 	gl.game.advanceRemoteEcologyProjectiles()
 
+	gl.game.combat.answerBossHurt()
+
 	// Remove dead monsters - only if there are any to remove
 	if len(gl.game.deadMonsterIDs) > 0 {
 		gl.removeDeadMonstersByID()
 	}
-
-	// Update performance metrics
-	gl.updatePerformanceMetrics()
+	gl.game.advanceMonsterGlides()
 }
 
 // gameplayPausedByOverlay is the single pause contract for in-game overlays:
@@ -403,7 +417,7 @@ func (gl *GameLoop) drawExplorationScene(screen *ebiten.Image) {
 	world := image.Pt(g.worldWidth(), g.worldHeight())
 	blurPx := g.turnBlurPixels(world.X) // blur length in the scene's own pixels
 	blur := blurPx >= 0.75
-	if projection.distance == 0 && !blur && turnBlurStrength > 0 && !g.turnBlurWarm {
+	if projection.distance == 0 && !blur && turnBlurSeconds > 0 && !g.turnBlurWarm {
 		// Prewarm the exact blur pipeline on an idle frame. BlurPx=0 is a
 		// visually identical blit, but it creates the scene buffer and lets
 		// Ebiten/Metal compile the shader pipeline before the first TB turn.
@@ -503,29 +517,34 @@ func (gl *GameLoop) Layout(outsideWidth, outsideHeight int) (screenWidth, screen
 	return uiPixels(ui.w, scale), uiPixels(ui.h, scale)
 }
 
-// updateMonstersParallel updates all monsters using parallel processing
+// updateMonstersParallel updates all monsters, on the worker pool when the
+// map holds enough of them.
 func (gl *GameLoop) updateMonstersParallel() {
 	monsters := gl.game.ConvertMonstersToWrappers()
 	gl.game.threading.EntityUpdater.UpdateMonstersParallel(monsters)
 }
 
-// updateProjectilesParallel updates all projectiles using parallel processing
-func (gl *GameLoop) updateProjectilesParallel() {
+// updateProjectiles resolves hits, then moves every shot one tick.
+func (gl *GameLoop) updateProjectiles() {
 	gl.game.projectileMutex.Lock()
 	defer gl.game.projectileMutex.Unlock()
+	for i := range gl.game.arrows {
+		gl.game.combat.aimReturningBlade(&gl.game.arrows[i])
+	}
 
 	// Check for projectile-monster collisions BEFORE movement to prevent tunneling
 	gl.game.combat.CheckProjectilePlayerCollisions()
 	gl.game.combat.CheckProjectileMonsterCollisions()
+	gl.game.combat.landShots()
 
-	// Convert all projectiles to wrappers and update in parallel
 	allProjectiles := gl.game.ConvertProjectilesToWrappers()
 	if len(allProjectiles) > 0 {
-		// Freeze doors and terrain once; workers never lock or read live blockers.
+		// Doors and terrain as they stand before any shot of this tick moves.
 		airspace := gl.game.collisionSystem.SightSnapshot()
-		gl.game.threading.EntityUpdater.UpdateProjectilesParallel(allProjectiles, airspace.CanAttackFrom)
+		entities.UpdateProjectiles(allProjectiles, airspace.CanAttackFrom)
 	}
 
+	gl.game.combat.turnSpentBlades()
 	// Remove inactive projectiles
 	gl.game.RemoveInactiveEntities()
 }
@@ -610,6 +629,13 @@ func (gl *GameLoop) awardEncounterRewards(rewards *monster.EncounterRewards) {
 	if rewards.QuestID != "" && quests.GlobalQuestManager != nil {
 		questRewards := quests.GlobalQuestManager.CompleteEncounterQuest(rewards.QuestID)
 		if questRewards != nil {
+			// Every reward key is proven to create at boot
+			// (validateQuestWorldReferences): the purse is rolled once the
+			// quest is complete, with nothing to retry.
+			loot, err := questItemRewards(*questRewards)
+			if err != nil {
+				gl.game.AddCombatMessage(uitext.Text("combat.cannot_claim_reward", err))
+			}
 			if rewards.CompletionMessage != "" {
 				gl.game.AddCombatMessage(rewards.CompletionMessage)
 			}
@@ -618,18 +644,7 @@ func (gl *GameLoop) awardEncounterRewards(rewards *monster.EncounterRewards) {
 				"Quest Completed: Received "+questRewardSummary(questRewards.Gold, questRewards.ArenaPoints, questRewards.Experience)+"!",
 			)
 
-			// Award gold to party
-			if questRewards.Gold > 0 {
-				gl.game.awardGold(questRewards.Gold)
-			}
-			if questRewards.ArenaPoints > 0 {
-				gl.game.awardArenaPoints(questRewards.ArenaPoints)
-			}
-
-			// Award experience to all party members
-			if questRewards.Experience > 0 {
-				gl.game.grantSharedXP(questRewards.Experience)
-			}
+			gl.game.payQuestRewards(questRewards, loot)
 			gl.game.addTreasureChestsFromRewards(rewards)
 			gl.freeCaptivesFromRewards(rewards)
 			return // Quest handled rewards, don't double-award
@@ -646,13 +661,13 @@ func (gl *GameLoop) awardEncounterRewards(rewards *monster.EncounterRewards) {
 	// Award gold to party
 	if rewards.Gold > 0 {
 		gl.game.awardGold(rewards.Gold)
-		gl.game.AddCombatMessage(fmt.Sprintf("Party found %d gold!", rewards.Gold))
+		gl.game.AddCombatMessage(uitext.Text("combat.party_found_gold", rewards.Gold))
 	}
 
 	// Award experience to all party members
 	if rewards.Experience > 0 {
 		gl.game.grantSharedXP(rewards.Experience)
-		gl.game.AddCombatMessage(fmt.Sprintf("Party gains %d experience!", rewards.Experience))
+		gl.game.AddCombatMessage(uitext.Text("combat.party_gains_experience", rewards.Experience))
 	}
 	gl.freeCaptivesFromRewards(rewards)
 }
@@ -668,7 +683,7 @@ func (gl *GameLoop) freeCaptivesFromRewards(rewards *monster.EncounterRewards) {
 	freed := gl.game.party.FreeCaptives()
 	gl.game.profileAdd("captives_freed", int64(len(freed)))
 	for _, c := range freed {
-		gl.game.AddCombatMessage(fmt.Sprintf("%s the %s is freed - they'll wait at the tavern.", c.Name, c.Class.String()))
+		gl.game.AddCombatMessage(uitext.Text("combat.the_is_freed_they_ll_wait", c.Name, c.Class.String()))
 	}
 }
 
@@ -703,7 +718,7 @@ func (gl *GameLoop) updateSlashEffects() {
 // updatePerformanceMetrics updates game-specific performance metrics
 func (gl *GameLoop) updatePerformanceMetrics() {
 	monstersUpdated := uint64(len(gl.game.world.Monsters))
-	projectilesActive := int32(len(gl.game.magicProjectiles) + len(gl.game.arrows))
+	projectilesActive := int32(gl.game.projectileCount())
 	collisionsDetected := uint64(0) // Could be updated by collision detection system
 
 	gl.game.threading.PerformanceMonitor.UpdateGameMetrics(monstersUpdated, projectilesActive, collisionsDetected)
@@ -712,13 +727,15 @@ func (gl *GameLoop) updatePerformanceMetrics() {
 
 // updateSpecialEffects updates all special effects and input cooldowns
 func (gl *GameLoop) updateSpecialEffects() {
-	gl.game.tickDeviceCooldowns(gl.game.combatFrameElapsed())
+	if !gl.game.turnBasedMode {
+		gl.game.tickDeviceCooldowns(false)
+	}
 	gl.updateWorldPresentation()
 
 	// Gameplay input stagger advances with the simulation. The character hub
 	// has a separate debounce above so overlays cannot drain combat timing.
-	if gl.game.spellInputCooldown > 0 {
-		gl.game.spellInputCooldown--
+	if gl.game.actionInputStagger > 0 {
+		gl.game.actionInputStagger--
 	}
 
 	if !gl.game.turnBasedMode {
@@ -755,7 +772,7 @@ func (gl *GameLoop) updateSpecialEffects() {
 
 	// Walk-on-water / water-breathing / fly drive world flags every frame.
 	if gl.game.world != nil {
-		// The Medusa Card grants permanent walk-on-water on top of the spell.
+		// The Jellyfish Card grants permanent walk-on-water on top of the spell.
 		gl.game.world.SetWalkOnWaterActive(gl.game.walkOnWaterEffective())
 		gl.game.world.SetWaterBreathingActive(gl.game.waterBreathingActive)
 		gl.game.world.SetTerrainPassageActive(gl.game.partyHasTerrainPassage())
@@ -771,7 +788,7 @@ func (gl *GameLoop) updateSpecialEffects() {
 type timedBuff struct {
 	id         spells.SpellID
 	active     *bool
-	duration   *int
+	clock      *status.DualClock
 	onActivate func()
 	onExpire   func()
 }
@@ -812,19 +829,19 @@ func (g *MMGame) buildTimedBuffs() []timedBuff {
 		{
 			id:         "torch_light",
 			active:     &g.torchLightActive,
-			duration:   &g.torchLightDuration,
+			clock:      &g.torchLightClock,
 			onActivate: activateVisionRadius("torch_light", &g.torchLightRadius, func(d spells.SpellDefinition) float64 { return d.LightRadiusTiles }),
 		},
 		{
 			id:         "wizard_eye",
 			active:     &g.wizardEyeActive,
-			duration:   &g.wizardEyeDuration,
+			clock:      &g.wizardEyeClock,
 			onActivate: activateVisionRadius("wizard_eye", &g.wizardEyeRadiusTiles, func(d spells.SpellDefinition) float64 { return d.RadarRadiusTiles }),
 		},
 		{
-			id:       "walk_on_water",
-			active:   &g.walkOnWaterActive,
-			duration: &g.walkOnWaterDuration,
+			id:     "walk_on_water",
+			active: &g.walkOnWaterActive,
+			clock:  &g.walkOnWaterClock,
 			onExpire: func() {
 				// Lapsing mid-lake strands the party on a blocking water tile;
 				// wade ashore unless another effect still handles the water.
@@ -832,19 +849,19 @@ func (g *MMGame) buildTimedBuffs() []timedBuff {
 			},
 		},
 		{
-			id:       "fly",
-			active:   &g.flyActive,
-			duration: &g.flyDuration,
+			id:     "fly",
+			active: &g.flyActive,
+			clock:  &g.flyClock,
 		},
 		{
 			// The dive itself records where to surface (mapArrivalUnderwater), so a
 			// recast in the depths keeps that point.
-			id:       "water_breathing",
-			active:   &g.waterBreathingActive,
-			duration: &g.waterBreathingDuration,
+			id:     "water_breathing",
+			active: &g.waterBreathingActive,
+			clock:  &g.waterBreathingClock,
 			onExpire: func() {
 				// If still underwater when it lapses, surface the party.
-				if g.gameLoop != nil && world.GlobalWorldManager != nil && world.GlobalWorldManager.CurrentMapKey == "water" {
+				if g.gameLoop != nil && world.GlobalWorldManager != nil && world.GlobalWorldManager.CurrentMapKey == underwaterMapKey {
 					g.gameLoop.returnFromUnderwater()
 				}
 			},
@@ -891,14 +908,15 @@ func (g *MMGame) activateTimedBuffFrames(id spells.SpellID, frames int, preserve
 		return timedBuffNotHandled
 	}
 	*buff.active = true
-	*buff.duration = frames
+	*buff.clock = status.DualClock{}
+	buff.clock.ArmFrames(frames, g.config.GetTPS())
 	if buff.onActivate != nil {
 		buff.onActivate()
 	}
 	if preserveLonger {
-		g.updateUtilityStatus(buff.id, *buff.duration, true)
+		g.updateBuffStatus(string(buff.id), buff.clock.Frames, true)
 	} else {
-		g.setUtilityStatus(buff.id, *buff.duration)
+		g.setBuffStatus(string(buff.id), buff.clock.Frames)
 	}
 	return timedBuffApplied
 }
@@ -922,17 +940,17 @@ func (g *MMGame) isTimedBuffID(id string) bool {
 	return ok
 }
 
-// tickBuff decrements the duration of an active timed buff and runs onExpire
-// when it hits zero. Shared by all utility spells with active/duration pairs.
+// tickBuff spends one tick of an active timed buff's clock and runs onExpire
+// when it runs out. Shared by all utility spells with active/clock pairs.
 // Returns true if the buff was active this tick (regardless of expiration).
-func tickBuff(active *bool, duration *int, frames int, onExpire func()) bool {
+func tickBuff(active *bool, clock *status.DualClock, turn bool, onExpire func()) bool {
 	if !*active {
 		return false
 	}
-	*duration -= frames
-	if *duration <= 0 {
+	clock.Tick(turn)
+	if !clock.Active() {
 		*active = false
-		*duration = 0
+		*clock = status.DualClock{}
 		if onExpire != nil {
 			onExpire()
 		}
@@ -940,34 +958,38 @@ func tickBuff(active *bool, duration *int, frames int, onExpire func()) bool {
 	return true
 }
 
-// updateControlledMonsters shares the buff clock: idle TB frames spend nothing.
+// updateControlledMonsters spends a real-time frame of the control clocks;
+// idle TB frames spend nothing.
 func (gl *GameLoop) updateControlledMonsters() {
-	gl.game.advanceControlledMonsters(gl.game.combatFrameElapsed())
+	if !gl.game.turnBasedMode {
+		gl.game.advanceControlledMonsters(false)
+	}
 }
 
-// advanceControlledMonsters is also called once after a resolved TB round.
-// Zero-duration controls are permanent, including card summons.
-func (g *MMGame) advanceControlledMonsters(elapsed int) {
-	if g.world == nil || elapsed <= 0 {
+// advanceControlledMonsters spends one tick of every control clock and the
+// ice: a frame in real time, a turn at a turn-based party turn. An idle bind
+// or charm clock is permanent, including card summons.
+func (g *MMGame) advanceControlledMonsters(turn bool) {
+	g.advanceFrozenWater(turn)
+	if g.world == nil {
 		return
 	}
 	for _, m := range g.world.Monsters {
-		if m.Bound && m.BoundFramesRemaining > 0 {
-			m.BoundFramesRemaining = max(0, m.BoundFramesRemaining-elapsed)
-			if m.BoundFramesRemaining == 0 {
+		m.AdvanceSpellControls(turn)
+		if m.Bound && m.BoundClock.Active() {
+			if m.BoundClock.Tick(turn) {
 				m.Bound = false
 				m.WasAttacked = true // Freed undead remember provocation; live scope gates engagement.
 				m.BeginPlayerEngagement()
-				g.AddCombatMessage(fmt.Sprintf("%s breaks free of your binding!", m.Name))
+				g.AddCombatMessage(uitext.Text("combat.breaks_free_of_your_binding", m.Name))
 			}
 		}
-		if m.Pacified && m.PacifiedFramesRemaining > 0 {
-			m.PacifiedFramesRemaining = max(0, m.PacifiedFramesRemaining-elapsed)
-			if m.PacifiedFramesRemaining == 0 {
+		if m.Pacified && m.PacifiedClock.Active() {
+			if m.PacifiedClock.Tick(turn) {
 				m.Pacified = false
 				m.WasAttacked = true // Charm expiry restores provocation; live scope gates engagement.
 				m.BeginPlayerEngagement()
-				g.AddCombatMessage(fmt.Sprintf("The charm on %s wears off!", m.Name))
+				g.AddCombatMessage(uitext.Text("combat.the_charm_on_wears_off", m.Name))
 			}
 		}
 	}
@@ -977,14 +999,11 @@ func (g *MMGame) advanceControlledMonsters(elapsed int) {
 func (gl *GameLoop) returnFromUnderwater() {
 	// First switch back to the original map
 	returnMapKey := gl.game.underwaterReturnMap
-	if returnMapKey == "" {
-		returnMapKey = "main" // Fallback to main map
-	}
 
 	if err := gl.game.transitionToMap(mapTransition{mapKey: returnMapKey, pose: MapPose{
 		X: gl.game.underwaterReturnX, Y: gl.game.underwaterReturnY, Angle: gl.game.camera.Angle,
 	}}); err != nil {
-		gl.game.AddCombatMessage("Cannot return to the surface: " + err.Error())
+		gl.game.AddCombatMessage(uitext.Text("combat.cannot_return_to_the_surface", err.Error()))
 		return
 	}
 
@@ -995,7 +1014,7 @@ func (gl *GameLoop) returnFromUnderwater() {
 
 // hasActiveProjectiles checks if there are any active projectiles to update
 func (gl *GameLoop) hasActiveProjectiles() bool {
-	return len(gl.game.magicProjectiles) > 0 || len(gl.game.arrows) > 0
+	return gl.game.projectileCount() > 0
 }
 
 // isEncounterMonster checks if a monster is part of an encounter with rewards
@@ -1019,7 +1038,7 @@ func (gl *GameLoop) countRemainingEncounterMonsters(monsters []*monster.Monster3
 func (gl *GameLoop) updateProjectilesAndImpacts() {
 	// Update projectiles - skip if no active projectiles to save CPU
 	if gl.hasActiveProjectiles() {
-		gl.updateProjectilesParallel()
+		gl.updateProjectiles()
 	}
 
 	// Update slash effects - skip if none active

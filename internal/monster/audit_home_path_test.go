@@ -65,7 +65,7 @@ func TestPatrolHomeFallback(t *testing.T) {
 					m.Speed = 0
 				}
 				if kind == "rooted" {
-					m.RootFramesRemaining, m.RootTurnsRemaining = 60, 2
+					m.Root.Frames, m.Root.Turns = 60, 2
 				}
 				if m.HasPathToTile(collision, 40, 0) && kind == "outside_window" {
 					t.Fatal("fixture detour must exceed search window")

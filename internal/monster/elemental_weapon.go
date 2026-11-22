@@ -9,33 +9,21 @@ import (
 // Count is buildup for pressure, stored load or transfer. Old positional marks
 // deserialize with count zero and begin the new rule on their next direct hit.
 type ElementalWeaponMark struct {
-	Frames int `json:"frames"`
-	Turns  int `json:"turns"`
-	Rate   int `json:"rate"`
-	Count  int `json:"count,omitempty"`
+	status.DualClock
+	Count int `json:"count,omitempty"`
 }
 
 func (m *Monster3D) SetElementalMark(kind string, mark ElementalWeaponMark, frames, turns int) {
 	if m.ElementalMarks == nil {
 		m.ElementalMarks = make(map[string]ElementalWeaponMark)
 	}
-	mark.Frames, mark.Turns, mark.Rate = frames, turns, status.DualRate(frames, turns)
+	mark.DualClock = status.DualClock{}
+	mark.Refresh(frames, turns)
 	m.ElementalMarks[kind] = mark
 }
 
 func (m *Monster3D) TickElementalMarks(turn bool) {
-	for kind, mark := range m.ElementalMarks {
-		if turn {
-			status.TickTurnRated(&mark.Turns, &mark.Frames, &mark.Rate)
-		} else {
-			status.TickFrameRated(&mark.Frames, &mark.Turns, &mark.Rate)
-		}
-		if mark.Frames <= 0 || mark.Turns <= 0 {
-			delete(m.ElementalMarks, kind)
-		} else {
-			m.ElementalMarks[kind] = mark
-		}
-	}
+	status.TickMap(m.ElementalMarks, turn, func(k *ElementalWeaponMark) *status.DualClock { return &k.DualClock })
 }
 
 func (m *Monster3D) RestoreElementalMarks(saved map[string]ElementalWeaponMark) {

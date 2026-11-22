@@ -2,8 +2,11 @@ package game
 
 import (
 	"fmt"
+	"strings"
 
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
+	"ugataima/internal/config"
 )
 
 // npcDialogState is the conversational state of an NPC, derived from its linked
@@ -25,36 +28,16 @@ func npcDialogueHasAction(npc *character.NPC, action string) bool {
 }
 
 // questChainStepDone reports whether a quest is finished AND paid out - the
-// condition a chained follow-up waits on.
+// condition a chained follow-up waits on. No quest is no gate.
 func (g *MMGame) questChainStepDone(questID string) bool {
-	if questID == "" {
-		return true
-	}
-	if g.questManager == nil {
-		return false
-	}
-	q := g.questManager.GetQuest(questID)
-	return q != nil && q.Completed && q.RewardsClaimed
+	return questID == "" || g.questManager.Concluded(questID)
 }
 
 // partyHoldsQuest reports whether the party has taken a quest at all - active,
 // done, or already paid out. Gates content that a quest is the licence for
 // (the dragon seals answer only to someone who swore the hunt).
 func (g *MMGame) partyHoldsQuest(questID string) bool {
-	if questID == "" {
-		return true
-	}
-	return g.questManager != nil && g.questManager.GetQuest(questID) != nil
-}
-
-// questAwaitingTurnIn reports whether this specific quest is done but unpaid -
-// the only one of a giver's errands whose turn-in row should be live.
-func (g *MMGame) questAwaitingTurnIn(questID string) bool {
-	if g.questManager == nil {
-		return false
-	}
-	q := g.questManager.GetQuest(questID)
-	return q != nil && q.Completed && !q.RewardsClaimed
+	return questID == "" || g.questManager.Taken(questID)
 }
 
 // choiceAvailable applies a choice's requires_quest gate: a chained offer stays
@@ -177,6 +160,42 @@ func (g *MMGame) backConversation() {
 // the greeting when a state-specific message is unset. When the player has
 // branched into an "info" choice, its Response is shown instead.
 func (g *MMGame) npcDialogueText(npc *character.NPC) string {
+	text := g.npcDialogueStateText(npc)
+	if npc == nil || npc.DialogueData == nil {
+		return text
+	}
+	// The merchant names its standing offers at the root of the talk, once
+	// its service is open; the price comes from the same buys the sale pays.
+	if g.currentDialogNode() == nil && !lockedDoorClosed(npc) && g.npcServiceGateOpen(npc) {
+		text = joinDialogueLines(text, npcSpecialOfferLine(npc))
+	}
+	return text
+}
+
+// npcSpecialOfferLine is one sentence per good the merchant's catalog buys
+// at an authored price, in item-key order; "" without such offers.
+func npcSpecialOfferLine(npc *character.NPC) string {
+	buys := merchantBuys(npc)
+	offers := make([]string, 0, len(buys))
+	for _, key := range sortedMapKeys(buys) {
+		if item, found := config.GetItemDefinition(key); found {
+			offers = append(offers, uitext.Text("dialog.special_offer", buys[key], item.Name))
+		}
+	}
+	return strings.Join(offers, " ")
+}
+
+func joinDialogueLines(text, line string) string {
+	switch {
+	case line == "":
+		return text
+	case text == "":
+		return line
+	}
+	return text + "\n" + line
+}
+
+func (g *MMGame) npcDialogueStateText(npc *character.NPC) string {
 	if npc == nil || npc.DialogueData == nil {
 		return ""
 	}
@@ -448,13 +467,13 @@ func (g *MMGame) npcShopHeaderLine(npc *character.NPC, stock string) string {
 	if npc == nil || npc.DialogueData == nil {
 		return stock
 	}
+	line := stock
 	if g.npcDialogueState(npc) == npcStateConcluded && npc.DialogueData.VisitedMessage != "" {
-		return npc.DialogueData.VisitedMessage
+		line = npc.DialogueData.VisitedMessage
+	} else if npc.DialogueData.Greeting != "" {
+		line = npc.DialogueData.Greeting
 	}
-	if npc.DialogueData.Greeting != "" {
-		return npc.DialogueData.Greeting
-	}
-	return stock
+	return joinDialogueLines(line, npcSpecialOfferLine(npc))
 }
 
 // npcQuestReply selects optional NPC prose; otherwise the caller supplies
@@ -476,10 +495,20 @@ func npcIsCardCollector(npc *character.NPC) bool {
 // questPropAction is the action a quest-prop row declares. executeEncounterChoice
 // routes on the `prop:` block BEFORE the action switch, so a prop that borrowed a
 // dispatched name (tavern_rest, cast_buff, ...) would read as that action to every
-// rule that classifies rows - gatedServiceActions, choiceSurvivesConclusion - and
+// rule that classifies rows - the service flag, choiceSurvivesConclusion - and
 // still run the prop handler. One reserved name, checked both ways at load, closes
 // the whole class instead of listing the names it must not collide with.
 const questPropAction = "prop"
+
+// dialogAction is one row of the dialogue dispatch: what pressing the row does,
+// and whether the action IS a service - withheld by requires_quest (the
+// tabbed services vanish on their own because the gate downgrades the dialog
+// KIND; these plain rows would otherwise keep working: a gated tavern would
+// still rest the party) and kept after the NPC's errand concludes.
+type dialogAction struct {
+	service bool
+	run     func(*InputHandler, *character.NPC, *character.NPCDialogueChoice)
+}
 
 // dialogActions is THE dialogue dispatch: action name -> what pressing that row
 // does. One object, so the name set the boot check validates authoring against
@@ -490,120 +519,97 @@ const questPropAction = "prop"
 // The reserved prop action is an entry like any other: with the pairing checked
 // at load (prop block <-> action "prop"), a prop row no longer needs to be
 // intercepted ahead of the dispatch.
-var dialogActions = map[string]func(*InputHandler, *character.NPC, *character.NPCDialogueChoice){
-	"disarm_environment": func(ih *InputHandler, n *character.NPC, c *character.NPCDialogueChoice) {
+var dialogActions = map[string]dialogAction{
+	"disarm_environment": {service: true, run: func(ih *InputHandler, n *character.NPC, c *character.NPCDialogueChoice) {
 		if !ih.game.sceneInteractionInCurrentRegion(n) {
 			return
 		}
 		ih.game.disarmEnvironment(c.Control)
 		ih.game.closeConversation()
-	},
-	"teach_spell": func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) { ih.teachPreparationSpell(c) },
-	"exchange": func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) {
-		ih.game.exchangePreparation(c)
-	},
-	"enter_schedule": func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) {
+	}},
+	"teach_spell": {service: true, run: func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) { ih.teachPreparationSpell(c) }},
+	"enter_schedule": {service: true, run: func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) {
 		if err := ih.game.enterAdventureSchedule(c.Map); err != nil {
 			ih.game.AddCombatMessage(err.Error())
 		} else {
 			ih.game.closeConversation()
 		}
-	},
-	"adventure_control": func(ih *InputHandler, n *character.NPC, c *character.NPCDialogueChoice) {
+	}},
+	"adventure_control": {service: true, run: func(ih *InputHandler, n *character.NPC, c *character.NPCDialogueChoice) {
 		if !ih.game.sceneInteractionInCurrentRegion(n) {
 			return
 		}
 		ih.game.useAdventureControl(c.Control)
 		ih.game.closeConversation()
-	},
-	questPropAction: func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) {
+	}},
+	questPropAction: {run: func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) {
 		ih.handleQuestPropInteract(c.QuestID, c.Prop)
-	},
-	"info": func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) {
+	}},
+	"info": {run: func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) {
 		// Branch deeper: show this choice's reply + its follow-up choices. The
 		// conversation stays open (no quest taken) until the player picks a
 		// terminal action inside the branch.
 		ih.game.dialogNodePath = append(ih.game.dialogNodePath, c)
 		ih.game.selectedChoice = 0
-	},
-	"back": func(ih *InputHandler, _ *character.NPC, _ *character.NPCDialogueChoice) {
+	}},
+	"back": {run: func(ih *InputHandler, _ *character.NPC, _ *character.NPCDialogueChoice) {
 		ih.game.backConversation()
-	},
-	"leave": func(ih *InputHandler, _ *character.NPC, _ *character.NPCDialogueChoice) {
+	}},
+	"leave": {run: func(ih *InputHandler, _ *character.NPC, _ *character.NPCDialogueChoice) {
 		ih.game.closeConversation()
-	},
-	"combat": func(ih *InputHandler, _ *character.NPC, _ *character.NPCDialogueChoice) {
+	}},
+	"combat": {run: func(ih *InputHandler, _ *character.NPC, _ *character.NPCDialogueChoice) {
 		ih.startEncounter()
-	},
-	"enter_map": func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) {
+	}},
+	"enter_map": {run: func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) {
 		ih.enterEncounterMapAt(c.Map, c.ArrivalTile)
-	},
-	"open_door": func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) {
+	}},
+	"open_door": {run: func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) {
 		ih.game.openLockedDoor(ih.game.dialogNPC, c.RuntimeOptionIndex)
-	},
-	"start_arena_duel": func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) {
+	}},
+	"start_arena_duel": {service: true, run: func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) {
 		ih.startArenaDuel(c)
-	},
-	"give_quest": func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) {
+	}},
+	"give_quest": {run: func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) {
 		ih.handleGiveQuest(c.QuestID)
-	},
-	"turn_in_quest": func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) {
+	}},
+	"turn_in_quest": {run: func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) {
 		ih.handleTurnInQuest(c.QuestID)
-	},
-	"tavern_rest": func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) {
+	}},
+	"tavern_rest": {service: true, run: func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) {
 		ih.handleTavernRest(c)
-	},
-	"wait_until_night": func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) {
+	}},
+	"wait_until_night": {service: true, run: func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) {
 		ih.handlePaidWait(c, true)
-	},
-	"wait_until_dawn": func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) {
+	}},
+	"wait_until_dawn": {service: true, run: func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) {
 		ih.handlePaidWait(c, false)
-	},
-	"buy_food": func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) {
+	}},
+	"buy_food": {service: true, run: func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) {
 		ih.handleBuyFood(c)
-	},
-	"cast_buff": func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) {
+	}},
+	"cast_buff": {service: true, run: func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) {
 		ih.handleCastBuff(c)
-	},
-	"summon_dragon": func(ih *InputHandler, npc *character.NPC, c *character.NPCDialogueChoice) {
+	}},
+	"summon_dragon": {run: func(ih *InputHandler, npc *character.NPC, c *character.NPCDialogueChoice) {
 		ih.summonDragonFromStatue(npc, c.RuntimeOptionIndex)
-	},
-	"open_roster": func(ih *InputHandler, _ *character.NPC, _ *character.NPCDialogueChoice) {
+	}},
+	"open_roster": {service: true, run: func(ih *InputHandler, _ *character.NPC, _ *character.NPCDialogueChoice) {
 		ih.handleOpenRoster()
-	},
-	"manage_stash": func(ih *InputHandler, _ *character.NPC, _ *character.NPCDialogueChoice) {
+	}},
+	"manage_stash": {service: true, run: func(ih *InputHandler, _ *character.NPC, _ *character.NPCDialogueChoice) {
 		ih.handleManageStash()
-	},
-}
-
-// gatedServiceActions are the dialogue actions that ARE a service, and so are
-// withheld by requires_quest. The tabbed services (shop, trainer, cards, board)
-// vanish on their own because the gate downgrades the dialog KIND - these are
-// plain authored choices that would otherwise keep working: a gated tavern would
-// still rest and heal the party, a gated pit would still run a bout.
-var gatedServiceActions = map[string]bool{
-	"teach_spell":        true,
-	"exchange":           true,
-	"enter_schedule":     true,
-	"adventure_control":  true,
-	"disarm_environment": true,
-	"tavern_rest":        true,
-	"buy_food":           true,
-	"open_roster":        true,
-	"manage_stash":       true,
-	"cast_buff":          true,
-	"start_arena_duel":   true,
-	"wait_until_night":   true, // paid waiting, priced in npcs.yaml
-	"wait_until_dawn":    true,
+	}},
+	"manage_collections": {service: true, run: func(ih *InputHandler, _ *character.NPC, _ *character.NPCDialogueChoice) {
+		ih.handleManageCollections()
+	}},
 }
 
 // choiceSurvivesConclusion reports whether a row outlives the NPC's errand. A
 // SERVICE does - a house that handed out its last quest still rents rooms - and
-// anything that ADVANCES something is spent with it. The two sets coincide
-// deliberately (a gate withholds exactly the services), but they are separate
-// policies: adding an action to one is a decision about the other.
+// anything that ADVANCES something is spent with it.
 func choiceSurvivesConclusion(c *character.NPCDialogueChoice) bool {
-	return c != nil && gatedServiceActions[c.Action]
+	return c != nil && dialogActions[c.Action].service
 }
 
 // npcChoiceWithheldByGate reports whether this choice is a service the NPC's
@@ -612,7 +618,7 @@ func choiceSurvivesConclusion(c *character.NPCDialogueChoice) bool {
 // targeting, executeEncounterChoice) - so filtering there withholds the service
 // itself, not just its row.
 func (g *MMGame) npcChoiceWithheldByGate(npc *character.NPC, c *character.NPCDialogueChoice) bool {
-	return c != nil && gatedServiceActions[c.Action] && !g.npcServiceGateOpen(npc)
+	return c != nil && dialogActions[c.Action].service && !g.npcServiceGateOpen(npc)
 }
 
 // npcServiceGateOpen reports whether a gated NPC's SERVICE is available yet.
@@ -722,11 +728,21 @@ func (g *MMGame) choiceKeepsIn(npc *character.NPC, c *character.NPCDialogueChoic
 	}
 	switch c.Action {
 	case "give_quest":
-		// Per CHOICE, not just per NPC state: a giver with several errands must
-		// not keep offering one the party already took or finished.
-		return state == npcStateOffer && !g.partyHoldsQuest(c.QuestID)
+		// Per errand, never per NPC state: each errand whose prerequisite is
+		// met (choiceAvailable above) is offered until the party holds it. A
+		// chain is authored with requires_quest; errands without one run side
+		// by side (Tovan's four commissions).
+		return !g.partyHoldsQuest(c.QuestID)
 	case "turn_in_quest":
-		return state == npcStateCompleted && g.questAwaitingTurnIn(c.QuestID)
+		return g.questManager.AwaitingClaim(c.QuestID)
+	case questPropAction:
+		// A delivery the errand's own giver takes is offered only while the
+		// errand is under way: Accept stands in for it before, the payout ends
+		// it. World props keep answering with their not_yet line.
+		if npcGivesQuest(npc, c.QuestID) {
+			return g.questManager.Underway(c.QuestID)
+		}
+		return true
 	default:
 		return true
 	}

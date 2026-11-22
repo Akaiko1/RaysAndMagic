@@ -4,9 +4,10 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/hajimehoshi/ebiten/v2"
 	"ugataima/internal/graphics"
 	"ugataima/internal/items"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 func idleInventoryUI(t testing.TB, count int) *UISystem {

@@ -3,7 +3,6 @@ special_tiles:
   vteleporter:
     name: "Violet Teleporter"
     type: "teleporter"
-    description: "A magical violet portal that randomly teleports you to another violet teleporter"
     solid: false
     transparent: true
     walkable: true
@@ -23,7 +22,6 @@ special_tiles:
   rteleporter:
     name: "Red Teleporter"
     type: "teleporter"
-    description: "A fiery red portal that randomly teleports you to another red teleporter"
     solid: false
     transparent: true
     walkable: true
@@ -43,7 +41,6 @@ special_tiles:
   spike_trap:
     name: "Spike Trap"
     type: "trap"
-    description: "Hidden spikes that damage unwary adventurers"
     solid: false
     transparent: true
     walkable: true
@@ -58,7 +55,6 @@ special_tiles:
   magic_circle:
     name: "Magic Circle"
     type: "trigger"
-    description: "An ancient magic circle that activates when stepped upon"
     solid: false
     transparent: true
     walkable: true

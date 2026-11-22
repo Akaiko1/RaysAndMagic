@@ -7,12 +7,13 @@ import (
 	"sort"
 	"strings"
 
-	"gopkg.in/yaml.v3"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/game"
 	"ugataima/internal/quests"
 	"ugataima/internal/world"
+
+	"gopkg.in/yaml.v3"
 )
 
 func overlayInfo(label, value, help string) overlayField {
@@ -50,7 +51,7 @@ func (v *viewer) overlayBossPicker(d *overlayDocument) {
 	v.overlayChoose("Choose a boss", "Select an archetype, then click its position. The map keeps one boss policy.", choices, func(key string) error {
 		d.checkpoint()
 		if d.state.Adventure.Boss == nil {
-			d.state.Adventure.Boss = &config.AdventureBoss{Monster: key, EveryActions: 2}
+			d.state.Adventure.Boss = &config.AdventureBoss{Monster: key, CooldownSeconds: 6}
 		}
 		old := d.state.Adventure.Boss.Monster
 		d.state.Adventure.Boss.Monster = key
@@ -201,8 +202,6 @@ func (v *viewer) overlayAddChoice(d *overlayDocument, parent []int) {
 		case "cast_buff":
 			c.Cost = 100
 			c.DurationSeconds = 60
-		case "exchange":
-			c.Exchange = &character.NPCExchange{Costs: map[string]int{}}
 		case "prop":
 			c.Prop = &character.NPCPropCopy{}
 		case "info":
@@ -284,7 +283,7 @@ func (v *viewer) overlayChoiceFields(d *overlayDocument) []overlayField {
 			}
 		} else {
 			for _, x := range d.state.Adventure.Effects {
-				if x.Kind == "trap" {
+				if x.Kind == config.EffectTrap {
 					targets = append(targets, x.ID)
 				}
 			}
@@ -311,45 +310,6 @@ func (v *viewer) overlayChoiceFields(d *overlayDocument) []overlayField {
 		out = append(out, overlayString("Champion tier", &c.Tier, "The duel runs on this map's duel arena (duel: in map_configs.yaml) against a champion of this tier.", tiers...))
 	case "combat":
 		out = append(out, overlayInfo("Fight source", key, "Edit monster groups and rewards under the object's Combat encounter section. Only encounter objects can fight."))
-	case "exchange":
-		if c.Exchange == nil {
-			c.Exchange = &character.NPCExchange{Costs: map[string]int{}}
-		}
-		x := c.Exchange
-		out = append(out, overlayString("Output item", &x.Output, "Choose either an output item or positive output gold.", append([]string{""}, v.overlayCatalog("items", "items")...)...), overlayInt("Output gold", &x.Gold, "0 when rewarding an item."))
-		keys := []string{}
-		for k := range x.Costs {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		for _, k := range keys {
-			value := x.Costs[k]
-			f := overlayInt("Cost: "+k, &value, "Required item count. Set 0 to remove this cost.")
-			apply := f.apply
-			f.apply = func(s string) error {
-				if err := apply(s); err != nil {
-					return err
-				}
-				if value <= 0 {
-					delete(x.Costs, k)
-				} else {
-					x.Costs[k] = value
-				}
-				return nil
-			}
-			out = append(out, f)
-		}
-		out = append(out, overlayAction("Add item cost", "Select a required item.", func() {
-			v.overlayChoose("Required item", "Each required item has a configurable count.", v.overlayCatalog("items", "items"), func(k string) error {
-				d.checkpoint()
-				x := overlayChoiceAt(d.editNPC(key), path).Exchange
-				if x.Costs == nil {
-					x.Costs = map[string]int{}
-				}
-				x.Costs[k] = 1
-				return nil
-			})
-		}))
 	case "prop":
 		if c.Prop == nil {
 			c.Prop = &character.NPCPropCopy{}
@@ -390,7 +350,7 @@ func (v *viewer) overlayChoiceFields(d *overlayDocument) []overlayField {
 			out = append(out, overlayString("Loot table", &q.LootTable, "Optional loot rolled on use. Needs the loot message too.", append([]string{""}, v.overlayCatalog("loots", "loot_tables")...)...), overlayString("Loot message", &q.LootLine, "Shown with the loot. Required with a loot table."))
 		}
 		out = append(out, overlayString("Before the quest needs it", &q.NotYet, "Shown while the quest does not need this object yet."), overlayString("When it counts", &q.Took, "Shown when using the object is credited."), overlayString("When the quest completes", &q.Completed, "Shown when this completes the quest."), overlayBool("Hide map marker", &q.HideMapMarker, "Do not mark this object on the world map."), overlayNote("A quest object must hide after use or have a Message after use (object settings)."))
-	case "back", "leave", "open_roster", "manage_stash":
+	case "back", "leave", "open_roster", "manage_stash", "manage_collections":
 		out = append(out, overlayInfo("Parameters", "No additional parameters", "This action uses the game's shared conversation or party service."))
 	}
 	out = append(out, overlayAction("Remove this action", "Removes this action and its nested branches. Undo restores them.", func() {
@@ -505,9 +465,9 @@ func overlayActivityTokens(a *quests.ActivityDefinition) []string {
 
 func (v *viewer) overlayQuestDefs() map[string]*quests.QuestDefinition {
 	if v.overlay.questDefs == nil {
-		v.overlay.questDefs = map[string]*quests.QuestDefinition{}
+		v.setEditorQuestDefs(map[string]*quests.QuestDefinition{})
 		if cfg, err := quests.LoadQuestConfig("assets/quests.yaml"); err == nil {
-			v.overlay.questDefs = cfg.Quests
+			v.setEditorQuestDefs(cfg.Quests)
 		}
 	}
 	return v.overlay.questDefs

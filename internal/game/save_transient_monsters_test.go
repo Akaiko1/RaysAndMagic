@@ -96,7 +96,7 @@ func TestSaveWithTransientFish(t *testing.T) {
 							forest.Tiles[ty][tx] = world.TileDeepWater
 							defer func() { forest.Tiles[ty][tx] = previous }()
 							g.waterBreathingActive = true
-							g.waterBreathingDuration = 600
+							g.waterBreathingClock = framesClock(600)
 							NewInputHandler(g).checkDeepWater()
 							if wm.CurrentMapKey != "water" {
 								t.Fatal("dive did not commit")

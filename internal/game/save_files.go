@@ -11,7 +11,9 @@ import (
 	"sort"
 	"time"
 
+	uitext "ugataima/assets/text"
 	"ugataima/internal/highscore"
+	"ugataima/internal/status"
 	"ugataima/internal/storage"
 	"ugataima/internal/world"
 )
@@ -78,24 +80,24 @@ func (g *MMGame) autosaveErr() error {
 // quicksave writes the Quicksave slot (F5).
 func (g *MMGame) quicksave() {
 	if err := g.SaveGameToFile(saveRowPath(quicksaveRow)); err != nil {
-		g.AddCombatMessage("Quicksave failed")
+		g.AddCombatMessage(uitext.Text("combat.quicksave_failed"))
 		return
 	}
-	g.AddCombatMessage("Quicksaved (Shift+F4 to load)")
+	g.AddCombatMessage(uitext.Text("combat.quicksaved_shift_f4_to_load"))
 }
 
 // quickload loads the Quicksave slot (Shift+F4).
 func (g *MMGame) quickload() {
 	if !GetSaveRowSummary(quicksaveRow).Exists {
-		g.AddCombatMessage("No quicksave yet - press F5 to make one")
+		g.AddCombatMessage(uitext.Text("combat.no_quicksave_yet_press_f5_to"))
 		return
 	}
 	if err := g.LoadGameFromFile(saveRowPath(quicksaveRow)); err != nil {
-		g.AddCombatMessage("Quickload failed")
+		g.AddCombatMessage(uitext.Text("combat.quickload_failed"))
 		return
 	}
 	g.menuOpen = false
-	g.AddCombatMessage("Quickloaded")
+	g.AddCombatMessage(uitext.Text("combat.quickloaded"))
 }
 
 // SaveSummary is lightweight info used for menu display
@@ -227,15 +229,21 @@ func RenameSaveSlot(row int, name string) error {
 	return storage.WriteJSONAtomic(path, &save, 0644)
 }
 
-// LoadGameFromFile loads state from a JSON file and applies it
-func (g *MMGame) LoadGameFromFile(path string) error {
-	f, err := os.Open(path)
-	if err != nil {
+// UnmarshalJSON decodes a save at the live tick rate (status.RescaleSaved), as
+// the stash file does, so every reader gets live frames.
+func (s *GameSave) UnmarshalJSON(data []byte) error {
+	type plain GameSave
+	if err := json.Unmarshal(data, (*plain)(s)); err != nil {
 		return err
 	}
-	defer f.Close()
-	var save GameSave
-	if err := json.NewDecoder(f).Decode(&save); err != nil {
+	s.TickRate = status.RescaleSaved(s, s.TickRate)
+	return nil
+}
+
+// LoadGameFromFile loads state from a JSON file and applies it
+func (g *MMGame) LoadGameFromFile(path string) error {
+	save, err := ReadGameSave(path)
+	if err != nil {
 		return err
 	}
 
@@ -244,7 +252,7 @@ func (g *MMGame) LoadGameFromFile(path string) error {
 		return errors.New("world manager not available")
 	}
 	g.loadNeedsResave = false
-	if err := g.applySave(wm, &save); err != nil {
+	if err := g.applySave(wm, save); err != nil {
 		return err
 	}
 	// One-time migration write: a load that stamped legacy items with instance

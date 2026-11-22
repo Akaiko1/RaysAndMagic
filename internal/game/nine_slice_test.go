@@ -5,8 +5,9 @@ import (
 	"image/color"
 	"testing"
 
-	"github.com/hajimehoshi/ebiten/v2"
 	"ugataima/internal/graphics"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 // Pattern detection remains covered independently of retired artwork.

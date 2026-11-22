@@ -1,8 +1,8 @@
 package game
 
 import (
-	"fmt"
 	"slices"
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/quests"
@@ -22,7 +22,7 @@ func (g *MMGame) handleObjectiveProp(npc *character.NPC, id string, p *character
 		return true
 	}
 	if o.RequiresBoss != "" && !g.adventure.Records[o.RequiresBoss] {
-		g.AddCombatMessage("The regulator still holds this record.")
+		g.AddCombatMessage(uitext.Text("combat.the_regulator_still_holds_this_record"))
 		return true
 	}
 	itemName := ""
@@ -33,7 +33,7 @@ func (g *MMGame) handleObjectiveProp(npc *character.NPC, id string, p *character
 		}
 		itemName = d.Name
 		if g.party.CountItemsByName(itemName) < o.Count {
-			g.AddCombatMessage(fmt.Sprintf("Bring %d %s.", o.Count, itemName))
+			g.AddCombatMessage(uitext.Text("combat.bring", o.Count, itemName))
 			return true
 		}
 	}
@@ -47,8 +47,7 @@ func (g *MMGame) handleObjectiveProp(npc *character.NPC, id string, p *character
 		}
 		g.AddCombatMessage(p.Took)
 		if completed {
-			g.applyCompletedQuestTiles()
-			g.announceQuestCompletionWithMessage(q, p.Completed)
+			g.completePropErrand(npc, q, p.Completed, "")
 		}
 	}
 	return true
@@ -77,7 +76,6 @@ func (g *MMGame) creditAdventureMovement(method string, oldX, oldY, newX, newY f
 			}
 			_, done, _ := g.questManager.CreditObjective(id, quests.ObjectiveEvent{Token: o.Token, Map: key, Event: o.Event, Night: g.dayNightIsNight, From: from, To: to})
 			if done {
-				g.applyCompletedQuestTiles()
 				g.announceQuestCompletionWithMessage(g.questManager.GetQuest(id), "The crossing is recorded.")
 			}
 		}

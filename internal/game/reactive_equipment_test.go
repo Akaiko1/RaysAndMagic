@@ -45,7 +45,7 @@ func TestApproachWeaponActions(t *testing.T) {
 				t.Fatal("committed attack did not cast zone")
 			}
 			z := g.persistentDamageZones[0]
-			if z.TickDamage != 19 || z.CasterName != ch.Name || ch.SpellPoints != sp {
+			if z.TickDamage != 19 || ch.SpellPoints != sp {
 				t.Fatalf("fixed 50 INT spell: %+v SP %d -> %d", z, sp, ch.SpellPoints)
 			}
 			// The same tile refreshes one existing field; it cannot stack copies.
@@ -54,18 +54,17 @@ func TestApproachWeaponActions(t *testing.T) {
 				t.Fatal("proc stacked same-tile zones")
 			}
 			// An automatic cast cannot weaken a stronger manual field. Include
-			// restoration: ownership and snapshot damage must survive loading.
+			// restoration: the snapshot damage must survive loading.
 			for _, restored := range []bool{false, true} {
 				strong := z
 				strong.TickDamage = 100
-				strong.CasterName = "Mage"
 				strong.FramesLeft = 2 * z.FramesLeft
 				g.persistentDamageZones = []PersistentDamageZone{strong}
 				if restored {
 					g.persistentDamageZones = restorePersistentDamageZones(buildPersistentDamageZoneSaves(g.persistentDamageZones), strong.MapKey)
 				}
 				g.combat.EquipmentMeleeAttack()
-				if len(g.persistentDamageZones) != 1 || g.persistentDamageZones[0].TickDamage != 100 || g.persistentDamageZones[0].CasterName != "Mage" {
+				if len(g.persistentDamageZones) != 1 || g.persistentDamageZones[0].TickDamage != 100 {
 					t.Fatalf("proc replaced a stronger field (restored=%v): %+v", restored, g.persistentDamageZones)
 				}
 			}
@@ -130,9 +129,9 @@ func TestReactiveCardsAndShellThroughCombat(t *testing.T) {
 				hit := func() {
 					if ranged {
 						shot := &Arrow{ID: "reactive", Active: true, LifeTime: 60, Owner: ProjectileOwnerPlayer, Attacker: ch, BowKey: key, Damage: 100, DamageType: "physical"}
-						g.combat.applyProjectileDamage(shot, "arrow", m, shot.ID)
+						g.combat.applyProjectileDamage(shot, m, shot.ID)
 					} else {
-						g.combat.ApplyDamageToMonster(m, 100, def.Name, false)
+						g.combat.ApplyDamageToMonster(m, 100, testWeapon(def.Name), false)
 					}
 				}
 				m.PerfectDodge = 100
@@ -154,7 +153,7 @@ func TestReactiveCardsAndShellThroughCombat(t *testing.T) {
 						t.Fatal("shell not granted")
 					}
 					ch.HitPoints, ch.MaxHitPoints = 1000, 1000
-					g.combat.monsterHitCharacter(m, ch, m.Name, monsterCharacterHit{Parts: damagecalc.Parts{Normal: 100}, DamageType: "physical", IgnoresArmor: true, IgnoresDodge: true})
+					g.combat.monsterHitCharacter(m, ch, m.Name, monsterCharacterHit{Parts: damagecalc.Parts{Normal: 100}, DamageType: "physical", IgnoresArmor: true})
 					if ch.HitPoints != 915 || ch.ReactiveCombat.Shell != 0 {
 						t.Fatalf("shell failed: hp=%d state=%+v", ch.HitPoints, ch.ReactiveCombat)
 					}
@@ -183,7 +182,7 @@ func TestRainSerpentPotionCleansing(t *testing.T) {
 				ch.ApplyBurn(100)
 				// Legacy saves can retain damage timers without condition icons.
 				ch.Conditions = nil
-				ch.StunDRStacks, ch.StunDRMemoryFrames = 2, 200
+				ch.StunDRStacks, ch.StunDRMemory = 2, framesClock(200)
 				ch.ReactiveCombat = character.ReactiveCombatState{Shell: 15, DodgeCharges: 2}
 				var used bool
 				if quick {
@@ -199,7 +198,7 @@ func TestRainSerpentPotionCleansing(t *testing.T) {
 				if ch.ReactiveCombat.Shell != 15 || ch.ReactiveCombat.DodgeCharges != 2 {
 					t.Fatal("cleansing removed beneficial combat state")
 				}
-				if ch.StunDRStacks != 2 || ch.StunDRMemoryFrames != 200 {
+				if ch.StunDRStacks != 2 || ch.StunDRMemory.Frames != 200 {
 					t.Fatal("potion reset stun diminishing returns")
 				}
 				g.party.Inventory = []items.Item{p}
@@ -224,7 +223,7 @@ func TestSunscarabConsecutiveAttacker(t *testing.T) {
 	g.cardSlots[0].key = "sunscarab_card"
 	def := cardDef("sunscarab_card")
 	m := &monster.Monster3D{ID: "one", Name: "one", HitPoints: 1000}
-	hit := monsterCharacterHit{Parts: damagecalc.Parts{Normal: 100}, DamageType: "physical", IgnoresArmor: true, IgnoresDodge: true}
+	hit := monsterCharacterHit{Parts: damagecalc.Parts{Normal: 100}, DamageType: "physical", IgnoresArmor: true}
 	for i := 1; i <= 20; i++ {
 		before := ch.HitPoints
 		cs.monsterHitCharacter(m, ch, m.Name, hit)
@@ -258,7 +257,7 @@ func TestSunscarabConsecutiveAttacker(t *testing.T) {
 
 func TestReactiveProtectionAcrossHitDispatchers(t *testing.T) {
 	for _, tb := range []bool{false, true} {
-		for _, kind := range []string{"ordinary", "telegraph", "fireburst", "inferno"} {
+		for _, kind := range []string{"ordinary", "telegraph", "telegraph field", "fireburst", "inferno"} {
 			t.Run(fmt.Sprintf("TB=%v/%s", tb, kind), func(t *testing.T) {
 				cs := newTestCombatSystemWithConfig(t)
 				g := cs.game
@@ -268,17 +267,17 @@ func TestReactiveProtectionAcrossHitDispatchers(t *testing.T) {
 				ch.HitPoints, ch.MaxHitPoints = 10000, 10000
 				g.cardSlots[0].key = "sunscarab_card"
 				ch.ReactiveCombat.Shell = 15
-				m := &monster.Monster3D{ID: "source", Name: "source", HitPoints: 1000, FireburstDamageMin: 100, FireburstDamageMax: 100, InfernoDamage: 100}
+				m := &monster.Monster3D{ID: "source", Name: "source", HitPoints: 1000}
 				hit := func() {
 					switch kind {
 					case "ordinary":
-						cs.monsterHitCharacter(m, ch, m.Name, monsterCharacterHit{Parts: damagecalc.Parts{Normal: 100}, DamageType: "fire", IgnoresArmor: true, IgnoresDodge: true})
+						cs.monsterHitCharacter(m, ch, m.Name, monsterCharacterHit{Parts: damagecalc.Parts{Normal: 100}, DamageType: "fire", IgnoresArmor: true})
 					case "telegraph":
-						g.damageTelegraphParty(m, m.Name, "fire", damagecalc.Parts{Normal: 100})
-					case "fireburst":
-						cs.applyMonsterFireburst(m)
-					case "inferno":
-						cs.applyMonsterInferno(m)
+						g.strikeTelegraphParty(m, m.Name, "fire", damagecalc.Parts{Normal: 100}, true)
+					case "telegraph field":
+						g.burnTelegraphFieldParty(m, m.Name, "fire", damagecalc.Parts{Normal: 100})
+					case "fireburst", "inferno": // party attacks by catalog key
+						castTestPartyAttack(cs, m, catalogPartyAttack(kind), 100)
 					}
 				}
 				step := cardDef("sunscarab_card").CardRepeatedHitReductionPct
@@ -317,7 +316,7 @@ func TestReactiveProtectionIgnoresSourcelessDamage(t *testing.T) {
 					g.cardSlots[0].key = "sunscarab_card"
 					foe := &monster.Monster3D{ID: "first", Name: "First foe", HitPoints: 1000}
 					enemyHit := func() {
-						cs.monsterHitCharacter(foe, ch, foe.Name, monsterCharacterHit{Parts: damagecalc.Parts{Normal: 100}, DamageType: "fire", IgnoresArmor: true, IgnoresDodge: true})
+						cs.monsterHitCharacter(foe, ch, foe.Name, monsterCharacterHit{Parts: damagecalc.Parts{Normal: 100}, DamageType: "fire", IgnoresArmor: true})
 					}
 					enemyHit()
 					if ch.ReactiveCombat.RepeatedHits != 1 {
@@ -424,7 +423,7 @@ func TestArrowContinuationDoesNotSpendFreshDodgeCharges(t *testing.T) {
 				shot.RicochetLeft = 1
 			}
 			ch.ReactiveCombat.DodgeCharges = 2
-			g.combat.applyProjectileDamage(shot, "arrow", m, shot.ID)
+			g.combat.applyProjectileDamage(shot, m, shot.ID)
 			if ch.ReactiveCombat.DodgeCharges != 0 {
 				t.Fatal("primary failed to consume charges")
 			}
@@ -434,7 +433,7 @@ func TestArrowContinuationDoesNotSpendFreshDodgeCharges(t *testing.T) {
 			cont := g.arrows[0]
 			ch.ReactiveCombat.DodgeCharges = 2
 			before := next.HitPoints
-			g.combat.applyProjectileDamage(&cont, "arrow", next, cont.ID)
+			g.combat.applyProjectileDamage(&cont, next, cont.ID)
 			if ch.ReactiveCombat.DodgeCharges != 2 || before-next.HitPoints != 100 {
 				t.Fatalf("continuation spent or used fresh charges: charges=%d damage=%d", ch.ReactiveCombat.DodgeCharges, before-next.HitPoints)
 			}

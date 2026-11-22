@@ -37,9 +37,9 @@ func rosterImportantItems(hero *character.MMCharacter) []string {
 	}
 	var names []string
 	for it := range hero.PersonalItems() {
-		_, key, _ := config.GetItemDefinitionByName(it.Name)
+		_, key, _ := config.ItemDefOf(it)
 		_, currency := currencies[key]
-		if it.Type == items.ItemQuest || it.Attributes["door_key"] > 0 || it.Attributes["master_key"] > 0 || currency || statuettes[it.Name] {
+		if it.Type == items.ItemQuest || it.Attributes["door_key"] > 0 || it.Attributes["master_key"] > 0 || currency || statuettes[key] {
 			names = append(names, it.Name)
 		}
 	}

@@ -87,6 +87,7 @@ func TestBoxPileSceneryMovement(t *testing.T) {
 }
 
 // Treasure chests creak open; barrels, campfires and box piles stay silent.
+// Every crate also has the NPC it spawns as.
 func TestCrateInteractionSoundsAreAuthoredByProp(t *testing.T) {
 	crateTestGame(t)
 	chests, props := 0, 0
@@ -101,6 +102,9 @@ func TestCrateInteractionSoundsAreAuthoredByProp(t *testing.T) {
 		}
 		if got := crate.InteractionSound; got != want {
 			t.Errorf("%s interaction sound = %q, want %q", key, got, want)
+		}
+		if _, err := character.CreateNPCFromConfig(key, 0, 0); err != nil {
+			t.Errorf("crate %s has no NPC: %v", key, err)
 		}
 	}
 	if chests == 0 || props == 0 {
@@ -612,6 +616,66 @@ func TestSpellLectern(t *testing.T) {
 	}
 	if !airReachable {
 		t.Errorf("lectern taught %q (schools %v) to an Air-only reader", learned, def.SchoolList())
+	}
+}
+
+// Advanced lecterns teach from the same catalog as schools and promotions.
+func TestAdvancedLecternAcquisition(t *testing.T) {
+	g := crateTestGame(t)
+	for _, tc := range []struct {
+		key     string
+		schools []character.MagicSchoolID
+	}{
+		{"spell_lectern", []character.MagicSchoolID{character.MagicSchoolFire, character.MagicSchoolAir, character.MagicSchoolWater, character.MagicSchoolEarth}},
+		{"spell_lectern_cleric", []character.MagicSchoolID{character.MagicSchoolSpirit, character.MagicSchoolMind, character.MagicSchoolBody}},
+		{"spell_lectern_light_dark", []character.MagicSchoolID{character.MagicSchoolLight, character.MagicSchoolDark}},
+	} {
+		t.Run(tc.key, func(t *testing.T) {
+			for _, member := range g.party.Members {
+				member.MagicSchools = map[character.MagicSchoolID]*character.MagicSkill{}
+			}
+			lectern := spawnCrate(t, g, tc.key, g.camera.X+64, g.camera.Y)
+			for _, id := range lectern.Lectern.Pool {
+				def, ok := config.GetSpellDefinition(id)
+				if !ok || !slices.Contains(tc.schools, character.MagicSchoolID(def.School)) {
+					t.Fatalf("%s contains a spell outside its schools: %s", tc.key, id)
+				}
+			}
+			g.useSpellLectern(lectern)
+			if lectern.Visited {
+				t.Fatal("unreadable advanced tome was consumed")
+			}
+			reader := g.party.Members[0]
+			for _, school := range tc.schools {
+				reader.MagicSchools[school] = &character.MagicSkill{}
+			}
+			for _, school := range tc.schools {
+				for _, key := range config.GetSpellsBySchool(string(school)) {
+					def, _ := config.GetSpellDefinition(key)
+					if def.Mechanic != nil && !slices.Contains(lectern.Lectern.Pool, key) {
+						t.Errorf("advanced tome omitted %s", key)
+					}
+				}
+			}
+			g.useSpellLectern(lectern)
+			learned := 0
+			for _, id := range lectern.Lectern.Pool {
+				if reader.KnowsSpell(spells.SpellID(id)) {
+					learned++
+				}
+			}
+			if !lectern.Visited || learned != 1 {
+				t.Fatalf("tome visited=%v, taught %d spells; want exactly one", lectern.Visited, learned)
+			}
+		})
+	}
+	merchant := character.NPCConfigInstance.NPCs["nomad_city_spells"]
+	for _, school := range []string{"light", "dark"} {
+		for _, key := range config.GetSpellsBySchool(school) {
+			if merchant.Spells[key] == nil {
+				t.Errorf("desert spell trader omitted %s", key)
+			}
+		}
 	}
 }
 

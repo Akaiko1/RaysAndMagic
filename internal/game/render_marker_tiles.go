@@ -40,15 +40,15 @@ func (r *Renderer) collectSpawnTileBorder() {
 // across the whole tile (cf. the Golden Thief Bug's blink), in the teleporter's
 // colour. Denser grid + more per-point than the valve steam, plus size jitter.
 const (
-	teleporterGrid         = 5   // 5x5 sample points across the tile (denser)
-	teleporterPerPoint     = 3   // motes staggered per point
-	teleporterRiseFraction = 2.8 // motes fall from ~1 tile above the floor (was 1.4 ~ half a tile)
-	teleporterPeriodTick   = 80.0
-	teleporterColMin       = 0.55
-	teleporterBaseAlpha    = 0.7
-	teleporterJitterMin    = 0.5
-	teleporterJitterSpan   = 1.0
-	teleporterSizeJitter   = 0.6 // sizes vary +/-60%
+	teleporterGrid          = 5   // 5x5 sample points across the tile (denser)
+	teleporterPerPoint      = 3   // motes staggered per point
+	teleporterRiseFraction  = 2.8 // motes fall from ~1 tile above the floor (was 1.4 ~ half a tile)
+	teleporterPeriodSeconds = 0.6667
+	teleporterColMin        = 0.55
+	teleporterBaseAlpha     = 0.7
+	teleporterJitterMin     = 0.5
+	teleporterJitterSpan    = 1.0
+	teleporterSizeJitter    = 0.6 // sizes vary +/-60%
 	// Fade distance set PAST the 50-tile view distance so a teleporter at the far
 	// edge of view still glows (distFade = 1-depth/maxDepth -> ~0.23 at 50 tiles)
 	// instead of fading to nothing exactly at the view edge.
@@ -84,20 +84,20 @@ func (r *Renderer) drawTeleporterTileFx(screen *ebiten.Image) {
 				r.emitBubbleColumn(screen, bubbleColumnFx{
 					wx: (float64(tp.tx) + fx) * ts, wy: (float64(tp.ty) + fy) * ts,
 					hx: tp.tx, hy: tp.ty, hi: gy*teleporterGrid + gx,
-					maxDepth:     maxDepth,
-					riseFraction: teleporterRiseFraction,
-					baseAlpha:    teleporterBaseAlpha,
-					colBright:    colBright,
-					perColumn:    teleporterPerPoint,
-					periodTick:   teleporterPeriodTick,
-					jitterMin:    teleporterJitterMin,
-					jitterSpan:   teleporterJitterSpan,
-					sizeFloor:    2,
-					sizeCoef:     0.06,
-					wobbleCoef:   0.7,
-					color:        tp.color,
-					fall:         true, // sky -> ground, like the bug's motes
-					sizeJitter:   teleporterSizeJitter,
+					maxDepth:      maxDepth,
+					riseFraction:  teleporterRiseFraction,
+					baseAlpha:     teleporterBaseAlpha,
+					colBright:     colBright,
+					perColumn:     teleporterPerPoint,
+					periodSeconds: teleporterPeriodSeconds,
+					jitterMin:     teleporterJitterMin,
+					jitterSpan:    teleporterJitterSpan,
+					sizeFloor:     2,
+					sizeCoef:      0.06,
+					wobbleCoef:    0.7,
+					color:         tp.color,
+					fall:          true, // sky -> ground, like the bug's motes
+					sizeJitter:    teleporterSizeJitter,
 				})
 			}
 		}

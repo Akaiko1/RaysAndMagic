@@ -8,26 +8,28 @@ import (
 	uitext "ugataima/assets/text"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
+	"ugataima/internal/status"
 )
 
-// RareClassState travels with the hero, including while benched. All timers use
-// simulation frames; a resolved TB round advances three seconds, never thinking time.
+// RareClassState travels with the hero, including while benched. Its timers are
+// status.DualClock: a frame per RT frame, a turn per resolved TB round.
 type RareClassState struct {
 	FlowDistance float64         `json:"flow_distance,omitempty"`
 	KitGranted   bool            `json:"kit_granted,omitempty"`
 	Automatic    map[string]bool `json:"automatic,omitempty"`
-	AutoFrames   int             `json:"auto_frames,omitempty"`
-	PurifyFrames int             `json:"purify_frames,omitempty"`
-	FlowFrames   int             `json:"flow_frames,omitempty"` // Legacy save field; migrated to one persistent charge on load.
+	AutoFrames   int             `json:"auto_frames,omitempty" ticks:"frames"` // Legacy input, migrated to MMCharacter.AutocastCD on load.
+	FlowFrames   int             `json:"flow_frames,omitempty" ticks:"frames"` // Legacy save field; migrated to one persistent charge on load.
 	FlowCharges  int             `json:"flow_charges,omitempty"`
 	Anchor       SpatialAnchor   `json:"anchor,omitempty"`
 }
 
 type SpatialAnchor struct {
-	MapKey string  `json:"map_key,omitempty"`
-	X      float64 `json:"x,omitempty"`
-	Y      float64 `json:"y,omitempty"`
-	Frames int     `json:"frames,omitempty"`
+	MapKey string           `json:"map_key,omitempty"`
+	X      float64          `json:"x,omitempty"`
+	Y      float64          `json:"y,omitempty"`
+	Clock  status.DualClock `json:"clock,omitzero"`
+	// LegacyFrames is an older save's lifetime, moved into Clock on load.
+	LegacyFrames int `json:"frames,omitempty" ticks:"frames"`
 }
 
 func (r RareClassState) Clone() RareClassState {
@@ -35,13 +37,17 @@ func (r RareClassState) Clone() RareClassState {
 	return r
 }
 
-func (r *RareClassState) Tick(frames int) {
-	r.AutoFrames = max(0, r.AutoFrames-frames)
-	r.PurifyFrames = max(0, r.PurifyFrames-frames)
-	r.Anchor.Frames = max(0, r.Anchor.Frames-frames)
-	if r.Anchor.Frames == 0 {
+// Tick spends one tick of the anchor's lifetime; a spent anchor is gone.
+func (r *RareClassState) Tick(turn bool) {
+	r.Anchor.Clock.Tick(turn)
+	if !r.Anchor.Clock.Active() {
 		r.Anchor = SpatialAnchor{}
 	}
+}
+
+// MigrateLegacyClocks moves an older save's frame counts onto the clocks.
+func (r *RareClassState) MigrateLegacyClocks(tps int) {
+	status.MigrateFrames(&r.Anchor.Clock, &r.Anchor.LegacyFrames, tps)
 }
 
 func AlchemyYield(tier int, family string) int {
@@ -129,6 +135,9 @@ func bombThrowingDescription() string {
 	for _, key := range keys {
 		d, _ := config.GetItemDefinition(key)
 		f := d.Flask
+		if f.Reusable {
+			continue // Its Alchemy scaling is described on the item itself.
+		}
 		geometry := [2]int{f.RangeTiles, f.RadiusTiles}
 		if len(geometryNames[geometry]) == 0 {
 			geometryOrder = append(geometryOrder, geometry)
@@ -158,12 +167,12 @@ func translocationDescription() string {
 	if config.GlobalTechniques != nil {
 		for _, d := range config.GlobalTechniques.Techniques {
 			var effects []string
-			switch d.Key {
-			case "fold_step":
+			switch d.Kind {
+			case config.TechniqueFoldStep:
 				effects = append(effects, uitext.Text("skill.fold_step", masteryValues(d.Range), masteryValues(d.Duration)))
-			case "phase_veil":
+			case config.TechniqueDodge:
 				effects = append(effects, uitext.Text("skill.phase_veil", masteryValues(d.Power), masteryValues(d.Duration)))
-			case "quickening":
+			case config.TechniqueHaste:
 				effects = append(effects, uitext.Text("skill.quickening", masteryValues(d.Power), masteryValues(d.TBPower), masteryValues(d.Duration)))
 			}
 			if d.SPCost != [4]int{d.SPCost[0], d.SPCost[0], d.SPCost[0], d.SPCost[0]} {
@@ -216,7 +225,7 @@ func (c *MMCharacter) Purifiable() bool {
 	if c == nil || c.HasCondition(ConditionDead) || c.HasCondition(ConditionEradicated) {
 		return false
 	}
-	if c.PoisonFramesRemaining > 0 || c.BurnFramesRemaining > 0 || c.IsStunned() {
+	if c.PoisonFramesRemaining > 0 || c.BurnFramesRemaining > 0 || c.IsStunned() || c.ArmorMelted() {
 		return true
 	}
 	for _, condition := range c.Conditions {
@@ -226,12 +235,16 @@ func (c *MMCharacter) Purifiable() bool {
 	}
 	return false
 }
+
+// purifiableCondition is every condition except death, unconsciousness and
+// eradication, which need revival rather than a cleanse. A new affliction is
+// purifiable without being listed here.
 func purifiableCondition(c Condition) bool {
 	switch c {
-	case ConditionPoisoned, ConditionDiseased, ConditionCursed, ConditionAsleep, ConditionFear, ConditionParalyzed, ConditionStone, ConditionBurning, ConditionStunned:
-		return true
+	case ConditionNormal, ConditionUnconscious, ConditionDead, ConditionEradicated:
+		return false
 	}
-	return false
+	return true
 }
 
 // Purify clears afflictions and their clocks, preserving HP/SP and unconsciousness.

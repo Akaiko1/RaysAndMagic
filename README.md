@@ -1,36 +1,37 @@
 # RaysAndMagic
 
-A retro first-person party RPG built with Go and [Ebiten](https://ebitengine.org/). Lead a four-member party through raycasted dungeons and open wilds, fight in real-time *or* turn-based combat, learn spells from nine schools of magic, and hunt the four dragons that menace the realm.
+A retro first-person party RPG built with Go and [Ebiten](https://ebitengine.org/). Pick four of 17 ready-made heroes, explore raycasted dungeons and an open world, fight in real time or switch to turns with Tab at any moment, and learn spells from nine schools of magic.
 
 [Download and play](#download-and-play) | [Controls](#controls) | [Build from source](#build-from-source) | [Add content](#add-content)
 
-![Winged Isis guardians strike and hurl lightning in the pyramid's pillared hall](src/pyramid_isis.png)
+![Winged Isis guardians advance down the pyramid's pillared hall](src/pyramid_isis.png)
 
 ## Screenshots
 
 | | |
 | --- | --- |
-| ![A mountain troll lunges while an elf archer looses from the crags](src/highlands_battle.png) | ![A kitsune onmyoji conjures foxfire before a torii under the night sky](src/sakura_night.png) |
-| *Open wilds - a mountain troll charges, elf archers shoot from the rocks* | *Day/night cycle - moonlit yokai guard the Sakura Garden shrine* |
-| ![A dragon rears over the bone field, its breath already glowing](src/dragon_bones.png) | ![The Arena Gatekeeper's shop with a unique axe tooltip](src/arena_shop.png) |
-| *Dragon hunt - a drake guards the bone field of the Ember Burn* | *Arena quartermaster - spend arena points on unique gear* |
+| ![A mountain troll swings while an elf archer shoots from the crags](src/highlands_battle.png) | ![A kitsune onmyoji casts foxfire before a torii at night, a karasu tengu and a kasa obake at her sides](src/sakura_night.png) |
+| *Open wilds - a mountain troll charges, an elf archer shoots from the rocks* | *Day/night cycle - moonlit yokai guard the Sakura Garden shrine* |
+| ![A Black Dragon breathes fire over the bone field](src/dragon_bones.png) | ![The Arena Duel Master's shop with a unique axe tooltip](src/arena_shop.png) |
+| *Dragon hunt - a Black Dragon on the bone field of the Dragon Cliffs* | *Arena quartermaster - spend arena points on unique gear* |
 | ![An Alchemist's Fire Flask tooltip on the paperdoll, herbs in her personal bag](src/alchemist_flask.png) | ![The monster-card collection tab with slotted cards](src/card_collection.png) |
-| *Rare classes - an Alchemist throws the flasks she brews herself* | *Build customization with rare monster cards* |
+| *Alchemist - she throws the flasks she brews herself* | *Build customization with rare monster cards* |
 
 ## Features
 
-- A four-member party, with classes including Knight, Paladin, Archer, Cleric,
-  Sorcerer, Druid, Thief, Arms Master, Monk, Battle Mage, and Sniper, plus the
-  rare Alchemist and Pilgrim.
+- A four-member party chosen from 17 ready-made heroes across 13 classes:
+  Knight, Paladin, Archer, Cleric, Sorcerer, Druid, Thief, Arms Master, Monk,
+  Battle Mage, Sniper, Alchemist, and Pilgrim.
 - Real-time and turn-based combat, weapon mastery, nine schools of magic,
   equipment sets, and collectible monster cards.
 - Connected outdoor regions, separate towns and dungeons, day/night encounters,
   wildlife, and tree-climbing jungle lemurs.
 - The jungle ruins of Solstice, with a temple and four elemental chambers,
   traversal challenges, interactive devices, and chamber bosses.
-- Gather ingredients, brew potions, and trade supplies with local merchants.
-- Quests, class promotions, arena duels, and persistent achievements and player
-  statistics.
+- Gather ingredients for an Alchemist to brew potions, and trade supplies with
+  local merchants.
+- Quests, Archmage and Lich promotions for Sorcerers and Druids, arena duels,
+  and persistent achievements and player statistics.
 - A map editor with live content catalogs and monster previews.
 
 ## Download and play
@@ -40,12 +41,15 @@ Each archive includes the game and map editor; Go is not needed to play.
 
 | Platform | First launch |
 | --- | --- |
-| macOS 12+ (Apple Silicon and Intel) | Extract the universal archive and open `RaysAndMagic.app`. Keep the game and editor apps together. |
+| macOS 13+ (Apple Silicon and Intel) | Extract the universal archive and open `RaysAndMagic.app`. Keep the game and editor apps together. |
 | Windows 10/11 (64-bit) | Extract the whole archive and run `RaysAndMagic.exe`, keeping `assets/` and `config.yaml` beside it. |
+| Ubuntu 22.04+ (64-bit) | Extract the whole archive and run `./RaysAndMagic`, keeping `assets/` and `config.yaml` beside it. Other 64-bit glibc distributions with an X11 or XWayland desktop should work too. |
 
 macOS apps are ad-hoc signed, not notarized. If macOS blocks the first launch,
 allow the app in System Settings -> Privacy & Security -> Open Anyway. Windows
-executables are unsigned; SmartScreen may require More info -> Run anyway.
+executables are unsigned; SmartScreen may require More info -> Run anyway. If a
+Linux file manager unpacked the programs without the run permission, restore it
+with `chmod +x RaysAndMagic RaysAndMagicMapViewer`.
 
 ### Saves and updates
 
@@ -54,11 +58,11 @@ Save files and `player_profile.json` normally live in these locations:
 | Launch method | Save directory |
 | --- | --- |
 | macOS `.app` | `~/Library/Application Support/RaysAndMagic/saves/` |
-| Packaged Windows executable | `saves/` beside the executable |
+| Packaged Windows or Linux executable | `saves/` beside the executable |
 | Local executable in `bin/` | `bin/saves/` |
 | `go run .` from the repository root | `saves/` in the repository root |
 
-On Windows, copy the `saves/` folder when moving to a newly extracted release.
+On Windows and Linux, copy the `saves/` folder when moving to a newly extracted release.
 macOS apps share their writable content under
 `~/Library/Application Support/RaysAndMagic/`. Updates refresh bundled YAML,
 sprites and sounds, and remove files the new version no longer ships; only maps
@@ -104,7 +108,7 @@ their current effects; hold Shift for the detailed breakdown.
 
 ## Build from source
 
-Install Go 1.25 or newer; [go.mod](go.mod) pins the toolchain and dependencies.
+Install Go 1.27 or newer; [go.mod](go.mod) pins the toolchain and dependencies.
 From the repository root:
 
 ```sh
@@ -127,7 +131,7 @@ are maintained in [CI](.github/workflows/ci.yml); use `xvfb-run --auto-servernum
 before graphics-dependent test commands on a headless machine.
 
 On macOS, `./build_mac_release.sh` recreates `dist/` with universal macOS app
-bundles and Windows binaries plus content. The [release workflow](.github/workflows/release.yml)
+bundles and Windows and Linux binaries plus content. The [release workflow](.github/workflows/release.yml)
 packages these directories into ZIP archives. Optional native shader compilers,
 caches, and diagnostics are covered in [Rendering and loading](RENDERING.md).
 

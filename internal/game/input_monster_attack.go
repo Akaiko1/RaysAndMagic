@@ -1,8 +1,6 @@
 package game
 
 import (
-	"math"
-
 	"ugataima/internal/monster"
 )
 
@@ -21,7 +19,7 @@ func (ih *InputHandler) blockMouseAttackUntilRelease() {
 }
 
 func (g *MMGame) mouseCombatInputAllowed() bool {
-	return g.worldClickAllowed() && !g.dragArmed && !g.dragActive && !g.dragPickedUp && !g.stashDragPickedUp
+	return g.worldClickAllowed() && !g.drag.armed && !g.drag.active && !g.dragPickedUp && !g.stashDragPickedUp
 }
 
 func (ih *InputHandler) beginMouseAttack(target *monster.Monster3D) {
@@ -41,7 +39,7 @@ func (ih *InputHandler) beginMouseAttack(target *monster.Monster3D) {
 }
 
 func (ih *InputHandler) scheduleTBMouseRepeat(seconds float64) {
-	ih.mouseAttackRepeatAt = ih.game.frameCount + int64(math.Ceil(seconds*float64(ih.game.config.GetTPS())))
+	ih.mouseAttackRepeatAt = ih.game.frameCount + int64(ih.game.framesForSeconds(seconds))
 }
 
 func (ih *InputHandler) repeatMouseAttack() {
@@ -76,7 +74,7 @@ func (ih *InputHandler) repeatMouseAttack() {
 		ih.mouseAttackTarget = target
 	}
 	ih.mouseAttackHoldFrames++
-	ready := ih.mouseAttackHoldFrames >= rtHoldRepeatDelay
+	ready := g.holdRepeats(ih.mouseAttackHoldFrames)
 	if g.turnBasedMode {
 		ready = g.frameCount >= ih.mouseAttackRepeatAt
 	}
@@ -142,12 +140,12 @@ func (ih *InputHandler) performMouseSmartAttack(target *monster.Monster3D) bool 
 		return false
 	}
 	if g.turnBasedMode {
-		if g.currentTurn != 0 || g.viewTurnFramesLeft > 0 || g.partyAllExhausted() || g.spellInputCooldown != 0 {
+		if g.currentTurn != 0 || g.viewTurnFramesLeft > 0 || g.partyAllExhausted() || g.actionInputStagger != 0 {
 			return false
 		}
 		if !g.ensureTBActor(rtActSmart) {
 			if g.passTBAttackRequest() {
-				g.spellInputCooldown = ih.actionCooldown(15)
+				g.actionInputStagger = ih.actionCooldown()
 				return true
 			}
 			return false
@@ -170,13 +168,10 @@ func (ih *InputHandler) performTurnBasedSmartAttack() {
 		return
 	}
 	g := ih.game
-	selected := g.party.Members[g.selectedChar]
-	if acted, spellID := g.combat.SmartAttack(); acted {
-		if spellID == "" {
-			g.consumeSelectedCharWeaponAction()
-		} else {
-			g.consumeSelectedCharActionWithRTCooldown(g.combat.SpellCooldownFrames(selected, spellID))
-		}
+	if action := g.combat.SmartAttack(); action.Swing() {
+		g.commitWeaponAction()
+	} else if action.Acted {
+		g.commitHeroAction(g.selectedChar, action.Recovery)
 	}
-	g.spellInputCooldown = ih.actionCooldown(15)
+	g.actionInputStagger = ih.actionCooldown()
 }

@@ -70,12 +70,10 @@ npcs:
     dialogue:
       greeting: "Welcome to my shop!"
     inventory:
-      - type: "potion"
-        name: "Health Potion"
+      - key: "health_potion"
         cost: 50
         quantity: 10
-      - type: "weapon"
-        name: "Iron Sword"
+      - key: "iron_sword"
         cost: 200
         quantity: 3
 ```
@@ -97,8 +95,7 @@ npcs:
 Notes:
 - If `inventory` is empty, the left list shows "No stock for sale."
 - If `sell_available: false`, the merchant won't buy your items.
-- Inventory item names are resolved by display name from `items.yaml` or `weapons.yaml`.
-- `type` is only special-cased for `"weapon"` (resolved via `weapons.yaml`); any other value (`"potion"`, `"armor"`, etc.) falls back to a name lookup in `items.yaml`.
+- A stock entry names its ware by `key`: a `weapons.yaml` or `items.yaml` key (the two never share one). An unknown key fails the load.
 
 ### Encounter example
 ```yaml
@@ -152,6 +149,22 @@ implemented handler; arbitrary action names do not create mechanics.
 `stock_weapons_rarity` with positive `stock_weapons_cost` supplies a generated
 weapon rack; weapons with `no_loot` are excluded. Non-gold merchants cannot set
 `sell_available: true`.
+
+A coin shop that buys from the party may pay a flat offer for chosen goods:
+`buys: {grave_orchid: 900}` (item key -> gold per unit; the Merchant skill does
+not change it). The merchant names each offer after its greeting, and the
+goods glow in the party's bag at that shop.
+
+A stock entry can be priced in goods instead of currency:
+`barter: {solstice_thermal_core: 1, solstice_furnace_ceramic: 2}` (at most two
+goods; no `cost`, `currency_item` or `gold_cost` with it). A gathering
+ingredient may only be bartered for gathering ingredients. A stock entry's
+`requires_quest` keeps it off the shelf until that quest is finished and its
+rewards claimed; like an NPC gate, the quest must be obtainable (a placed NPC
+gives it, or it starts active). A tab is all barter (an exchange tab, which
+buys nothing from the party) or all priced; mixing them fails the load, and a
+`sell_available` shop needs a priced tab to buy at. A shop that also has
+dialogue lists its stock tabs after Talk (Tovan: Talk, Shop, Exchange).
 
 A `loot_crate` NPC gets its loot from `loots.yaml crates`, keyed by NPC ID.
 A `spell_lectern` uses its `lectern` block. A `door` uses explicit `door_behavior`;

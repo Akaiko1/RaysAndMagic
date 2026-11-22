@@ -30,7 +30,7 @@ func TestPointerMeleeKeepsSelectedTarget(t *testing.T) {
 					front := monster.NewMonster3DFromConfig(target.X, g.camera.Y, "goblin", g.config)
 					front.HitPoints, front.MaxHitPoints, front.PerfectDodge = 100000, 100000, 0
 					g.world.Monsters = append(g.world.Monsters, front)
-					def := lookupWeaponConfigByName(items.CreateWeaponFromYAML("iron_spear").Name)
+					def := lookupWeaponConfig(items.CreateWeaponFromYAML("iron_spear"))
 					before := def.Melee.ArcType
 					t.Cleanup(func() { def.Melee.ArcType = before })
 					def.Melee.ArcType = arc
@@ -50,7 +50,7 @@ func TestPointerMeleeKeepsSelectedTarget(t *testing.T) {
 					}
 					beforeHP := target.HitPoints
 					fp.hold()
-					for range rtHoldRepeatDelay + 120 {
+					for range g.framesForSeconds(rtHoldRepeatSeconds) + 120 {
 						tick()
 					}
 					if target.HitPoints >= beforeHP {
@@ -78,7 +78,7 @@ func TestPointerProjectileKeepsLaunchAim(t *testing.T) {
 				ch.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("hunting_bow")
 				if kind == "spell" {
 					ch.LearnSpell("fireball")
-					ch.Equipment[items.SlotSpell] = items.Item{Type: items.ItemBattleSpell, SpellEffect: "fireball", SpellCost: 4}
+					ch.Equipment[items.SlotQuickAction] = items.Item{Type: items.ItemBattleSpell, SpellEffect: "fireball", SpellCost: 4}
 					ch.SpellPoints, ch.MaxSpellPoints = 100, 100
 				}
 				fp.press()
@@ -126,21 +126,28 @@ func TestMonsterAndNPCPointerDepthPriority(t *testing.T) {
 	// The monster stands one tile ahead (tile 11; "in front" is a person on
 	// that tile). Depth decides, except for a scenery prop on the monster's
 	// own tile: it is painted behind the monster and must not take the press.
+	// An emptied crate in front takes no press at all (a gate with no mode, so
+	// one mode checks it).
 	cases := []struct {
 		where       string
 		category    string
 		tilesAhead  float64
 		wantMonster bool
+		emptied     bool
 	}{
-		{"far behind", "npc", 3, true},
-		{"near behind", "npc", 1.5, true},
-		{"in front", "npc", 0.5, false},
-		{"no monster", "npc", 3, false},
-		{"prop on monster tile", "scenery", 0.9, true},
-		{"prop on nearer tile", "scenery", 0.45, false},
+		{"far behind", "npc", 3, true, false},
+		{"near behind", "npc", 1.5, true, false},
+		{"in front", "npc", 0.5, false, false},
+		{"no monster", "npc", 3, false, false},
+		{"prop on monster tile", "scenery", 0.9, true, false},
+		{"prop on nearer tile", "scenery", 0.45, false, false},
+		{"emptied crate on nearer tile", "scenery", 0.45, true, true},
 	}
 	for _, tb := range []bool{false, true} {
 		for _, c := range cases {
+			if c.emptied && tb {
+				continue
+			}
 			t.Run(fmt.Sprintf("TB=%v/%s", tb, c.where), func(t *testing.T) {
 				g, ih, fp, m, tick := mouseCombatHarness(t, tb)
 				g.camera.Angle = 0
@@ -150,6 +157,9 @@ func TestMonsterAndNPCPointerDepthPriority(t *testing.T) {
 				ts := float64(g.config.GetTileSize())
 				distance := c.tilesAhead * ts
 				npc := &character.NPC{Name: "Fixture", Sprite: "missing_pick_fixture", RenderCategory: c.category, SizeClass: "full_tile", X: g.camera.X + distance, Y: g.camera.Y}
+				if c.emptied {
+					npc.Type, npc.Visited = character.NPCTypeLootCrate, true
+				}
 				g.world.NPCs = []*character.NPC{npc}
 				sx, sy, size, visible := g.renderHelper.NPCSpriteMetrics(npc, npc.X, npc.Y, distance)
 				if !visible {
@@ -205,10 +215,10 @@ func TestPointerAdaptiveTrapKeepsTarget(t *testing.T) {
 			g.world.Monsters = append(g.world.Monsters, front)
 			fp.press()
 			tick()
-			if target.RootFramesRemaining == 0 && target.RootTurnsRemaining == 0 {
+			if !target.Root.Active() {
 				t.Fatal("adaptive trap did not land on selected diagonal")
 			}
-			if front.RootFramesRemaining > 0 || front.RootTurnsRemaining > 0 || len(g.slashEffects) > 0 || ch.SpellPoints >= 100 {
+			if front.Root.Active() || len(g.slashEffects) > 0 || ch.SpellPoints >= 100 {
 				t.Fatal("trap priority, target, or cost changed")
 			}
 		})
@@ -246,7 +256,7 @@ func TestPointerGroundSpellsKeepAim(t *testing.T) {
 				ch := g.party.Members[0]
 				ch.LearnSpell(spells.SpellID(key))
 				ch.SpellPoints, ch.MaxSpellPoints = 500, 500
-				ch.Equipment[items.SlotSpell] = items.Item{Type: items.ItemBattleSpell, SpellEffect: items.SpellEffect(key), SpellCost: 25}
+				ch.Equipment[items.SlotQuickAction] = items.Item{Type: items.ItemBattleSpell, SpellEffect: items.SpellEffect(key), SpellCost: 25}
 				fp.press()
 				tick()
 				if key == "stone_blossom" {
@@ -336,7 +346,7 @@ func TestProjectileInputParity(t *testing.T) {
 							stripNewClassSkillsForLegacyFixtures(g.party)
 							for _, hero := range g.party.Members {
 								hero.HitPoints, hero.ActionsRemaining = hero.MaxHitPoints, 10
-								delete(hero.Equipment, items.SlotSpell)
+								delete(hero.Equipment, items.SlotQuickAction)
 								hero.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("iron_sword")
 							}
 							ch := g.party.Members[0]
@@ -345,7 +355,7 @@ func TestProjectileInputParity(t *testing.T) {
 							if kind == "firebolt" || kind == "fireball" {
 								ch.LearnSpell(spells.SpellID(kind))
 								ch.SpellPoints, ch.MaxSpellPoints = 100, 100
-								ch.Equipment[items.SlotSpell] = items.Item{Type: items.ItemBattleSpell, SpellEffect: items.SpellEffect(kind), SpellCost: 2}
+								ch.Equipment[items.SlotQuickAction] = items.Item{Type: items.ItemBattleSpell, SpellEffect: items.SpellEffect(kind), SpellCost: 2}
 							} else {
 								ch.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML(kind)
 							}
@@ -436,15 +446,20 @@ func TestProjectileInputParity(t *testing.T) {
 									t.Fatal("RT presentation retained a pulled TB slot")
 								}
 								g.turnBasedMode = tb
+								drawnX, drawnY := g.combat.monsterVisualPos(m)
 								for _, change := range []string{"moved", "dead"} {
 									beforeY, beforeHP := m.Y, m.HitPoints
+									// A moved target leaves the shot on its physical ray; a
+									// dead one keeps the spot it was drawn on (its corpse).
+									wantX, wantY := launch.aimX, launch.aimY
 									if change == "moved" {
 										m.Y += ts
 									} else {
 										m.HitPoints = 0
+										wantX, wantY = drawnX, drawnY
 									}
 									x, y, _, _ = launch.renderMotion(g.combat, launch.aimX, launch.aimY, vx, vy)
-									if math.Hypot(x-launch.aimX, y-launch.aimY) > 1e-6 {
+									if math.Hypot(x-wantX, y-wantY) > 1e-6 {
 										t.Fatalf("%s target redirected flight presentation", change)
 									}
 									m.Y, m.HitPoints = beforeY, beforeHP
@@ -512,7 +527,7 @@ func TestMouseHoldTracksMovingProjectileTarget(t *testing.T) {
 					ch.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("alien_blaster")
 					if kind == "firebolt" {
 						ch.LearnSpell("firebolt")
-						ch.Equipment[items.SlotSpell] = items.Item{Type: items.ItemBattleSpell, SpellEffect: "firebolt", SpellCost: 2}
+						ch.Equipment[items.SlotQuickAction] = items.Item{Type: items.ItemBattleSpell, SpellEffect: "firebolt", SpellCost: 2}
 						ch.SpellPoints, ch.MaxSpellPoints = 1000, 1000
 					}
 				}

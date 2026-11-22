@@ -49,6 +49,29 @@ func TestSpriteAlphaMetadata(t *testing.T) {
 	if spriteVisibleFrameBoundsFromImage(image.NewNRGBA(image.Rect(0, 0, 4, 4))).known {
 		t.Fatal("transparent image gained visible pixels")
 	}
+	// Empty images (no rows, no columns, a subimage outside its source) have no
+	// visible pixels and no mask in every format.
+	for _, img := range []image.Image{
+		image.NewNRGBA(image.Rect(0, 0, 0, 0)),
+		image.NewRGBA(image.Rect(0, 0, 0, 5)),
+		image.NewAlpha(image.Rect(0, 0, 5, 0)),
+		genericAlphaImage{image.NewNRGBA(image.Rect(0, 0, 0, 0))},
+		image.NewNRGBA(image.Rect(0, 0, 4, 4)).SubImage(image.Rect(9, 9, 10, 10)),
+	} {
+		if spriteVisibleFrameBoundsFromImage(img).known || spriteAlphaMaskFromImage(img) != nil {
+			t.Fatalf("empty %T %v gained visible pixels", img, img.Bounds())
+		}
+	}
+	// Each edge of the union comes from a different frame; a faint pixel
+	// (alpha 23) at the far corner does not count.
+	sheet := image.NewNRGBA(image.Rect(0, 0, 32, 8))
+	for _, p := range [][3]int{{2, 1, 255}, {8 + 6, 6, 40}, {24, 3, 24}, {16 + 7, 7, 23}} {
+		sheet.SetNRGBA(p[0], p[1], color.NRGBA{A: uint8(p[2])})
+	}
+	want := spriteVisibleFrameBounds{bounds: image.Rect(0, 1, 7, 7), frameWidth: 8, frameHeight: 8, known: true}
+	if got := spriteVisibleFrameBoundsFromImage(sheet); got != want {
+		t.Fatalf("sheet union bounds %v want %v", got, want)
+	}
 }
 
 func BenchmarkSpriteVisibleBounds(b *testing.B) {

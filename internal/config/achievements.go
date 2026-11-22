@@ -3,8 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
-
-	"gopkg.in/yaml.v3"
+	"ugataima/internal/strictyaml"
 )
 
 // AchievementDef declares presentation and lifetime counter unlock rules.
@@ -36,7 +35,7 @@ func LoadAchievementConfig(filename string) (*AchievementsConfig, error) {
 		return nil, err
 	}
 	var cfg AchievementsConfig
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
+	if err := strictyaml.Decode(data, &cfg); err != nil {
 		return nil, err
 	}
 	seen := map[string]bool{}

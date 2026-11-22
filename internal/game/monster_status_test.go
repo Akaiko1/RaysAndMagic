@@ -28,9 +28,9 @@ func TestMonsterTBStunExpiry_ClearsRTCounterpartToo(t *testing.T) {
 	// A 1-TB-turn stun with an RT component, as every stun source in this
 	// codebase authors it (spells pair stun_duration_seconds with _turns;
 	// weapon/card stun always defaults turns to at least 1).
-	cs.applyStunDR(m, 1, 2*game.config.GetTPS(), false)
-	if m.StunTurnsRemaining != 1 || m.StunFramesRemaining <= 0 {
-		t.Fatalf("setup: expected both counters set, got turns=%d frames=%d", m.StunTurnsRemaining, m.StunFramesRemaining)
+	cs.applyStunDR(m, 1, false)
+	if m.Stun.Turns != 1 || m.Stun.Frames <= 0 {
+		t.Fatalf("setup: expected both counters set, got turns=%d frames=%d", m.Stun.Turns, m.Stun.Frames)
 	}
 
 	gl := &GameLoop{game: game}
@@ -38,11 +38,11 @@ func TestMonsterTBStunExpiry_ClearsRTCounterpartToo(t *testing.T) {
 	game.monsterTurnResolved = false
 	gl.updateMonstersTurnBased() // the monster's one stunned turn
 
-	if m.StunTurnsRemaining != 0 {
-		t.Fatalf("expected TB stun to expire after its one turn, got %d", m.StunTurnsRemaining)
+	if m.Stun.Turns != 0 {
+		t.Fatalf("expected TB stun to expire after its one turn, got %d", m.Stun.Turns)
 	}
-	if m.StunFramesRemaining != 0 {
-		t.Errorf("StunFramesRemaining still %d after TB stun expired - stun-star overlay and bossDisabled would still read this monster as stunned", m.StunFramesRemaining)
+	if m.Stun.Frames != 0 {
+		t.Errorf("StunFramesRemaining still %d after TB stun expired - stun-star overlay and bossDisabled would still read this monster as stunned", m.Stun.Frames)
 	}
 }
 
@@ -68,23 +68,24 @@ func TestMonsterRTStunExpiry_ClearsTBCounterpartToo(t *testing.T) {
 	// Stasis Trap: stun_turns=1, stun_seconds=2 - authored as a pair, like
 	// every stun source in this codebase.
 	tps := game.config.GetTPS()
-	cs.applyStunDR(m, 1, 2*tps, false)
-	if m.StunTurnsRemaining <= 0 || m.StunFramesRemaining <= 0 {
-		t.Fatalf("setup: expected both counters set, got turns=%d frames=%d", m.StunTurnsRemaining, m.StunFramesRemaining)
+	cs.applyStunDR(m, 1, false)
+	if m.Stun.Turns <= 0 || m.Stun.Frames <= 0 {
+		t.Fatalf("setup: expected both counters set, got turns=%d frames=%d", m.Stun.Turns, m.Stun.Frames)
 	}
 
 	mw := &MonsterWrapper{Monster: m, collisionSystem: game.collisionSystem, frame: game.monsterFrameContext()}
-	for i := 0; i < 2*tps+1; i++ { // outlast the RT stun duration
+	stun := config.RoundFrames(1, tps)
+	for i := 0; i < stun+1; i++ { // outlast the RT stun duration
 		mw.snapshot = game.collisionSystem.Snapshot()
 		mw.Update()
 		mw.ApplyCollisionUpdate()
 	}
 
-	if m.StunFramesRemaining != 0 {
-		t.Fatalf("expected RT stun to expire after %d frames, got %d remaining", 2*tps, m.StunFramesRemaining)
+	if m.Stun.Frames != 0 {
+		t.Fatalf("expected RT stun to expire after %d frames, got %d remaining", stun, m.Stun.Frames)
 	}
-	if m.StunTurnsRemaining != 0 {
-		t.Errorf("StunTurnsRemaining still %d after RT stun expired in pure RT play - stun-star overlay would still read this monster as stunned", m.StunTurnsRemaining)
+	if m.Stun.Turns != 0 {
+		t.Errorf("StunTurnsRemaining still %d after RT stun expired in pure RT play - stun-star overlay would still read this monster as stunned", m.Stun.Turns)
 	}
 }
 
@@ -182,7 +183,7 @@ func TestTurnBasedPeriodicEffectsBillThreeSecondsPerRound(t *testing.T) {
 	g := cs.game
 	g.turnBasedMode = true
 	tps := g.config.GetTPS()
-	wantStep := TurnBasedPeriodicEffectSeconds * tps
+	wantStep := config.CombatRoundSeconds * tps
 
 	member := g.party.Members[0]
 	member.HitPoints, member.MaxHitPoints = 100, 100
@@ -193,8 +194,8 @@ func TestTurnBasedPeriodicEffectsBillThreeSecondsPerRound(t *testing.T) {
 		t.Fatalf("party DoT remainder = poison %d burn %d, want %d each",
 			member.PoisonFramesRemaining, member.BurnFramesRemaining, wantStep)
 	}
-	wantTicks := TurnBasedPeriodicEffectSeconds
-	if want := 100 - wantTicks*(character.PoisonDamagePerTick+character.BurnDamagePerTick); member.HitPoints != want {
+	wantTicks := config.CombatRoundSeconds
+	if want := 100 - wantTicks*(heroDoTPerSecond("poison", 100)+heroDoTPerSecond("burn", 100)); member.HitPoints != want {
 		t.Fatalf("party DoTs must deal %d ticks each per round: HP=%d, want %d", wantTicks, member.HitPoints, want)
 	}
 
@@ -232,11 +233,10 @@ func TestMonsterPoisonAppliesStatus(t *testing.T) {
 	target.HitPoints = target.MaxHitPoints
 
 	monster := &monsterPkg.Monster3D{
-		Name:              "Troll",
-		DamageMin:         1,
-		DamageMax:         1,
-		PoisonChance:      1.0,
-		PoisonDurationSec: 5,
+		Name:      "Troll",
+		DamageMin: 1,
+		DamageMax: 1,
+		Abilities: monsterPkg.Abilities{Poison: monsterPkg.DoTAbility{Chance: 1.0, DurationSeconds: 5}},
 	}
 
 	cs.applyMonsterMeleeDamage(monster)
@@ -244,7 +244,7 @@ func TestMonsterPoisonAppliesStatus(t *testing.T) {
 	if !target.HasCondition(character.ConditionPoisoned) {
 		t.Fatalf("expected target to be poisoned")
 	}
-	expectedFrames := cs.game.config.GetTPS() * monster.PoisonDurationSec
+	expectedFrames := cs.game.config.GetTPS() * monster.Abilities.Poison.DurationSeconds
 	if target.PoisonFramesRemaining != expectedFrames {
 		t.Fatalf("expected poison frames %d, got %d", expectedFrames, target.PoisonFramesRemaining)
 	}
@@ -255,16 +255,19 @@ func TestMonsterFireburstDamagesParty(t *testing.T) {
 
 	for _, member := range cs.game.party.Members {
 		member.HitPoints = 50
+		member.Luck = 0 // Luck buys Perfect Dodge; a dodged burst leaves HP untouched
+		if got := cs.PerfectDodgeChance(member); got != 0 {
+			t.Fatalf("fixture: %s still dodges %d%%", member.Name, got)
+		}
 	}
 
 	monster := &monsterPkg.Monster3D{
-		Name:               "Pixie",
-		DamageMin:          1,
-		DamageMax:          1,
-		FireburstChance:    1.0,
-		FireburstDamageMin: 6,
-		FireburstDamageMax: 6,
+		Name:      "Pixie",
+		HitPoints: 10,
+		DamageMin: 1,
+		DamageMax: 1,
 	}
+	armTestPartyAttack(monster, catalogPartyAttack("fireburst"), 6)
 
 	cs.applyMonsterMeleeDamage(monster)
 
@@ -293,15 +296,16 @@ func TestMonsterDragonBreathHitsWholePartyThroughNormalHitPath(t *testing.T) {
 	}
 
 	monster := &monsterPkg.Monster3D{
-		Name:                   "Dragon",
-		DamageMin:              10,
-		DamageMax:              10,
-		TrueDamage:             2,
-		DragonBreathChance:     1.0,
-		DragonBreathDamageType: "fire",
-		PoisonChance:           1.0,
-		PoisonDurationSec:      5,
+		Name:       "Dragon",
+		HitPoints:  10,
+		DamageMin:  10,
+		DamageMax:  10,
+		TrueDamage: 2,
+		Abilities:  monsterPkg.Abilities{Poison: monsterPkg.DoTAbility{Chance: 1.0, DurationSeconds: 5}},
 	}
+	breath := catalogPartyAttack("dragon_breath")
+	breath.School = damagecalc.Fire
+	armTestPartyAttack(monster, breath, 10)
 
 	cs.applyMonsterMeleeDamage(monster)
 
@@ -361,7 +365,7 @@ func TestCurePoison_StopsBackgroundTick(t *testing.T) {
 
 			before := member.HitPoints
 			for i := 0; i < tps*3; i++ {
-				member.UpdateWithMode(false)
+				member.UpdateWithMode(character.PartyClock{})
 			}
 			if cured && member.HitPoints != before {
 				t.Errorf("HP dropped from %d to %d after cure - background poison timer kept ticking", before, member.HitPoints)
@@ -419,7 +423,7 @@ func TestLethalDoTTick_RoutesThroughKnockOut(t *testing.T) {
 	member.HitPoints, member.MaxHitPoints = 1, 100
 	member.ApplyPoison(config.GetTargetTPS()) // ticks once after ~1s
 	for i := 0; i < config.GetTargetTPS(); i++ {
-		member.UpdateWithMode(false)
+		member.UpdateWithMode(character.PartyClock{})
 	}
 	if member.HitPoints != 0 {
 		t.Fatalf("setup: expected the poison tick to zero HP, got %d", member.HitPoints)
@@ -448,7 +452,7 @@ func TestTurnBasedDoTResolvesTickByTick(t *testing.T) {
 	g := cs.game
 	g.turnBasedMode = true
 	tps := g.config.GetTPS()
-	round := TurnBasedPeriodicEffectSeconds * tps
+	round := config.CombatRoundSeconds * tps
 
 	member := g.party.Members[0]
 	member.MaxHitPoints, member.HitPoints = 100, 1

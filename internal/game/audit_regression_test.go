@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hajimehoshi/ebiten/v2"
 	"ugataima/internal/arena"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
@@ -20,6 +19,8 @@ import (
 	"ugataima/internal/quests"
 	"ugataima/internal/stash"
 	"ugataima/internal/storage"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 // Audit case table:
@@ -150,6 +151,89 @@ func TestAuditInternalStashSplit(t *testing.T) {
 			g.reconcilePartyAgainstStash()
 			if len(g.party.Inventory) != 0 {
 				t.Fatalf("internal split lost stash ownership: %+v", g.party.Inventory)
+			}
+		})
+	}
+}
+
+// A layout split inside the chest shares lineage IDs between its cells.
+// Units leaving one piece - withdrawn whole or in part, or displaced by a bag
+// item dropped on their cell - must not look stash-owned: the live party keeps
+// every withdrawn unit on reload, and an older save holding the original units
+// is still stripped of exactly what the chest holds.
+func TestStashWithdrawalAfterInternalSplitKeepsUnits(t *testing.T) {
+	for _, exit := range []string{"whole", "part", "displaced"} {
+		t.Run(exit, func(t *testing.T) {
+			g := stashTestGame(t)
+			original := items.Item{Name: "Health Potion", Type: items.ItemConsumable, Quantity: 10, InstanceID: 771}
+			g.stash.Slots[0] = original
+			g.moveStashItem(stashAddr{stashKindChest, 0}, stashAddr{stashKindChest, 1}, 4)
+			switch exit {
+			case "whole":
+				g.moveStashItem(stashAddr{stashKindChest, 1}, stashAddr{stashKindBag, stashBagAutomatic}, 0)
+			case "part":
+				g.moveStashItem(stashAddr{stashKindChest, 1}, stashAddr{stashKindBag, stashBagAutomatic}, 3)
+			default:
+				g.party.Inventory = []items.Item{{Name: "Iron Sword", Type: items.ItemWeapon, InstanceID: 772}}
+				g.moveStashItem(stashAddr{stashKindBag, 0}, stashAddr{stashKindChest, 1}, 0)
+			}
+			potions := func(stacks []items.Item) int {
+				n := 0
+				for _, it := range stacks {
+					n += it.Count() * boolInt(it.Stackable())
+				}
+				return n
+			}
+			units := func() int { return potions(g.party.Inventory) }
+			withdrawn, chest := units(), potions(g.stash.Slots[:])
+			if withdrawn+chest != 10 || withdrawn == 0 {
+				t.Fatalf("withdrew %d with %d left in the chest", withdrawn, chest)
+			}
+			g.reconcilePartyAgainstStash() // the live save reloads
+			if got := units(); got != withdrawn {
+				t.Fatalf("reload stripped withdrawn units: party %d, want %d", got, withdrawn)
+			}
+			g.party.Inventory = []items.Item{original} // a save from before the deposit
+			g.reconcilePartyAgainstStash()
+			if got := units(); got != 10-chest {
+				t.Fatalf("old save keeps %d units, want %d (the chest holds %d)", got, 10-chest, chest)
+			}
+		})
+	}
+}
+
+// Separate stacks of one item are the player's layout and survive save and
+// load; a save written before free stacks is folded once on load.
+func TestSaveKeepsSeparateStacks(t *testing.T) {
+	for _, legacy := range []bool{false, true} {
+		t.Run(fmt.Sprintf("legacy=%v", legacy), func(t *testing.T) {
+			g, wm, _ := travelFixture(t)
+			var bag []items.Item
+			for _, n := range []int{3, 2} {
+				it := items.Item{Name: "Health Potion", Type: items.ItemConsumable, Quantity: n}
+				items.EnsureInstanceID(&it)
+				bag = append(bag, it)
+			}
+			g.party.Inventory = bag
+			saved := auditSaveJSON(t, g.buildSave(wm))
+			if legacy {
+				saved.StackLayoutVersion = 0
+			}
+			if err := g.applySave(wm, &saved); err != nil {
+				t.Fatal(err)
+			}
+			var got []int
+			for _, it := range g.party.Inventory {
+				if it.Name == "Health Potion" {
+					got = append(got, it.Count())
+				}
+			}
+			want := []int{3, 2}
+			if legacy {
+				want = []int{5}
+			}
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("potion stacks after load %v, want %v", got, want)
 			}
 		})
 	}
@@ -300,7 +384,7 @@ func TestAuditDeadMeleeTarget(t *testing.T) {
 	m.HitPoints = 0
 	g.world.Monsters = []*monster.Monster3D{m}
 	beforeGold, beforeXP := g.party.Gold, g.totalExperienceEarned
-	g.combat.ApplyDamageToMonster(m, 100, "Ember Egg", false)
+	g.combat.ApplyDamageToMonster(m, 100, testWeapon("Ember Egg"), false)
 	if len(g.combatLogHistory) > 0 || len(g.deadMonsterIDs) > 0 || beforeGold != g.party.Gold || beforeXP != g.totalExperienceEarned {
 		t.Fatal("melee committed a second hit against a corpse")
 	}
@@ -417,6 +501,9 @@ func TestAuditArchmageRumorRetiresAcrossRosters(t *testing.T) {
 	for _, roster := range []string{"active", "reserve", "captive"} {
 		t.Run(roster, func(t *testing.T) {
 			g, _, _ := travelFixture(t)
+			g.questManager = quests.NewQuestManager(&quests.QuestConfig{Quests: map[string]*quests.QuestDefinition{
+				"archmage_trial": {Type: quests.QuestTypeKill, TargetCount: 1, Rewards: quests.QuestRewards{Promotion: "archmage"}},
+			}})
 			m := g.party.Members[0]
 			m.Promotion = character.PromotionArchmage
 			if roster != "active" {
@@ -460,7 +547,7 @@ func TestAuditTrainerPresses(t *testing.T) {
 			pressed = false
 			for frame := 0; frame < 20; frame++ {
 				ih.keys.BeginFrame()
-				g.spellInputCooldown = 0
+				g.actionInputStagger = 0
 				ih.handleSkillTrainerInput()
 			}
 			if g.party.Gold != gold || g.dialogSelectedSpell != selection {
@@ -472,15 +559,16 @@ func TestAuditTrainerPresses(t *testing.T) {
 
 func TestAuditDisintegratePreservesSplash(t *testing.T) {
 	for _, entry := range []string{"melee", "arrow", "spell"} {
-		for _, immune := range []bool{false, true} {
-			t.Run(fmt.Sprintf("%s/immune%v", entry, immune), func(t *testing.T) {
+		for _, kind := range []string{"beast", monster.TypeUndead, "boss"} {
+			t.Run(fmt.Sprintf("%s/%s", entry, kind), func(t *testing.T) {
 				cs := newTestCombatSystemWithConfig(t)
 				ts := float64(cs.game.config.GetTileSize())
-				main := newRacialTarget("Primary", "beast")
-				main.ID = "primary"
-				if immune {
-					main.MonsterType = "undead"
+				main := newRacialTarget("Primary", kind)
+				if kind == "boss" {
+					main = newRacialTarget("Primary", "beast")
+					main.Boss = true
 				}
+				main.ID = "primary"
 				near := newRacialTarget("Nearby", "beast")
 				near.ID = "near"
 				near.X = ts
@@ -494,51 +582,57 @@ func TestAuditDisintegratePreservesSplash(t *testing.T) {
 				def.DisintegrateChance = 1
 				switch entry {
 				case "melee":
-					cs.ApplyDamageToMonster(main, 20, def.Name, false)
+					cs.ApplyDamageToMonster(main, 20, testWeapon(def.Name), false)
 				case "arrow":
-					cs.applyProjectileDamage(&Arrow{Active: true, LifeTime: 1, Damage: 20, DisintegrateChance: 1, BowKey: "tonbogiri", Owner: ProjectileOwnerPlayer}, "arrow", main, main.ID)
+					cs.applyProjectileDamage(&Arrow{Active: true, LifeTime: 1, Damage: 20, DisintegrateChance: 1, BowKey: "tonbogiri", Owner: ProjectileOwnerPlayer}, main, main.ID)
 				case "spell":
-					cs.applyProjectileDamage(&MagicProjectile{Active: true, LifeTime: 1, Damage: 20, DisintegrateChance: 1, SpellType: "fireball"}, "magic_projectile", main, main.ID)
+					cs.applyProjectileDamage(&MagicProjectile{Active: true, LifeTime: 1, Damage: 20, DisintegrateChance: 1, SpellType: "fireball"}, main, main.ID)
 				}
-				if main.IsAlive() != immune {
-					t.Fatalf("primary alive=%v immune=%v", main.IsAlive(), immune)
+				if main.IsAlive() != (kind != "beast") {
+					t.Fatalf("primary alive=%v for %s", main.IsAlive(), kind)
 				}
 				if near.HitPoints >= near.MaxHitPoints || far.HitPoints != far.MaxHitPoints {
 					t.Fatal("instakill changed ordinary splash coverage")
+				}
+				// A boss primary takes the sear on top of the shared packet; the
+				// splash victim (same defenses) takes the packet alone.
+				if kind == "boss" {
+					lost, splash := main.MaxHitPoints-main.HitPoints, near.MaxHitPoints-near.HitPoints
+					sear := main.MaxHitPoints * config.InstakillSearMaxHPPct / 100
+					if lost != splash+sear {
+						t.Fatalf("primary lost %d, splash %d: want exactly +%d on the primary", lost, splash, sear)
+					}
 				}
 			})
 		}
 	}
 }
 
+// A trap is no weapon or spell hit: even with the Dark Elf binding forced to
+// proc, it never binds, and its damage and control land on every victim.
 func TestAuditTrapBinding(t *testing.T) {
 	for _, key := range []string{"bear_trap", "cleave_trap", "stasis_trap"} {
-		for _, immune := range []bool{false, true} {
-			t.Run(fmt.Sprintf("%s/immune%v", key, immune), func(t *testing.T) {
-				cs := newTestCombatSystemWithConfig(t)
-				forceRacialProc(cs, t)
-				owner := cs.game.party.Members[0]
-				owner.Race = "dark_elf"
-				owner.EnsureRacialTraits(nil)
-				main := newRacialTarget("Primary", "beast")
-				if immune {
-					main.MonsterType = "undead"
-				}
-				near := newRacialTarget("Nearby", "beast")
-				near.X = float64(cs.game.config.GetTileSize())
-				cs.game.world.Monsters = []*monster.Monster3D{main, near}
-				cs.fireTrap(&PlacedTrap{Key: key, Owner: owner}, main)
-				if main.Bound == immune {
-					t.Fatal("trap bypassed racial binding eligibility")
-				}
-				if !immune && (main.HitPoints != main.MaxHitPoints || main.StunTurnsRemaining != 0 || main.RootTurnsRemaining != 0) {
-					t.Fatal("binding also applied trap damage/control")
-				}
-				if key == "cleave_trap" && (!near.Bound || near.HitPoints != near.MaxHitPoints) {
-					t.Fatal("trap splash skipped binding")
-				}
-			})
-		}
+		t.Run(key, func(t *testing.T) {
+			cs := newTestCombatSystemWithConfig(t)
+			forceRacialProc(cs, t)
+			owner := cs.game.party.Members[0]
+			owner.Race = "dark_elf"
+			owner.EnsureRacialTraits(nil)
+			main := newRacialTarget("Primary", "beast")
+			near := newRacialTarget("Nearby", "beast")
+			near.X = float64(cs.game.config.GetTileSize())
+			cs.game.world.Monsters = []*monster.Monster3D{main, near}
+			cs.fireTrap(&PlacedTrap{Key: key, Owner: owner}, main)
+			if main.Bound || near.Bound {
+				t.Fatalf("a trap bound its victim: primary=%v nearby=%v", main.Bound, near.Bound)
+			}
+			if main.HitPoints == main.MaxHitPoints && main.Stun.Turns == 0 && main.Root.Turns == 0 {
+				t.Fatal("the trap did nothing to its primary victim")
+			}
+			if key == "cleave_trap" && near.HitPoints == near.MaxHitPoints {
+				t.Fatal("the trap splash skipped its nearby victim")
+			}
+		})
 	}
 }
 
@@ -715,7 +809,7 @@ func TestAuditArchmageTurnInPersistsConclusion(t *testing.T) {
 	g.sprites = graphics.NewSpriteManager()
 	hero := g.party.Members[sorcererIndex(t, g)]
 	g.party.Members = []*character.MMCharacter{hero}
-	g.questManager = quests.NewQuestManager(&quests.QuestConfig{Quests: map[string]*quests.QuestDefinition{"archmage_trial": {Type: quests.QuestTypeKill, TargetCount: 1}}})
+	g.questManager = quests.NewQuestManager(&quests.QuestConfig{Quests: map[string]*quests.QuestDefinition{"archmage_trial": {Type: quests.QuestTypeKill, TargetCount: 1, Rewards: quests.QuestRewards{Promotion: "archmage"}}}})
 	if err := g.questManager.ActivateQuest("archmage_trial"); err != nil {
 		t.Fatal(err)
 	}

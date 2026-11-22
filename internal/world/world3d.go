@@ -5,17 +5,39 @@ import (
 	"math/rand"
 	"strconv"
 	"strings"
-	"time"
 	"ugataima/internal/character"
 	"ugataima/internal/collision"
 	"ugataima/internal/config"
 	"ugataima/internal/monster"
+	"ugataima/internal/status"
 )
 
 // TeleporterRegistry manages all teleporters globally, across all worlds
 type TeleporterRegistry struct {
-	Teleporters     []TeleporterLocation // All teleporters, regardless of type or world
-	LastUsedByGroup map[string]time.Time
+	Teleporters []TeleporterLocation // All teleporters, regardless of type or world
+	// GroupCooldowns holds each group's re-trigger guard after a jump.
+	GroupCooldowns map[string]status.DualClock
+}
+
+// GroupReady reports a group whose re-trigger guard has run out.
+func (reg *TeleporterRegistry) GroupReady(group string) bool {
+	return !reg.GroupCooldowns[group].Active()
+}
+
+// ArmGroup starts a group's re-trigger guard of seconds.
+func (reg *TeleporterRegistry) ArmGroup(group string, seconds float64, tps int) {
+	if seconds <= 0 {
+		return
+	}
+	if reg.GroupCooldowns == nil {
+		reg.GroupCooldowns = make(map[string]status.DualClock)
+	}
+	reg.GroupCooldowns[group] = status.FromSeconds(seconds, tps)
+}
+
+// TickGroups spends one tick of the running mode on every group's guard.
+func (reg *TeleporterRegistry) TickGroups(turn bool) {
+	status.TickMap(reg.GroupCooldowns, turn, status.Self)
 }
 
 func (reg *TeleporterRegistry) FindTeleporter(mapKey string, x, y int) (TeleporterLocation, bool) {
@@ -32,10 +54,10 @@ type TeleporterLocation struct {
 	X, Y              int
 	TileType          TileType3D
 	TileKey           string
-	Label             string // Unique label for this teleporter
-	MapKey            string // Which map/world this teleporter is in
-	Group             string // Teleporter group (e.g., "violet", "red")
-	CooldownSeconds   float64
+	Label             string  // Unique label for this teleporter
+	MapKey            string  // Which map/world this teleporter is in
+	Group             string  // Teleporter group (e.g., "violet", "red")
+	CooldownSeconds   float64 // Timer exception: may be a non-whole-round span, its TB rounds round up
 	AutoActivate      bool
 	RandomDestination bool
 	ExcludeSelf       bool
@@ -49,6 +71,7 @@ type World3D struct {
 	Tiles              [][]TileType3D
 	floors             FloorResolution
 	entityFloors       map[[2]int]entityFloor
+	waterBodies        []uint8 // per cell, index+1 into config.WaterBodyKinds (resolveWaterBodies)
 	Monsters           []*monster.Monster3D
 	InitialMonsterKeys map[string]struct{} // Fixed monster kinds present when the map was created.
 	spawnHomeMap       string              // HomeMap of the authored spawns (respawns reuse it)
@@ -72,6 +95,7 @@ type World3D struct {
 	StartY int
 	// Magic effects
 	walkOnWaterActive     bool
+	FrozenWater           func(tileX, tileY int) bool // Runtime Frozen Ground ice: walkable for every mover, monsters included.
 	waterBreathingActive  bool
 	terrainPassageActive  bool // Active party capability: pass through non-border tiles
 	environmentSpriteSeed uint64
@@ -313,11 +337,28 @@ func (w *World3D) RegisterMonstersWithCollisionSystem(collisionSystem *collision
 func (w *World3D) NewMonsterCollisionEntity(m *monster.Monster3D, kind collision.CollisionType) *collision.Entity {
 	width, height := m.GetSize()
 	entity := collision.NewEntity(m.ID, m.X, m.Y, width, height, kind, false)
-	if a := w.adventure; a != nil && a.Boss != nil && a.Boss.Monster == m.Key && a.Boss.Arena != nil {
+	if a := w.adventure; a != nil && a.Boss != nil && a.Boss.Arena != nil && w.inBossArena(m, a.Boss.Monster) {
 		b, ts := a.Boss.Arena, float64(w.config.GetTileSize())
 		entity.WithMovementBounds(collision.MovementBounds{Enabled: true, MinX: float64(b[0]) * ts, MinY: float64(b[1]) * ts, MaxX: float64(b[2]+1) * ts, MaxY: float64(b[3]+1) * ts})
 	}
 	return entity
+}
+
+// inBossArena reports the arena boss and the adds it summoned: they share its
+// arena, so an add cannot leave the party's locked fight.
+func (w *World3D) inBossArena(m *monster.Monster3D, boss string) bool {
+	if m.Key == boss {
+		return true
+	}
+	if m.SummonedBy == "" {
+		return false
+	}
+	for _, o := range w.Monsters {
+		if o != nil && o.ID == m.SummonedBy {
+			return o.Key == boss
+		}
+	}
+	return false
 }
 
 // IsTileBlocking implements the collision.TileChecker interface
@@ -358,13 +399,16 @@ func (w *World3D) IsTileBlockingTerrainAt(tileX, tileY int) bool {
 // with no Fly override. Bounds must already be checked.
 func (w *World3D) isTileBlockingTerrain(tileX, tileY int) bool {
 	tile := w.Tiles[tileY][tileX]
+	if w.isFrozenWaterTerrain(tileX, tileY) {
+		return false
+	}
 
 	// Use tile manager to check if tile blocks movement
 	if GlobalTileManager != nil {
 		isWalkable := GlobalTileManager.IsWalkable(tile)
 
 		// Special case: if walk on water OR water breathing is active and this is a water tile, allow movement
-		if !isWalkable && (w.walkOnWaterActive || w.waterBreathingActive) && (tile == TileWater || tile == TileDeepWater) {
+		if !isWalkable && (w.walkOnWaterActive || w.waterBreathingActive) && IsSwimmableWater(tile) {
 			return false // Allow movement on water
 		}
 
@@ -385,13 +429,34 @@ func (w *World3D) isTileBlockingTerrain(tileX, tileY int) bool {
 	}
 }
 
+// IsSwimmableWater is the open water Walk on Water and Water Breathing let the
+// party cross; reefs and decorative pools stay blocked.
+func IsSwimmableWater(tile TileType3D) bool { return tile == TileWater || tile == TileDeepWater }
+
+// isFrozenWaterTerrain is the shared ice exception for all movers. The runtime
+// callback supplies duration/map state; the tile catalog owns water identity.
+// Call only after checking bounds. Party-only water-walking never reaches here.
+func (w *World3D) isFrozenWaterTerrain(tileX, tileY int) bool {
+	if w.FrozenWater == nil {
+		return false
+	}
+	tile := w.Tiles[tileY][tileX]
+	water := tile == TileWater || tile == TileDeepWater || tile == TileForestStream
+	if GlobalTileManager != nil {
+		water = GlobalTileManager.IsWater(tile)
+	}
+	return water && w.FrozenWater(tileX, tileY)
+}
+
 // IsTileBlockingForMonster applies ordinary walkability, flight, then explicit
 // permissions for otherwise blocked tile keys. Overrides do not select habitat.
 func (w *World3D) IsTileBlockingForMonster(tileX, tileY int, walkableTileOverrides []string, flying bool) bool {
 	if tileX < 0 || tileX >= w.Width || tileY < 0 || tileY >= w.Height {
 		return true // Treat out-of-bounds as blocking
 	}
-
+	if w.isFrozenWaterTerrain(tileX, tileY) {
+		return false
+	}
 	tile := w.Tiles[tileY][tileX]
 
 	// Use tile manager to check if tile blocks movement

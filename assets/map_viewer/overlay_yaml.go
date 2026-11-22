@@ -535,6 +535,9 @@ func overlayMergeNode(data []byte, path []string, next *yaml.Node, t reflect.Typ
 		if err != nil {
 			return nil, err
 		}
+		if overlaySiblingsSpaced(data, parent) {
+			text = append([]byte(eol), text...)
+		}
 		return overlayApplySplices(data, []overlaySplice{{start, end, overlayLeadingBreak(data, start, eol, text)}})
 	}
 	old := parent.Content[index+1]
@@ -609,6 +612,20 @@ func overlayMergeNode(data []byte, path []string, next *yaml.Node, t reflect.Typ
 		splices = append(splices, overlaySplice{start, end, text})
 	}
 	return overlayApplySplices(data, splices)
+}
+
+// overlaySiblingsSpaced reports whether the mapping's last entry, with its
+// leading comments, follows a blank line: a new sibling keeps that spacing.
+func overlaySiblingsSpaced(data []byte, parent *yaml.Node) bool {
+	if parent == nil || len(parent.Content) < 2 {
+		return false
+	}
+	lines := strings.Split(string(data), "\n")
+	i := parent.Content[len(parent.Content)-2].Line - 2
+	for i >= 0 && strings.HasPrefix(strings.TrimSpace(lines[i]), "#") {
+		i--
+	}
+	return i >= 0 && strings.TrimSpace(lines[i]) == ""
 }
 
 func overlayLeadingBreak(data []byte, start int, eol string, text []byte) []byte {

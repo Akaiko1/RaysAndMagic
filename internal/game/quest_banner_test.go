@@ -182,14 +182,20 @@ func TestQuestBannerAnnouncesAQuestThatArrivesFinished(t *testing.T) {
 
 // An exterminate counter is derived from a live census, so it moves BACKWARDS
 // when the map repopulates. Re-killing must not replay counters the player has
-// already watched go past.
+// already watched go past. The quest is hidden until a story beat reveals it,
+// and a hidden quest raises nothing; once revealed it reports like any other.
 func TestQuestBannerDoesNotReplayAnExterminateCounter(t *testing.T) {
 	g := bannerGame(t)
-	const qid = "broodmother_nests" // starting exterminate quest
+	const qid = "broodmother_nests" // starting exterminate quest, hidden until revealed
 	q := g.questManager.GetQuest(qid)
 	if q == nil {
 		t.Fatalf("%s is not active at boot", qid)
 	}
+	g.questManager.SetCurrentCount(qid, 2)
+	if got := bannerTexts(g); len(got) != 0 {
+		t.Fatalf("a hidden quest raised %v, want silence", got)
+	}
+	g.storyRevealed = map[string]bool{qid: true}
 	g.questManager.SetCurrentCount(qid, 3)
 	if got := bannerTexts(g); len(got) != 1 {
 		t.Fatalf("the advance to 3 raised %v, want one banner", got)

@@ -29,8 +29,8 @@ const (
 	// layer count as 1080p instead of double.
 	standeeShellRefWidth  = 1920
 	standeeShellSpacingPx = 1.5
-	// Composite every full-opacity cross stack in one fragment pass. Even the
-	// minimum two shells otherwise duplicate the column mesh four times.
+	// Composite every cross stack and fading token in one fragment pass. Even
+	// the minimum two shells otherwise duplicate the column mesh four times.
 	standeeVolumeMinShells = 2
 	standeeMinDepth        = 4.0           // near clip for token columns (world units)
 	standeeStaticYaw       = math.Pi / 4.0 // fixed diagonal for scenery and NPC tokens
@@ -59,6 +59,14 @@ type standeeCoreKey struct {
 	bounds image.Rectangle
 	img    *ebiten.Image // only set when the caller's frame images are stable
 }
+
+// Standee surfaces: standee_trilinear.kage branches on them by name and
+// TestShaderConstantsMatchGo keeps its const block equal.
+const (
+	standeeLayerNearSticker = iota
+	standeeLayerCore
+	standeeLayerFarSticker
+)
 
 func makeStandeeCoreKey(name string, img *ebiten.Image, stableImage bool) standeeCoreKey {
 	if img == nil {
@@ -319,6 +327,8 @@ type standeePreparedPixels struct {
 	core        *image.RGBA
 	stickerMips []*image.RGBA
 	coreMips    []*image.RGBA
+	// rows bounds what each level of either chain can colour.
+	rows []standeeLevelRows
 }
 
 func prepareStandeePixels(cpu *image.RGBA, tint float64, boundSource, silhouetteEdge bool) standeePreparedPixels {
@@ -364,12 +374,14 @@ func prepareStandeePixels(cpu *image.RGBA, tint float64, boundSource, silhouette
 			out.Pix[o+3] = a
 		}
 	}
-	return standeePreparedPixels{
+	prepared := standeePreparedPixels{
 		sticker:     sticker,
 		core:        out,
 		stickerMips: prepareStandeeMipPixels(sticker),
 		coreMips:    prepareStandeeMipPixels(out),
 	}
+	prepared.rows = standeeArtRows(prepared.stickerMips)
+	return prepared
 }
 
 func prepareStandeeMipPixels(base *image.RGBA) []*image.RGBA {
@@ -432,8 +444,25 @@ func (r *Renderer) commitPreparedStandeePixels(key standeeCoreKey, src *ebiten.I
 		r.standeeCoreCache = make(map[standeeCoreKey]*ebiten.Image)
 	}
 	r.standeeCoreCache[key] = img
-	r.cachePreparedStandeeMipChain(standeeMipKey{frame: key, layer: standeeMipSticker}, sticker, prepared.stickerMips)
-	r.cachePreparedStandeeMipChain(standeeMipKey{frame: key, layer: standeeMipCore}, img, prepared.coreMips)
+	stickerKey, coreKey := standeeMipKey{frame: key, layer: standeeMipSticker}, standeeMipKey{frame: key, layer: standeeMipCore}
+	var sheet *standeeSheet
+	if r.standeeMipCache[stickerKey] == nil && r.standeeMipCache[coreKey] == nil {
+		sheet = newStandeeSheet(prepared.stickerMips, prepared.coreMips)
+	}
+	if sheet == nil {
+		r.cachePreparedStandeeMipChain(stickerKey, sticker, prepared.stickerMips, nil, prepared.rows)
+		r.cachePreparedStandeeMipChain(coreKey, img, prepared.coreMips, nil, prepared.rows)
+	} else {
+		// The sticker chain owns the sheet; the core levels are views too.
+		if chain := r.cachePreparedStandeeMipChain(stickerKey, sticker, prepared.stickerMips, sheet.sticker, prepared.rows); chain != nil {
+			chain.owned = append(chain.owned, sheet.image)
+		}
+		r.cachePreparedStandeeMipChain(coreKey, img, prepared.coreMips, sheet.core, prepared.rows)
+		if r.standeeSheets == nil {
+			r.standeeSheets = make(map[standeeCoreKey]*standeeSheet)
+		}
+		r.standeeSheets[key] = sheet
+	}
 	r.trackResidentStandeeKey(key, src)
 	return sticker, img
 }
@@ -505,10 +534,14 @@ func standeeUsesMinificationSampling(projectedWidth, projectedHeight, textureWid
 // the automatic texture atlas. Level 0 is normalized to (0,0,w,h) only when
 // the source is a sheet SubImage.
 func (r *Renderer) cacheStandeeMipChain(key standeeMipKey, src *ebiten.Image, cpuLevel *image.RGBA) *mipChain {
-	return r.cachePreparedStandeeMipChain(key, src, prepareStandeeMipPixels(cpuLevel))
+	levels := prepareStandeeMipPixels(cpuLevel)
+	return r.cachePreparedStandeeMipChain(key, src, levels, nil, standeeArtRows(levels))
 }
 
-func (r *Renderer) cachePreparedStandeeMipChain(key standeeMipKey, src *ebiten.Image, cpuLevels []*image.RGBA) *mipChain {
+// views, when set, are the token sheet's views for the reduced levels: the
+// chain fills them instead of allocating an image per level, and the caller
+// owns the sheet. rows are the levels' measured bounds.
+func (r *Renderer) cachePreparedStandeeMipChain(key standeeMipKey, src *ebiten.Image, cpuLevels []*image.RGBA, views []*ebiten.Image, rows []standeeLevelRows) *mipChain {
 	if chain := r.standeeMipCache[key]; chain != nil {
 		return chain
 	}
@@ -516,7 +549,7 @@ func (r *Renderer) cachePreparedStandeeMipChain(key standeeMipKey, src *ebiten.I
 		return nil
 	}
 
-	chain := &mipChain{levels: make([]*ebiten.Image, 0, len(cpuLevels))}
+	chain := &mipChain{levels: make([]*ebiten.Image, 0, len(cpuLevels)), rows: rows}
 	base := src
 	if standeeMipBaseNeedsCopy(src, cpuLevels[0]) {
 		// The shader's full-size coordinate reference is normalized. Most sprite
@@ -527,7 +560,14 @@ func (r *Renderer) cachePreparedStandeeMipChain(key standeeMipKey, src *ebiten.I
 		chain.owned = append(chain.owned, base)
 	}
 	chain.levels = append(chain.levels, base)
-	for _, cpuLevel := range cpuLevels[1:] {
+	for k, cpuLevel := range cpuLevels[1:] {
+		if views != nil {
+			bounds := cpuLevel.Bounds()
+			start := cpuLevel.PixOffset(bounds.Min.X, bounds.Min.Y)
+			views[k+1].WritePixels(cpuLevel.Pix[start : start+4*bounds.Dx()*bounds.Dy()])
+			chain.levels = append(chain.levels, views[k+1])
+			continue
+		}
 		level := newStandeeTextureFromPixels(cpuLevel)
 		chain.levels = append(chain.levels, level)
 		chain.owned = append(chain.owned, level)
@@ -562,27 +602,13 @@ func (r *Renderer) standeeMipChainFor(key standeeMipKey, src *ebiten.Image) *mip
 }
 
 func (r *Renderer) ensureStandeeTrilinearShader() (*ebiten.Shader, error) {
-	if r.standeeTrilinearShader != nil {
-		return r.standeeTrilinearShader, nil
-	}
-	shader, err := ebiten.NewShader([]byte(standeeTrilinearShaderSrc))
-	if err != nil {
-		return nil, err
-	}
-	r.standeeTrilinearShader = shader
-	return shader, nil
+	err := compileShader(&r.standeeTrilinearShader, "standee_trilinear.kage")
+	return r.standeeTrilinearShader, err
 }
 
 func (r *Renderer) ensureStandeeVolumeShader() (*ebiten.Shader, error) {
-	if r.standeeVolumeShader != nil {
-		return r.standeeVolumeShader, nil
-	}
-	shader, err := ebiten.NewShader([]byte(standeeVolumeShaderSrc))
-	if err != nil {
-		return nil, err
-	}
-	r.standeeVolumeShader = shader
-	return shader, nil
+	err := compileShader(&r.standeeVolumeShader, "standee_volume.kage")
+	return r.standeeVolumeShader, err
 }
 
 // clampYawFromEdgeOn keeps a token's long axis at least minRad away from the
@@ -695,11 +721,11 @@ type standeeSlab struct {
 	surfaces     []standeeSurface
 	firstSurface int     // draw from here (zero side opacity skips hidden layers)
 	sideFade     float32 // 0 = full thickness, 1 = only the front face
-	fade         float32 // transient opacity loss; zero preserves the ordinary material
+	fade         float32 // opacity loss of the whole token; zero preserves the ordinary material
 	minX, maxX   int     // unclipped screen span
-	// volumeComposite is set only for crosses. Their full-opacity
-	// slabs use the one-pass volume compositor; other standees keep the
-	// general material path, including trilinear minification and wall mounts.
+	// volumeComposite is set only for crosses: they and fading tokens use the
+	// one-pass volume compositor; other standees keep the general material
+	// path, including trilinear minification and wall mounts.
 	volumeComposite bool
 	// Float billboard metrics: the per-column scaling multiplies them by
 	// centerDepth/t, so any int quantization here would make the whole token
@@ -789,17 +815,19 @@ func (r *Renderer) crossedStandeeArms(worldX, worldY, yawA, yawB, footprint floa
 // monsters, whose directional walk art must face the world heading regardless
 // of which side the camera is on.
 //
-// Returns false when the token can't be built this frame so the caller falls
-// back to the billboard.
+// Returns false without a sprite or projection, so a caller can fall back to the
+// billboard; a token off-screen this frame draws nothing and returns true.
 // worldLengthOverride (>0) forces the token's world footprint length instead of
 // deriving it from the billboard width. Crossed trees use it for their full-tile
-// footprint so their arms land on the tile edges.
-func (r *Renderer) drawStandeeSprite(screen *ebiten.Image, sprite *ebiten.Image, coreKey standeeCoreKey, entX, entY, yaw float64, centerDepth float64, centerSize float64, bottomY float64, rr, gg, bb float32, mirrorBySide, mirroredIn bool, worldLengthOverride float64) bool {
+// footprint so their arms land on the tile edges. fade (0 = opaque) fades the
+// token out as one solid (canUseStandeeVolume).
+func (r *Renderer) drawStandeeSprite(screen *ebiten.Image, sprite *ebiten.Image, coreKey standeeCoreKey, entX, entY, yaw float64, centerDepth float64, centerSize float64, bottomY float64, rr, gg, bb float32, mirrorBySide, mirroredIn bool, worldLengthOverride float64, fade float32) bool {
 	if sprite == nil || centerDepth <= 0 || centerSize <= 0 {
 		return false
 	}
 	slab, ok := r.prepareStandeeSlab(sprite, coreKey, entX, entY, yaw, centerDepth, centerSize, bottomY, rr, gg, bb, mirrorBySide, mirroredIn, worldLengthOverride, r.standeeSurfaces[:0], -1)
 	if ok {
+		slab.fade = fade
 		r.drawStandeeSlabColumns(screen, slab, -1, -1)
 	}
 	r.standeeSurfaces = slab.surfaces[:0] // reclaim the backing array (cap grows to the max needed)
@@ -955,24 +983,28 @@ func (r *Renderer) prepareStandeeSlab(sprite *ebiten.Image, coreKey standeeCoreK
 		parallax := math.Max(math.Abs(fx0f-nx0f), math.Abs(fx1f-nx1f))
 		sideFade = standeeSideFade(parallax)
 	}
-	first := 0
-	if sideFade == 1 {
-		first = len(surfaces) - 1
+	slab := standeeSlab{
+		surfaces:    surfaces,
+		minX:        minX,
+		maxX:        maxX,
+		centerSize:  centerSize,
+		centerDepth: centerDepth,
+		bottomY:     bottomY,
+		rr:          rr,
+		gg:          gg,
+		bb:          bb,
 	}
+	slab.thin(sideFade)
+	return slab, true
+}
 
-	return standeeSlab{
-		surfaces:     surfaces,
-		firstSurface: first,
-		sideFade:     sideFade,
-		minX:         minX,
-		maxX:         maxX,
-		centerSize:   centerSize,
-		centerDepth:  centerDepth,
-		bottomY:      bottomY,
-		rr:           rr,
-		gg:           gg,
-		bb:           bb,
-	}, true
+// thin hides the side layers by amount (0 = full thickness, 1 = only the
+// front face, whose hidden layers are skipped); the thinner request wins.
+func (s *standeeSlab) thin(amount float32) {
+	s.sideFade = max(s.sideFade, amount)
+	if s.sideFade == 1 {
+		s.firstSurface = len(s.surfaces) - 1
+	}
 }
 
 // standeeSideFade removes subpixel thickness continuously, independently of
@@ -1001,16 +1033,45 @@ func standeeAxisFootprints(projectedWidth, projectedHeight, textureWidth, textur
 	return textureWidth / math.Max(projectedWidth, 1e-6), textureHeight / math.Max(projectedHeight, 1e-6)
 }
 
+// canUseStandeeVolume: crosses take the one-pass compositor for speed, a fading
+// token because only the resolved solid fades without its shells showing
+// through. The compositor carries one brightness, so a tinted token stays on
+// the material path.
 func canUseStandeeVolume(slab standeeSlab) bool {
 	// Zero/one core layer intentionally keeps the material path. Fewer draw
 	// calls alone do not prove the volume shader cheaper for such small stacks;
 	// change this threshold only after a dense-scene GPU comparison.
-	return slab.volumeComposite &&
-		slab.firstSurface == 0 && slab.sideFade == 0 && slab.fade == 0 &&
+	return (slab.volumeComposite || slab.fade > 0) &&
+		slab.firstSurface == 0 && slab.sideFade == 0 &&
+		slab.rr == slab.gg && slab.gg == slab.bb &&
 		len(slab.surfaces)-2 >= standeeVolumeMinShells
 }
 
-func (r *Renderer) drawStandeeSlabVolume(screen *ebiten.Image, slab standeeSlab, minX, maxX int, stickerMips, coreMips *mipChain, mipLevel, nextMipLevel, coreMipLevel int, mipBlend float32, filtered bool) bool {
+// standeeVolumeEdge is one screen column of a volume strip: the far and near
+// faces' reciprocal depth and source U over depth, and the wall clip. All are
+// affine in screen X.
+type standeeVolumeEdge struct {
+	farInv, nearInv, farUQ, nearUQ, clipInv, clipTop float64
+}
+
+// toward is the edge a fraction t of the way to o; t may run past either end.
+func (e standeeVolumeEdge) toward(o standeeVolumeEdge, t float64) standeeVolumeEdge {
+	return standeeVolumeEdge{
+		e.farInv + (o.farInv-e.farInv)*t, e.nearInv + (o.nearInv-e.nearInv)*t,
+		e.farUQ + (o.farUQ-e.farUQ)*t, e.nearUQ + (o.nearUQ-e.nearUQ)*t,
+		e.clipInv + (o.clipInv-e.clipInv)*t, e.clipTop + (o.clipTop-e.clipTop)*t,
+	}
+}
+
+// sourceU is the faces' source U at this column.
+func (e standeeVolumeEdge) sourceU() (far, near float64) {
+	if e.farInv <= 0 || e.nearInv <= 0 {
+		return 0, 1
+	}
+	return e.farUQ / e.farInv, e.nearUQ / e.nearInv
+}
+
+func (r *Renderer) drawStandeeSlabVolume(screen *ebiten.Image, slab standeeSlab, minX, maxX int, stickerMips, coreMips *mipChain, mipLevel, nextMipLevel, coreMipLevel int, mipBlend float32, filtered bool, trim standeeTrim) bool {
 	shader, err := r.ensureStandeeVolumeShader()
 	if err != nil {
 		return false
@@ -1048,10 +1109,6 @@ func (r *Renderer) drawStandeeSlabVolume(screen *ebiten.Image, slab standeeSlab,
 		return standeeColumnIntersection(cam.X, cam.Y, rayX, rayY, surface.p0x, surface.p0y, surface.dx, surface.dy)
 	}
 	projection := slab.projection(r.game.viewHorizon())
-	geometryAt := func(depth float64) (top, bottom float32) {
-		top, bottom, _ = projection.atInverseDepth(1 / depth)
-		return
-	}
 
 	vertices := r.standeeVerts[:0]
 	indices := r.standeeMaterialIdx[:0]
@@ -1118,32 +1175,66 @@ func (r *Renderer) drawStandeeSlabVolume(screen *ebiten.Image, slab standeeSlab,
 
 		// Each projected edge is linear. The endpoint union conservatively
 		// encloses both faces; sourcePosition rejects any uncovered pixels.
-		fTop0, fBottom0 := geometryAt(f0Depth)
-		nTop0, nBottom0 := geometryAt(n0Depth)
-		fTop1, fBottom1 := geometryAt(f1Depth)
-		nTop1, nBottom1 := geometryAt(n1Depth)
-		top0, bottom0 := min(fTop0, nTop0), max(fBottom0, nBottom0)
-		top1, bottom1 := min(fTop1, nTop1), max(fBottom1, nBottom1)
-		x0, x1 := float32(x), float32(end)
-		base := uint32(len(vertices))
-
-		left := ebiten.Vertex{
-			DstX: x0, SrcX: float32(sourceOrigin.X) + heightScale, SrcY: float32(sourceOrigin.Y) + bottomScale,
-			Custom0: float32(1 / f0Depth), Custom1: float32(1 / n0Depth),
-			Custom2: float32(mirrorU(f0U) / f0Depth), Custom3: float32(mirrorU(n0U) / n0Depth),
-			ColorR: slab.rr, ColorG: float32(leftClip.inverseDepth), ColorB: float32(leftClip.top), ColorA: packedShells,
+		// Reciprocal depth, U over depth and the wall inputs are affine in
+		// screen X, so a piece's inner edges interpolate the run's.
+		left := standeeVolumeEdge{1 / f0Depth, 1 / n0Depth, mirrorU(f0U) / f0Depth, mirrorU(n0U) / n0Depth, leftClip.inverseDepth, leftClip.top}
+		right := standeeVolumeEdge{1 / f1Depth, 1 / n1Depth, mirrorU(f1U) / f1Depth, mirrorU(n1U) / n1Depth, rightClip.inverseDepth, rightClip.top}
+		width := float64(end - x)
+		vertex := func(px int, e standeeVolumeEdge) ebiten.Vertex {
+			return ebiten.Vertex{
+				DstX: float32(px), SrcX: float32(sourceOrigin.X) + heightScale, SrcY: float32(sourceOrigin.Y) + bottomScale,
+				Custom0: float32(e.farInv), Custom1: float32(e.nearInv),
+				Custom2: float32(e.farUQ), Custom3: float32(e.nearUQ),
+				ColorR: slab.rr, ColorG: float32(e.clipInv), ColorB: float32(e.clipTop), ColorA: packedShells,
+			}
 		}
-		right := ebiten.Vertex{
-			DstX: x1, SrcX: float32(sourceOrigin.X) + heightScale, SrcY: float32(sourceOrigin.Y) + bottomScale,
-			Custom0: float32(1 / f1Depth), Custom1: float32(1 / n1Depth),
-			Custom2: float32(mirrorU(f1U) / f1Depth), Custom3: float32(mirrorU(n1U) / n1Depth),
-			ColorR: slab.rr, ColorG: float32(rightClip.inverseDepth), ColorB: float32(rightClip.top), ColorA: packedShells,
+		pieces := trim.pieces(end - x)
+		trimmed := pieces > 0
+		pieces = max(pieces, 1)
+		for piece := 0; piece < pieces; piece++ {
+			xa, xb := x+(end-x)*piece/pieces, x+(end-x)*(piece+1)/pieces
+			ea, eb := left, right
+			if piece > 0 {
+				ea = left.toward(right, float64(xa-x)/width)
+			}
+			if piece < pieces-1 {
+				eb = left.toward(right, float64(xb-x)/width)
+			}
+			fTopA, fBottomA, fHeightA := projection.atInverseDepth(ea.farInv)
+			nTopA, nBottomA, nHeightA := projection.atInverseDepth(ea.nearInv)
+			fTopB, fBottomB, fHeightB := projection.atInverseDepth(eb.farInv)
+			nTopB, nBottomB, nHeightB := projection.atInverseDepth(eb.nearInv)
+			topA, bottomA := min(fTopA, nTopA), max(fBottomA, nBottomA)
+			topB, bottomB := min(fTopB, nTopB), max(fBottomB, nBottomB)
+			if trimmed {
+				// Every layer's U lies between the faces', a margin out.
+				before := left.toward(right, (float64(xa-x)-standeeTrimMargin)/width)
+				after := left.toward(right, (float64(xb-x)+standeeTrimMargin)/width)
+				u0, u1 := before.sourceU()
+				u2, u3 := after.sourceU()
+				vTop, vBottom, ok := trim.span(min(u0, u1, u2, u3), max(u0, u1, u2, u3), float64(min(fHeightA, nHeightA, fHeightB, nHeightB)))
+				if !ok {
+					continue
+				}
+				// Rows of the art move with depth; the faces bound the layers.
+				// Art that reaches the frame's edge keeps that edge to the
+				// bit: a recomputed one could move a pixel centre lying on it
+				// to the other side.
+				if top := float32(vTop); top > 0 {
+					topA, topB = min(fTopA+top*fHeightA, nTopA+top*nHeightA), min(fTopB+top*fHeightB, nTopB+top*nHeightB)
+				}
+				if bottom := float32(vBottom); bottom < 1 {
+					bottomA, bottomB = max(fTopA+bottom*fHeightA, nTopA+bottom*nHeightA), max(fTopB+bottom*fHeightB, nTopB+bottom*nHeightB)
+				}
+			}
+			base := uint32(len(vertices))
+			va, vb := vertex(xa, ea), vertex(xb, eb)
+			va.DstY, vb.DstY = topA, topB
+			vertices = append(vertices, va, vb)
+			va.DstY, vb.DstY = bottomA, bottomB
+			vertices = append(vertices, va, vb)
+			indices = append(indices, base, base+1, base+2, base+1, base+3, base+2)
 		}
-		left.DstY, right.DstY = top0, top1
-		vertices = append(vertices, left, right)
-		left.DstY, right.DstY = bottom0, bottom1
-		vertices = append(vertices, left, right)
-		indices = append(indices, base, base+1, base+2, base+1, base+3, base+2)
 		f0Depth, f0U, n0Depth, n0U = f1Depth, f1U, n1Depth, n1U
 		return true
 	}
@@ -1171,9 +1262,10 @@ func (r *Renderer) drawStandeeSlabVolume(screen *ebiten.Image, slab standeeSlab,
 
 	opts := &r.standeeVolumeOpts
 	if opts.Uniforms == nil {
-		opts.Uniforms = map[string]any{"Horizon": make([]float32, 1)}
+		opts.Uniforms = map[string]any{"Horizon": make([]float32, 1), "Fade": make([]float32, 1)}
 	}
 	opts.Uniforms["Horizon"].([]float32)[0] = float32(r.game.viewHorizon())
+	opts.Uniforms["Fade"].([]float32)[0] = slab.fade
 	opts.Blend = ebiten.BlendSourceOver
 	opts.Images[0] = stickerMips.levels[0]
 	opts.Images[1] = stickerMips.levels[mipLevel]
@@ -1286,9 +1378,15 @@ func (r *Renderer) drawStandeeSlabColumns(screen *ebiten.Image, slab standeeSlab
 	}
 	// Very thin faces retain per-surface material coverage. That path chooses
 	// spans or individual columns independently from this projected-width gate.
+	trim := newStandeeTrim(stickerMips, coreMips, mipLevel, nextMipLevel, coreMipLevel, filtered)
 	if projectedWidth >= 2 && canUseStandeeVolume(slab) &&
-		r.drawStandeeSlabVolume(screen, slab, minX, maxX, stickerMips, coreMips, mipLevel, nextMipLevel, coreMipLevel, mipBlend, filtered) {
+		r.drawStandeeSlabVolume(screen, slab, minX, maxX, stickerMips, coreMips, mipLevel, nextMipLevel, coreMipLevel, mipBlend, filtered, trim) {
 		return
+	}
+	if slab.fade > 0 {
+		// Translucent layers drawn one by one would stack into an opaque body:
+		// without the compositor a fading token is its front face.
+		slab.thin(1)
 	}
 
 	shader, err := r.ensureStandeeTrilinearShader()
@@ -1296,12 +1394,38 @@ func (r *Renderer) drawStandeeSlabColumns(screen *ebiten.Image, slab standeeSlab
 		return
 	}
 	opts := &r.standeeTrilinearOpts
+	// Reduced levels draw from the token's sheet: its shader reads no image
+	// region, so successive tokens merge into one GPU command.
+	var sheet *standeeSheet
+	if filtered && mipLevel >= 1 && coreMipLevel == mipLevel && projection.heightScale > 0 && !math.IsInf(projection.heightScale, 0) {
+		blended := mipLevel
+		if mipBlend > 0 {
+			blended = nextMipLevel
+		}
+		if s := r.standeeSheets[sticker.mipKey.frame]; s.holds(stickerMips, coreMips, mipLevel, blended) {
+			if _, err := r.ensureStandeeSheetShader(); err == nil {
+				sheet = s
+			}
+		}
+	}
+	if sheet != nil {
+		shader, opts = r.standeeSheetShader, &r.standeeSheetOpts
+		if opts.Uniforms == nil {
+			opts.Uniforms = map[string]any{"Horizon": make([]float32, 1)}
+		}
+		opts.Uniforms["Horizon"].([]float32)[0] = float32(projection.horizon)
+		opts.Images[0] = sheet.image
+	} else {
+		opts.Images[0] = stickerMips.levels[0]
+		opts.Images[1] = stickerMips.levels[mipLevel]
+		opts.Images[2] = stickerMips.levels[nextMipLevel]
+		opts.Images[3] = coreMips.levels[coreMipLevel]
+	}
 	opts.Blend = ebiten.BlendSourceOver
-	opts.Images[0] = stickerMips.levels[0]
-	opts.Images[1] = stickerMips.levels[mipLevel]
-	opts.Images[2] = stickerMips.levels[nextMipLevel]
-	opts.Images[3] = coreMips.levels[coreMipLevel]
 
+	if filtered {
+		trim = trim.reaching(majorFootprint, stickerBounds.Size(), stickerMips.levels[mipLevel].Bounds().Size())
+	}
 	verts := r.standeeVerts[:0]
 	idx := r.standeeMaterialIdx[:0]
 	rayAt := func(screenX float64) (float64, float64) {
@@ -1324,29 +1448,29 @@ func (r *Renderer) drawStandeeSlabColumns(screen *ebiten.Image, slab standeeSlab
 		cr := slab.rr * sf.shade * opacity
 		cg := slab.gg * sf.shade * opacity
 		cb := slab.bb * sf.shade * opacity
-		layerMode := float32(0)
+		layerMode := float32(standeeLayerNearSticker)
 		if sf.mipKey.layer == standeeMipCore {
-			layerMode = 1
+			layerMode = standeeLayerCore
 		} else if surfaceIndex != len(slab.surfaces)-1 {
-			layerMode = 2
+			layerMode = standeeLayerFarSticker
 		}
 		material := ebiten.Vertex{ColorR: cr, ColorG: cg, ColorB: cb, ColorA: opacity,
 			Custom0: mipBlend, Custom1: layerMode, Custom2: filteredFlag, Custom3: majorFootprint}
+		if sheet != nil {
+			// standee_sheet.kage layout: the block origin carries the surface
+			// and the blend in its fractions, away from the integer boundaries.
+			block := sheet.blocks[mipLevel]
+			material.SrcX = float32(block.X) + 0.25 + layerMode/8
+			material.SrcY = float32(block.Y) + 0.125 + 0.75*mipBlend
+			material.Custom2 = float32(projection.bottomScale / projection.heightScale)
+		}
 		var spanned bool
-		verts, idx, spanned = r.appendStandeeSurfaceSpans(verts, idx, slab, sf, minX, maxX, material, stickerMips.levels[0].Bounds().Min)
+		verts, idx, spanned = r.appendStandeeSurfaceSpans(verts, idx, slab, sf, minX, maxX, material, stickerMips.levels[0].Bounds().Min, sheet != nil, trim)
 		if spanned {
 			continue
 		}
 		textureX := func(u float64) float32 {
-			if u < 0 {
-				u = 0
-			} else if u > 1 {
-				u = 1
-			}
-			if sf.mirrored {
-				u = 1 - u
-			}
-			return float32(math.Min(u*texW, texW-1)) + 0.5
+			return float32(math.Min(standeeSourceU(u, sf.mirrored)*texW, texW-1)) + 0.5
 		}
 		for x := minX; x <= maxX; x++ {
 			rcx, rcy := rayAt(float64(x) + 0.5)
@@ -1385,6 +1509,19 @@ func (r *Renderer) drawStandeeSlabColumns(screen *ebiten.Image, slab standeeSlab
 				}
 			}
 			x0, x1 := float32(x), float32(x+1)
+			if sheet != nil {
+				// One column of the span layout: constant height and U.
+				column := material
+				column.Custom0 = height
+				column.Custom1 = float32(projection.heightScale * standeeSourceU(u, sf.mirrored) / t)
+				base := uint32(len(verts))
+				for _, corner := range [4][2]float32{{x0, top}, {x1, top}, {x0, drawBottom}, {x1, drawBottom}} {
+					column.DstX, column.DstY = corner[0], corner[1]
+					verts = append(verts, column)
+				}
+				idx = append(idx, base, base+1, base+2, base+1, base+3, base+2)
+				continue
+			}
 			srcX := textureX(u)
 			base := uint32(len(verts))
 			verts = append(verts,
@@ -1403,6 +1540,16 @@ func (r *Renderer) drawStandeeSlabColumns(screen *ebiten.Image, slab standeeSlab
 	}
 	r.standeeVerts = verts[:0]
 	r.standeeMaterialIdx = idx[:0]
+}
+
+// standeeSourceU is the art U of a surface hit: clamped to the face, flipped
+// on a mirrored surface.
+func standeeSourceU(u float64, mirrored bool) float64 {
+	u = max(0, min(1, u))
+	if mirrored {
+		return 1 - u
+	}
+	return u
 }
 
 // tileIsNaturalCross reports whether a crossed tile is the natural cross
@@ -1687,7 +1834,7 @@ func (r *Renderer) drawWallStandee(screen *ebiten.Image, sprite *ebiten.Image, k
 		r.standeeWallOcclusion.backingYaw = wyaw
 		r.standeeWallOcclusion.hasBackingWall = true
 	}
-	drew := r.drawStandeeSprite(screen, sprite, key, wx, wy, wyaw, depthPerp, spriteSize, bottomY, br, br, br, true, false, worldLength)
+	drew := r.drawStandeeSprite(screen, sprite, key, wx, wy, wyaw, depthPerp, spriteSize, bottomY, br, br, br, true, false, worldLength, 0)
 	r.standeeWallOcclusion = standeeWallOcclusion{}
 	return drew
 }

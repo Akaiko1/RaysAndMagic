@@ -101,7 +101,7 @@ func TestMeleeWeaponAoE_UsesWeaponRadiusOnRealMeleeDamagePath(t *testing.T) {
 	}
 	cs.game.world.Monsters = []*monsterPkg.Monster3D{primary, near, far}
 
-	cs.ApplyDamageToMonster(primary, 20, def.Name, false)
+	cs.ApplyDamageToMonster(primary, 20, testWeapon(def.Name), false)
 
 	if primary.HitPoints != 80 {
 		t.Fatalf("primary HP = %d, want 80", primary.HitPoints)

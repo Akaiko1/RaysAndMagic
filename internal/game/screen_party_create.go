@@ -1,6 +1,7 @@
 package game
 
 import (
+	"cmp"
 	"fmt"
 	"image/color"
 	"sort"
@@ -67,17 +68,13 @@ type partyCreateState struct {
 
 	// Pending press: a left-press records the candidate hero + origin and selects
 	// it immediately (detail panel). The drag only begins once the cursor moves
-	// past pcDragThreshold while held - a press/release within the threshold is a
+	// past dragDeadZone while held - a press/release within the dead zone is a
 	// plain click (selection only, no move).
 	pending     *pcHero
 	pendingSlot int
 	pendingPool int
-	pressX      int
-	pressY      int
+	press       dragGesture
 }
-
-// pcDragThreshold is the cursor travel (px) that turns a held press into a drag.
-const pcDragThreshold = 6
 
 // pcLayout is the computed geometry of the screen, shared by update and draw.
 type pcLayout struct {
@@ -138,7 +135,7 @@ func (pc *partyCreateState) beginPending(hero *pcHero, fromSlot, fromPool, x, y 
 	pc.pending = hero
 	pc.pendingSlot = fromSlot
 	pc.pendingPool = fromPool
-	pc.pressX, pc.pressY = x, y
+	pc.press.press(x, y)
 	pc.detail = hero // click selects immediately
 }
 
@@ -245,7 +242,7 @@ func (g *MMGame) updatePartyCreate() {
 	if pc.drag == nil && pc.pending == nil {
 		_, wheel := pointerWheel()
 		if lay.detail.contains(mx, my) {
-			pc.detailScroll = min(pc.detailMaxScroll, max(0, pc.detailScroll-int(wheel*32)))
+			pc.detailScroll = min(pc.detailMaxScroll, max(0, pc.detailScroll+wheelScrollPixels(wheel, 32)))
 		} else if lay.poolArea.contains(mx, my) {
 			pc.poolScroll = rosterScrollAfterWheel(pc.poolScroll, lay.poolMaxScroll, wheel)
 		}
@@ -296,8 +293,7 @@ func (g *MMGame) updatePartyCreatePointer() {
 			pc.clearPending()
 			return
 		}
-		dx, dy := mouseX-pc.pressX, mouseY-pc.pressY
-		if dx*dx+dy*dy >= pcDragThreshold*pcDragThreshold {
+		if pc.press.follow(mouseX, mouseY) {
 			pc.drag = pc.pending
 			pc.dragFromSlot = pc.pendingSlot
 			pc.dragFromPool = pc.pendingPool
@@ -777,10 +773,7 @@ func (hero *pcHero) cardRarity(cfg *config.Config) string {
 	if rarity := cfg.Characters.Classes[hero.entry.Class].CardRarity; rarity != "" {
 		return rarity
 	}
-	if hero.entry.Race != "" && hero.entry.Race != "human" {
-		return "uncommon"
-	}
-	return "common"
+	return cmp.Or(cfg.Characters.Races[hero.entry.Race].CardRarity, "common")
 }
 
 func heroCardPortraitRect(r rect) rect {

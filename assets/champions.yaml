@@ -6,7 +6,8 @@
 #
 # tiers: shared difficulty ladder. Per tier: character level, the mastery EVERY
 # authored skill is set to, the boss HP pool, and the victory rewards
-# (experience + arena points). Champions drop NO gold (monsters.yaml gold 0).
+# (experience + arena points). Champions drop no gold; their one drop is the
+# set trophy in loots.yaml (loot_groups.champion_trophies).
 # A defeated difficulty unlocks again next morning.
 #
 # Per champion:
@@ -15,15 +16,6 @@
 #   equipment  - per-tier lists; first weapon = main hand, second = off hand.
 #                Gear must pass the class/skill equip gates (validated at boot).
 #   ranged     - fires the main-hand weapon as a projectile
-# set_drops: armor-set trophy roll on EVERY champion kill (any tier). Each
-# listed SET rolls ONCE IN THIS ORDER at its `pct`; the FIRST success drops a
-# RANDOM piece of that set and ends the rolling - a kill yields at most ONE
-# piece, or nothing. `pct` is the set's real drop chance (piece-count-
-# independent). Ordered list on purpose: earlier entries roll first. Sets are
-# items.yaml item_sets keys.
-set_drops:
-  - { set: padded, pct: 10 }
-  - { set: ringmail, pct: 5 }
 
 tiers:
   easy:
@@ -32,12 +24,14 @@ tiers:
     hp: 1200
     experience: 1000
     arena_points: 500
+
   normal:
     level: 23
     mastery: master
     hp: 2000
     experience: 2000
     arena_points: 1000
+
   impossible:
     level: 25
     mastery: grandmaster

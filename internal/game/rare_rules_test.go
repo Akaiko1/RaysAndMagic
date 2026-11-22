@@ -7,6 +7,7 @@ import (
 	"slices"
 	"sort"
 	"testing"
+	"ugataima/internal/status"
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
@@ -86,11 +87,10 @@ func TestRareRulesExplicitStepOwnsRefusal(t *testing.T) {
 					other.ActionsRemaining = 2
 					g.party.Members = []*character.MMCharacter{c, other}
 					it, _ := config.TechniqueItem(key)
-					c.Equipment[items.SlotSpell] = it
+					c.Equipment[items.SlotQuickAction] = it
 					switch reason {
 					case "reuse":
-						g.spatialReuseFrames = 1
-						g.spatialStepThisTurn = tb
+						g.spatialReuse = framesClock(1)
 					case "SP":
 						c.SpellPoints = 0
 					case "destination":
@@ -99,7 +99,7 @@ func TestRareRulesExplicitStepOwnsRefusal(t *testing.T) {
 						c.AddCondition(character.ConditionUnconscious)
 						g.parkSelection = true
 					case "stagger":
-						g.spellInputCooldown = 1
+						g.actionInputStagger = 1
 					}
 					x, y, sp, ap := g.camera.X, g.camera.Y, c.SpellPoints, c.ActionsRemaining
 					rareInputCast(g, NewInputHandler(g), tb)
@@ -130,13 +130,22 @@ func TestRareRulesQuickeningOwnershipAndSharedRecovery(t *testing.T) {
 					case "offhand":
 						return g.combat.OffHandWeaponCooldownFrames(actor)
 					}
+					if d := config.Technique(action); d != nil {
+						return g.techniqueCooldown(actor, d)
+					}
+					if _, ok := config.GetTrapDefinition(action); ok {
+						return g.combat.TrapCooldownFrames(actor, action)
+					}
+					if d, ok := config.GetItemDefinition(action); ok && d.Flask != nil {
+						return g.combat.FlaskCooldownFrames(actor, action)
+					}
 					return g.combat.SpellCooldownFrames(actor, spells.SpellID(action))
 				}
 				base := frames()
-				g.addCombatBuff(TimedCombatBuff{SpellID: "quickening", Frames: 100, RecoveryPct: 35})
+				g.addCombatBuff(TimedCombatBuff{ID: config.TechniqueID("quickening"), Clock: framesClock(100), RecoveryPct: 35})
 				want := base
 				if actor == c && base > 0 {
-					want = clampRTCooldown(base * 65 / 100)
+					want = g.clampRTCooldown(base * 65 / 100)
 				}
 				if got := frames(); got != want {
 					t.Fatalf("recovery=%d want=%d", got, want)
@@ -150,46 +159,75 @@ func TestRareRulesQuickeningOwnershipAndSharedRecovery(t *testing.T) {
 		g.combatBuffs = nil
 		first := monsterPkg.NewMonster3DFromConfig(0, 0, key, g.config)
 		g.mirrorChampionStats(first)
-		g.addCombatBuff(TimedCombatBuff{SpellID: "quickening", Frames: 100, RecoveryPct: 35})
+		g.addCombatBuff(TimedCombatBuff{ID: config.TechniqueID("quickening"), Clock: framesClock(100), RecoveryPct: 35})
 		second := monsterPkg.NewMonster3DFromConfig(0, 0, key, g.config)
 		g.mirrorChampionStats(second)
 		if second.AttackCooldownMultiplier != first.AttackCooldownMultiplier {
 			t.Fatal("party Quickening changed enemy champion cadence")
 		}
 	}
-	// Exercise the actual commits, including the staff modifier shared with spells.
+	// The staff's spell_cooldown_multiplier reaches spells only. Every commit
+	// goes through the real F / Space input; Space has no technique branch.
 	staff, ok := config.GetWeaponDefinition("archmage_staff")
 	if !ok || staff.SpellCooldownMultiplier <= 0 || staff.SpellCooldownMultiplier >= 1 {
 		t.Fatal("archmage_staff must author a spell_cooldown_multiplier below 1")
 	}
-	for _, action := range []string{"purify", "harm_flask"} {
-		t.Run("commit/"+action, func(t *testing.T) {
-			g, c := rareClassGame(t, character.ClassAlchemist, false)
-			if action == "purify" {
-				c.Class = character.ClassWayfarer
-				c.Skills[character.SkillTranslocation] = &character.Skill{Mastery: character.MasteryNovice}
-				g.party.Members[1].AddCondition(character.ConditionPoisoned)
-			}
-			c.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("archmage_staff")
-			c.Speed = 16
-			g.addCombatBuff(TimedCombatBuff{SpellID: "quickening", Frames: 100, RecoveryPct: 35})
-			seconds, _ := baseCastCooldownSeconds(spells.SpellID(action))
-			want := clampRTCooldown(clampRTCooldown(int(math.Round(seconds*float64(g.config.GetTPS())*spellCooldownSpeedFactor(c.GetEffectiveSpeed())*staff.SpellCooldownMultiplier))) * 65 / 100)
-			if action == "purify" {
-				if !g.useTechnique(0, action, false, false) {
-					t.Fatal("purify rejected")
+	trap, _ := config.GetTrapDefinition("cleave_trap")
+	flask, _ := config.GetItemDefinition("harm_flask")
+	firebolt, _ := spells.GetSpellDefinitionByID("firebolt")
+	kinds := []struct {
+		name    string
+		class   character.CharacterClass
+		seconds float64
+		staffed bool
+		slot    func() items.Item
+	}{
+		{"spell", character.ClassSorcerer, firebolt.CooldownSeconds, true, func() items.Item { it, _ := spells.CreateSpellItem("firebolt"); return it }},
+		{"technique", character.ClassWayfarer, config.Technique("purify").CooldownSeconds, false, func() items.Item { it, _ := config.TechniqueItem("purify"); return it }},
+		{"flask", character.ClassAlchemist, flask.Flask.CooldownSeconds, false, func() items.Item { it, _ := config.FlaskItem("harm_flask"); return it }},
+		{"trap", character.ClassThief, trap.CooldownSeconds, false, func() items.Item { it, _ := config.TrapItem("cleave_trap"); return it }},
+	}
+	for _, k := range kinds {
+		for _, tb := range []bool{false, true} {
+			for _, key := range []string{"F", "Space"} {
+				if k.name == "technique" && key == "Space" {
+					continue
 				}
-			} else {
-				it, _ := items.TryCreateItemFromYAML(action)
-				g.party.AddItem(it)
-				if !g.throwFlask(0, action, false) {
-					t.Fatal("flask rejected")
-				}
+				t.Run(fmt.Sprintf("commit/%s/%s/TB=%v", k.name, key, tb), func(t *testing.T) {
+					g, c := rareClassGame(t, k.class, tb)
+					switch k.name {
+					case "spell":
+						c.LearnSpell("firebolt")
+					case "technique":
+						g.party.Members[1].AddCondition(character.ConditionPoisoned)
+					case "flask":
+						it, _ := items.TryCreateItemFromYAML("harm_flask")
+						g.party.AddItem(it)
+					}
+					c.Equipment[items.SlotQuickAction] = k.slot()
+					c.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("archmage_staff")
+					c.Speed = 16
+					g.addCombatBuff(TimedCombatBuff{ID: config.TechniqueID("quickening"), Clock: framesClock(100), RecoveryPct: 35})
+					mult := 1.0
+					if k.staffed {
+						mult = staff.SpellCooldownMultiplier
+					}
+					want := g.clampRTCooldown(g.clampRTCooldown(g.framesForSeconds(k.seconds*actionCooldownSpeedFactor(c.GetEffectiveSpeed())*mult)) * 65 / 100)
+					ih := NewInputHandler(g)
+					switch {
+					case key == "F":
+						rareInputCast(g, ih, tb)
+					case tb:
+						ih.performTurnBasedSmartAttack()
+					default:
+						ih.performRTCombatAction(rtActSmart, true)
+					}
+					if c.RTCooldown != want {
+						t.Fatalf("recovery=%d want Speed+Quickening%s=%d", c.RTCooldown, map[bool]string{true: "+staff"}[k.staffed], want)
+					}
+				})
 			}
-			if c.RTCooldown != want {
-				t.Fatalf("commit recovery=%d want shared staff+Speed+Quickening=%d", c.RTCooldown, want)
-			}
-		})
+		}
 	}
 }
 
@@ -210,7 +248,7 @@ func TestRareRulesTechniqueMovementAndPersistence(t *testing.T) {
 					m.BeginPlayerEngagement()
 					g.party.Members[1].HitPoints = 1
 					if attack == "before" {
-						g.consumeCharacterActionWithRTCooldown(1, 0)
+						g.commitHeroAction(1, 0)
 					}
 					if automatic {
 						c.RareClass.Automatic = map[string]bool{key: true}
@@ -218,11 +256,15 @@ func TestRareRulesTechniqueMovementAndPersistence(t *testing.T) {
 					} else if !g.useTechnique(0, key, false, false) {
 						t.Fatal("manual technique failed")
 					}
-					if c.ActionsRemaining != 1 || g.partyTechniqueActionsUsed != 1 {
+					wantActions, wantTechniques := 1, 1
+					if automatic {
+						wantActions, wantTechniques = 2, 0
+					}
+					if c.ActionsRemaining != wantActions || g.partyPenaltyFreeActionsUsed != wantTechniques {
 						t.Fatal("technique action was not recorded independently")
 					}
 					if attack == "after" {
-						g.consumeCharacterActionWithRTCooldown(1, 0)
+						g.commitHeroAction(1, 0)
 					}
 					wm := world.NewWorldManager(g.config)
 					wm.CurrentMapKey = currentMapKey()
@@ -235,14 +277,14 @@ func TestRareRulesTechniqueMovementAndPersistence(t *testing.T) {
 					if err = json.Unmarshal(raw, &save); err != nil {
 						t.Fatal(err)
 					}
-					g.partyTechniqueActionsUsed = 0
+					g.partyPenaltyFreeActionsUsed = 0
 					g.restoreSavedTurnState(&save)
 					g.endPartyTurnAfterMovement()
 					if g.turnBasedExtraMonsterAction != (attack != "none") {
 						t.Fatal("technique created or erased an attack's movement penalty after save/load")
 					}
 					(&GameLoop{game: g}).endMonsterTurn()
-					if g.partyTechniqueActionsUsed != 0 {
+					if g.partyPenaltyFreeActionsUsed != 0 {
 						t.Fatal("technique accounting leaked into next turn")
 					}
 				})
@@ -256,7 +298,7 @@ func TestRareRulesQuietEntombedTechniques(t *testing.T) {
 		t.Run(fmt.Sprint(tb), func(t *testing.T) {
 			g, c := rareClassGame(t, character.ClassWayfarer, tb)
 			g.flyActive = true
-			g.flyDuration = 999
+			g.flyClock = framesClock(999)
 			ts := float64(g.config.GetTileSize())
 			g.world.Tiles[TileIndex(g.camera.Y, ts)][TileIndex(g.camera.X, ts)] = world.TileWall
 			c.RareClass.Automatic = map[string]bool{"purify": true}
@@ -318,8 +360,7 @@ func TestRareRulesBuildingFoldAndHarvest(t *testing.T) {
 							t.Fatal("Fold crossed a solid building instead of stopping before it")
 						}
 						g.setPartyPosition(x+9*ts, y)
-						g.spatialReuseFrames = 0
-						g.spatialStepThisTurn = false
+						g.spatialReuse = status.DualClock{}
 						if !g.useTechnique(0, "return_step", false, false) || g.camera.X != x {
 							t.Fatal("Return incorrectly inherited Fold's path restriction")
 						}
@@ -375,10 +416,9 @@ func TestRareRulesBuildingFoldAndHarvest(t *testing.T) {
 	}
 }
 
-func TestRareRulesZoneAuthoringAndExterior(t *testing.T) {
+func TestRareRulesZoneAuthoring(t *testing.T) {
 	g, ts := summonTileWorld(t)
 	setTestWorldManager(t, nil)
-	g.camera.Angle, g.camera.FOV, g.camera.ViewDist = 0, math.Pi/2, 20*ts
 	original, _ := config.GetSpellDefinition("firewall")
 	custom := *original
 	custom.ZoneEdgeDamagePercent = 25
@@ -398,43 +438,6 @@ func TestRareRulesZoneAuthoringAndExterior(t *testing.T) {
 			tickZoneSpellOnce(g.combat, "test_heat")
 			if direct.MaxHitPoints-direct.HitPoints != 40 || edge.MaxHitPoints-edge.HitPoints != 10 || edge.BurnFramesRemaining != 7*g.config.GetTPS() {
 				t.Fatal("zone damage/burn ignored authored fields or direct-over-edge priority")
-			}
-			saved := buildPersistentDamageZoneSaves(g.persistentDamageZones)
-			g.persistentDamageZones = restorePersistentDamageZones(saved, currentMapKey())
-			r := &Renderer{game: g}
-			tiles := r.visibleZoneHeatTiles()
-			if len(tiles) == 0 {
-				t.Fatal("visible wall has no exterior")
-			}
-			seen := map[[2]int]bool{}
-			for _, tile := range tiles {
-				if tile == [2]int{12, 10} || tile == [2]int{12, 11} || seen[tile] {
-					t.Fatal("heat overlays a flame cell or duplicates another edge")
-				}
-				seen[tile] = true
-			}
-			g.world.Tiles[10][13] = world.TileWall
-			for _, tile := range r.visibleZoneHeatTiles() {
-				if tile == [2]int{13, 10} {
-					t.Fatal("heat appears inside a blocking wall")
-				}
-			}
-			g.world.Tiles[10][13] = world.TileEmpty
-			for _, view := range []string{"behind", "distant"} {
-				angle, dist := g.camera.Angle, g.camera.ViewDist
-				if view == "behind" {
-					g.camera.Angle = math.Pi
-				} else {
-					g.camera.ViewDist = 1
-				}
-				combat := g.combat
-				g.combat = nil // Any LOS/coverage work for this hidden field is a bug.
-				hidden := r.visibleZoneHeatTiles()
-				g.combat = combat
-				g.camera.Angle, g.camera.ViewDist = angle, dist
-				if len(hidden) != 0 {
-					t.Fatal("offscreen heat was not culled before coverage checks")
-				}
 			}
 		})
 	}
@@ -474,88 +477,98 @@ func TestRareRulesCatalogEligibility(t *testing.T) {
 	}
 }
 
+// Weapon splash and flasks share one victim filter: every state runs for the
+// splash and for one flask, the other flasks only where their own code differs
+// (fire's burn on the edge and on a kill; harm's physical packet once). No
+// combat mode is read here, so the cells run in RT.
 func TestRareRulesSharedSplashVictims(t *testing.T) {
-	for _, tb := range []bool{false, true} {
-		for _, source := range []string{"splash", "harm_flask", "venom_flask", "fire_flask"} {
-			for _, state := range []string{"center", "edge", "outside", "dead", "card summon", "druid summon", "spell summon", "bound", "dormant", "warded", "lethal"} {
-				t.Run(fmt.Sprintf("TB=%v/%s/%s", tb, source, state), func(t *testing.T) {
-					g, c := rareClassGame(t, character.ClassAlchemist, tb)
-					ts := float64(g.config.GetTileSize())
-					center := zoneVictim(t, g)
-					center.ArmorClass = 0
-					target := zoneVictim(t, g)
-					target.ArmorClass = 0
-					target.X += ts
-					want := 40
-					switch state {
-					case "center":
-						target.X = center.X
-					case "edge":
-						target.X += ts
-					case "outside":
-						target.X += ts + 1
-						want = 0
-					case "dead":
-						target.HitPoints, want = 0, 0
-					case "card summon", "druid summon", "spell summon":
-						if !markPartySummonKind(g, target, state) {
-							t.Fatal("invalid summon fixture")
-						}
-						want = 0
-					case "bound":
-						target.Bound = true
-						target.BoundFramesRemaining = 300
-					case "dormant":
-						target.BossDormant, want = true, 0
-					case "warded":
-						target.BossWarded, want = true, 0
-					case "lethal":
-						target.HitPoints, want = 10, 10
-					}
-					before, primary := target.HitPoints, center.HitPoints
-					g.world.Monsters = append(g.world.Monsters, nil)
-					var p MagicProjectile
-					if source == "splash" {
-						attack := g.combat.newPartyMonsterAttack(40, 0, "fire", 0, nil, "Test Splash", false, true, false)
-						g.combat.applyAoeSplash(center, attack, 2)
-					} else {
-						p = MagicProjectile{Active: true, LifeTime: 100, FlaskKey: source, FlaskRadius: 2 * ts, Damage: 40, Attacker: c}
-						if source == "venom_flask" {
-							p.FlaskPoisonFrames = 120
-						} else if source == "fire_flask" {
-							p.FlaskBurnFrames = 120
-						}
-						g.combat.detonateFlask(&p, center.X, center.Y)
-					}
-					if before-target.HitPoints != want {
-						t.Fatalf("victim damage=%d want=%d", before-target.HitPoints, want)
-					}
-					primaryWant := 40
-					if source == "splash" {
-						primaryWant = 0
-					}
-					if primary-center.HitPoints != primaryWant {
-						t.Fatal("ground impact and primary-excluding splash disagree on center ownership")
-					}
-					rider := want > 0 && target.IsAlive()
-					if (target.PoisonedFramesRemaining > 0) != (rider && source == "venom_flask") || (target.BurnFramesRemaining > 0) != (rider && source == "fire_flask") {
-						t.Fatal("flask status rider reached an excluded or dead victim")
-					}
-					if state == "lethal" && !slices.Contains(g.deadMonsterIDs, target.ID) {
-						t.Fatal("splash kill bypassed the shared death/reward pipeline")
-					}
-					if state == "lethal" && source != "splash" && g.collisionSystem.GetEntityByID(target.ID) != nil {
-						t.Fatal("flask kill lost immediate collision cleanup")
-					}
-					if source != "splash" {
-						hp, xp := target.HitPoints, c.Experience
-						g.combat.detonateFlask(&p, center.X, center.Y)
-						if target.HitPoints != hp || c.Experience != xp {
-							t.Fatal("repeat impact dealt damage or awarded XP twice")
-						}
-					}
-				})
-			}
+	states := []string{"center", "edge", "outside", "dead", "card summon", "druid summon", "spell summon", "bound", "dormant", "warded", "lethal"}
+	type cell struct{ source, state string }
+	var cells []cell
+	for _, source := range []string{"splash", "venom_flask"} {
+		for _, state := range states {
+			cells = append(cells, cell{source, state})
 		}
+	}
+	cells = append(cells, cell{"fire_flask", "edge"}, cell{"fire_flask", "lethal"}, cell{"harm_flask", "center"})
+	for _, cc := range cells {
+		source, state := cc.source, cc.state
+		t.Run(fmt.Sprintf("%s/%s", source, state), func(t *testing.T) {
+			g, c := rareClassGame(t, character.ClassAlchemist, false)
+			ts := float64(g.config.GetTileSize())
+			center := zoneVictim(t, g)
+			center.ArmorClass = 0
+			target := zoneVictim(t, g)
+			target.ArmorClass = 0
+			target.X += ts
+			want := 40
+			switch state {
+			case "center":
+				target.X = center.X
+			case "edge":
+				target.X += ts
+			case "outside":
+				target.X += ts + 1
+				want = 0
+			case "dead":
+				target.HitPoints, want = 0, 0
+			case "card summon", "druid summon", "spell summon":
+				if !markPartySummonKind(g, target, state) {
+					t.Fatal("invalid summon fixture")
+				}
+				want = 0
+			case "bound":
+				target.Bound = true
+				target.BoundClock = framesClock(300)
+			case "dormant":
+				target.BossDormant, want = true, 0
+			case "warded":
+				target.BossWarded, want = true, 0
+			case "lethal":
+				target.HitPoints, want = 10, 10
+			}
+			before, primary := target.HitPoints, center.HitPoints
+			g.world.Monsters = append(g.world.Monsters, nil)
+			var p FlaskProjectile
+			if source == "splash" {
+				attack := g.combat.newPartyMonsterAttack(40, 0, "fire", 0, nil, "Test Splash", false, true, false)
+				g.combat.applyAoeSplash(center, attack, 2)
+			} else {
+				p = FlaskProjectile{Active: true, LifeTime: 100, Key: source, Radius: 2 * ts, Damage: 40, Attacker: c}
+				if source == "venom_flask" {
+					p.PoisonFrames = 120
+				} else if source == "fire_flask" {
+					p.BurnFrames = 120
+				}
+				g.combat.detonateFlask(&p, center.X, center.Y)
+			}
+			if before-target.HitPoints != want {
+				t.Fatalf("victim damage=%d want=%d", before-target.HitPoints, want)
+			}
+			primaryWant := 40
+			if source == "splash" {
+				primaryWant = 0
+			}
+			if primary-center.HitPoints != primaryWant {
+				t.Fatal("ground impact and primary-excluding splash disagree on center ownership")
+			}
+			rider := want > 0 && target.IsAlive()
+			if (target.PoisonedFramesRemaining > 0) != (rider && source == "venom_flask") || (target.BurnFramesRemaining > 0) != (rider && source == "fire_flask") {
+				t.Fatal("flask status rider reached an excluded or dead victim")
+			}
+			if state == "lethal" && !slices.Contains(g.deadMonsterIDs, target.ID) {
+				t.Fatal("splash kill bypassed the shared death/reward pipeline")
+			}
+			if state == "lethal" && source != "splash" && g.collisionSystem.GetEntityByID(target.ID) != nil {
+				t.Fatal("flask kill lost immediate collision cleanup")
+			}
+			if source != "splash" {
+				hp, xp := target.HitPoints, c.Experience
+				g.combat.detonateFlask(&p, center.X, center.Y)
+				if target.HitPoints != hp || c.Experience != xp {
+					t.Fatal("repeat impact dealt damage or awarded XP twice")
+				}
+			}
+		})
 	}
 }

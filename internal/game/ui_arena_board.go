@@ -9,6 +9,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 
 	"ugataima/internal/arena"
+	"ugataima/internal/character"
 )
 
 // sortedKeys returns a map's keys in stable sorted order (deterministic UI rows).
@@ -28,10 +29,10 @@ func sortedKeys[T any](m map[string]T) []string {
 // handleArenaGladiatorInput).
 func (ui *UISystem) drawArenaGladiatorDialog(screen *ebiten.Image, dialogX, dialogY, dialogWidth, dialogHeight int) {
 	ui.drawShopFolderTabs(screen, dialogX, dialogY, ui.game.merchantServiceTabs())
-	switch ui.game.dialogTab {
-	case 1:
+	switch {
+	case ui.game.serviceShopTabOpen():
 		ui.drawMerchantDialog(screen, dialogX, dialogY, dialogWidth, dialogHeight)
-	case 2:
+	case ui.game.serviceBoardTabOpen():
 		ui.drawArenaBoardContent(screen, dialogX+20, dialogY+20, dialogX+dialogWidth-20, dialogY+dialogHeight-20)
 	default:
 		ui.game.arenaBoardScroll = 0   // leaving the board resets the view
@@ -239,12 +240,39 @@ func (ui *UISystem) drawArenaBoardContent(screen *ebiten.Image, x, y, maxX, maxY
 	}
 }
 
+// merchantServiceTabs labels the shop+talk dialog's tabs: Talk, then the
+// stock's own tabs (or one Shop tab), then the arena Board.
 func (g *MMGame) merchantServiceTabs() []string {
-	if g.dialogNPC != nil && g.dialogNPC.FreeGoods {
+	return serviceTabLabels(g.dialogNPC, g.merchantShopTabs())
+}
+
+// serviceTabLabels lays a shop+talk dialog's tabs out around its stock tabs.
+func serviceTabLabels(npc *character.NPC, shopTabs []string) []string {
+	if npc != nil && npc.FreeGoods {
 		return []string{"Talk", uitext.Text("caravan.goods_tab")}
 	}
-	if g.dialogNPC != nil && !g.dialogNPC.ArenaBoard {
-		return []string{"Talk", "Shop"}
+	tabs := append([]string{"Talk"}, shopTabs...)
+	if len(tabs) == 1 {
+		tabs = append(tabs, "Shop")
 	}
-	return []string{"Talk", "Shop", "Board"}
+	if npc == nil || npc.ArenaBoard {
+		tabs = append(tabs, "Board")
+	}
+	return tabs
+}
+
+// serviceShopTabCount is how many shop tabs follow Talk in that dialog.
+func (g *MMGame) serviceShopTabCount() int {
+	return max(1, len(g.merchantShopTabs()))
+}
+
+// serviceShopTabOpen reports a shop+talk dialog showing one of its shop tabs:
+// the one predicate its draw pass and its grid clicks both ask.
+func (g *MMGame) serviceShopTabOpen() bool {
+	return g.dialogTab >= 1 && g.dialogTab <= g.serviceShopTabCount()
+}
+
+// serviceBoardTabOpen reports the arena Board tab, which follows the shop tabs.
+func (g *MMGame) serviceBoardTabOpen() bool {
+	return g.dialogNPC != nil && g.dialogNPC.ArenaBoard && g.dialogTab == 1+g.serviceShopTabCount()
 }

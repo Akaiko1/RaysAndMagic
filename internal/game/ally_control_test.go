@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"ugataima/internal/character"
+	"ugataima/internal/items"
 	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/spells"
 	"ugataima/internal/world"
@@ -158,7 +159,7 @@ func TestAllyMatrix_PartyDamageTransparency(t *testing.T) {
 			g, _ := summonTileWorld(t)
 			m := tc.spawn(t, g)
 			hp := m.HitPoints
-			g.combat.ApplyDamageToMonster(m, 50, "", false)
+			g.combat.ApplyDamageToMonster(m, 50, items.Item{}, false)
 			if tc.pure && m.HitPoints != hp {
 				t.Errorf("pure summon took %d party damage", hp-m.HitPoints)
 			}
@@ -415,9 +416,9 @@ func TestEveryAllySummonPathUsesTheSharedSpawner(t *testing.T) {
 		if m == nil {
 			t.Fatal("no ally spawned")
 		}
-		if !m.Bound || m.BoundFramesRemaining != 0 || !m.QuestProgressIgnored || m.SummonedBy != wantOwner {
+		if !m.Bound || m.BoundClock.Frames != 0 || !m.QuestProgressIgnored || m.SummonedBy != wantOwner {
 			t.Errorf("ally marking = Bound:%v frames:%d questIgnored:%v by:%q, want true/0/true/%q",
-				m.Bound, m.BoundFramesRemaining, m.QuestProgressIgnored, m.SummonedBy, wantOwner)
+				m.Bound, m.BoundClock.Frames, m.QuestProgressIgnored, m.SummonedBy, wantOwner)
 		}
 		if !isPurePartySummon(m) {
 			t.Error("ally is not a pure party summon")

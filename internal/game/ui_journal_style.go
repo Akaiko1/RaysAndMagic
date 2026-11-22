@@ -6,12 +6,13 @@ import (
 	"image/color"
 	"strings"
 
-	"github.com/hajimehoshi/ebiten/v2"
 	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/quests"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 const readingTextScale = 2
@@ -148,11 +149,7 @@ func (ui *UISystem) drawJournalEntry(dst *ebiten.Image, quest *quests.Quest, r l
 		drawFilledRect(dst, button.x, button.y, button.w, button.h, color.RGBA{54, 41, 21, 255})
 		drawMetalPlate(dst, button.x, button.bottom()-1, button.w, 1, tint)
 		drawUITextColored(dst, uitext.Text("ui.claim_reward"), button.x+10, button.y+4, tint)
-		ui.onDisplayedInput(uiCommandClick, button, func() {
-			if !ui.modalLayerOwnsInput() && ui.game.consumeLeftClickIn(button.x, button.y, button.right(), button.bottom()) {
-				ui.claimQuestReward(quest.ID)
-			}
-		})
+		ui.onGatedClick(button, func() bool { return !ui.modalLayerOwnsInput() }, func() { ui.game.claimQuestReward(quest.ID, nil) })
 	}
 	i := -1
 	for _, keys := range [2][]string{quest.Definition.Rewards.Items, quest.Definition.Rewards.ItemPool} {
@@ -198,8 +195,8 @@ func (ui *UISystem) journalRewardItem(key string) (items.Item, bool) {
 
 func journalRewardText(rewards quests.QuestRewards) string {
 	var parts []string
-	if rewards.Gold != 0 || rewards.ArenaPoints != 0 || rewards.Experience != 0 {
-		parts = append(parts, questRewardSummary(rewards.Gold, rewards.ArenaPoints, rewards.Experience))
+	if rewards.Gold != 0 || rewards.ArenaPoints != 0 || rewards.Experience != 0 || rewards.Promotion != "" {
+		parts = append(parts, questPurseSummary(rewards))
 	}
 	if n := len(rewards.Items); n > 0 {
 		noun := "items"

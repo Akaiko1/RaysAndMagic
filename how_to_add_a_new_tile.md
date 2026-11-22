@@ -121,7 +121,10 @@ Floor textures are biome-driven. Named groups live in `biomes:` in
 
 Choose a `floor_transitions` profile for each group. See
 [Floor texture transitions](docs/floor-transitions.md) for `hard`, `natural`,
-`water`, `void`, directional cliff rules, inheritance, and YAML examples.
+`water`, `void`, `chasm`, directional cliff rules, inheritance, and YAML
+examples. A `type: water` tile joins the map's water bodies: every map that
+places it lists its bodies under `water_bodies` in `map_configs.yaml` (see
+[Surf](docs/floor-transitions.md#surf)).
 
 `floor_color` supplies the base tint under a resolved texture (80% texture,
 20% base before other rendering effects), or the full base when no texture
@@ -140,6 +143,14 @@ Core fields are fully supported:
 - `crossed_standee` normally uses `size_class: tree` (2-tile frame width), but may
   select another known class for a smaller/larger tree; height always follows
   the source texture aspect
+- Settings > Display > Fit to tile (both choices off by default) scales an
+  object whose visible art reaches past its own tile down as a whole, width
+  and height alike. "Trees" covers `crossed_standee`, `crossed_prop` and
+  `standee` tiles (a cross may reach the tile corners, a flat token must clear
+  the circle inside the tile); "Monuments" covers `landmark_standee` tiles and
+  the placed `landmark` and `scenery` objects of npcs.yaml. The widest variant
+  decides for the tile type. Art that fills its frame at `tree` then comes out
+  1.41 tiles wide; keep transparent margins out of the art, not in the class
 - optional `night_motes` on a `crossed_standee` tree enables moving night motes and
   authors `glow_color` plus `core_color`; absent means the tile emits none
 - `procedural_effect: firefly_swarm` selects the fixed authored swarm renderer;

@@ -5,10 +5,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hajimehoshi/ebiten/v2"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 // Case table: all 48 skills, all four tiers, fixed/no-effect skills, all nine
@@ -29,10 +30,10 @@ func TestSkillTooltipAuditAllMechanics(t *testing.T) {
 		character.SkillMerchant:            {"Gold-shop buy prices -0/5/10/15%", "sell prices +0/5/10/15%", "Best active Merchant"},
 		character.SkillRepair:              {"No effect yet"},
 		character.SkillIdentifyItem:        {"No effect yet"},
-		character.SkillDisarmTrap:          {"40/60/80/100%", "0/1/2/3", "best active user", "true damage and DoTs bypass"},
+		character.SkillDisarmTrap:          {"40/60/80/100%", "Flat damage reduction: 0/1/2/3 per hit (self)", "best active user", "Applies after armor and resistances", "Does not reduce true damage or damage over time"},
 		character.SkillLearning:            {"0/10/20/30%", "+5%", "all rosters", "does not stack"},
 		character.SkillArmsMaster:          {"0/2/4/6", "+5% weapon crit"},
-		character.SkillTrapper:             {"0/5/10/15", "(Intellect + Accuracy)/3", "0/2/4/6s RT", "0/0/1/2 turns TB"},
+		character.SkillTrapper:             {"0/5/10/15", "(Intellect + Accuracy)/3", "+0/1/1/2 TB turns", "(+0/3/3/6s)"},
 		character.SkillSleightOfHand:       {"10/20/30/40%", "once per enemy", "loot on death is unaffected"},
 		character.SkillDualWielding:        {"0/10/20/30%", "each hand recovers on its own", "at least 2 actions per round"},
 		character.SkillIronBody:            {"10/20/30/40", "+10% Perfect Dodge"},
@@ -40,13 +41,13 @@ func TestSkillTooltipAuditAllMechanics(t *testing.T) {
 		character.SkillElementalMastery:    {"10/20/35/50%", "Light", "Dark"},
 		character.SkillAnimalBonding:       {"Weapon attacks/spells:", "5/8/12/15%", "100/200/300/500%", "40/60/80/100%", "up to 2 living bears"},
 		character.SkillSacrifice:           {"10/20/30/50%", "strongest protector able to act", "defenses do not reduce this transferred damage", "Excludes damage over time"},
-		character.SkillImpenetrableDefense: {"3/5/7/10", "after defenses", "Does not reduce true damage or DoTs"},
+		character.SkillImpenetrableDefense: {"Flat damage reduction: 3/5/7/10 per hit (self)", "Applies after armor and resistances", "Does not reduce true damage or damage over time"},
 		character.SkillLockpicking:         {"20/35/50/60%", "3 failed non-key attempts", "key still works"},
 		character.SkillNaturalHealer:       {"20/40/60/100%", "HP healed by healing spells"},
 		character.SkillCelestialProvidence: {"dawn/dusk", "Living active Celestial", "Master-tier", "Does not stack"},
 		character.SkillOrcishFury:          {"Normal weapon damage +3/5/7/10"},
 		character.SkillHalflingGuile:       {"two to one", "random target"},
-		character.SkillDarkElfBinding:      {" 3% chance", "including fields", "turn the target into an ally until the party leaves for another map", "undead, bosses and invulnerable"},
+		character.SkillDarkElfBinding:      {"Weapon and spell hits: 3% chance", "turn the target into an ally until the party leaves for another map", "undead, bosses and invulnerable"},
 		character.SkillSpellAbsorption:     {"15/30/45/60%", "both HP and SP", "damage before defenses"},
 		character.SkillStrongMagic:         {"+25/50/75/100% damage", "25/50/75/100% of their SP cost", "at least 1 HP"},
 		character.SkillBallistics:          {"15/25/35/50%", "0/0/1/2 tiles", "2/4/6/8%"},
@@ -59,7 +60,7 @@ func TestSkillTooltipAuditAllMechanics(t *testing.T) {
 		character.SkillPathfinding:         {"5/10/15/20%", "Party RT movement speed", "Best capable active guide", "attack and cast while running"},
 	}
 	for _, s := range []character.SkillType{character.SkillSword, character.SkillDagger, character.SkillAxe, character.SkillSpear, character.SkillBow, character.SkillMace, character.SkillStaff, character.SkillMartialArts, character.SkillBlaster} {
-		cases[s] = []string{"0/3/6/9 true damage", "resistance applies", "+7% crit", "ignore Perfect Dodge"}
+		cases[s] = []string{"0/3/6/9 true damage", "resistance applies", "+7% crit", "25% of normal damage still lands through Perfect Dodge"}
 	}
 	for _, s := range []character.SkillType{character.SkillLeather, character.SkillChain, character.SkillPlate} {
 		cases[s] = []string{"0/2/4/6 AC per equipped piece", "+5% Perfect Dodge", "once per armor type"}
@@ -74,6 +75,9 @@ func TestSkillTooltipAuditAllMechanics(t *testing.T) {
 	for _, key := range config.FlaskKeys() {
 		d, _ := config.GetItemDefinition(key)
 		f := d.Flask
+		if f.Reusable {
+			continue
+		} // Its Alchemy scaling belongs to the item card.
 		geometries[[2]int{f.RangeTiles, f.RadiusTiles}] = true
 		facts := []string{fmt.Sprintf("%s: %s + INT/%d %s damage", d.Name, ladder(f.Damage), character.BombThrowingIntellectDivisor, f.Element)}
 		if f.PoisonSeconds != [4]int{} {
@@ -124,10 +128,13 @@ func TestSkillTooltipAuditAllMechanics(t *testing.T) {
 	for _, school := range character.AllMagicSchools {
 		text := magicMasteryTooltipRows(school).String()
 		assertSkillGrandMasterSection(t, text, true)
-		for _, want := range []string{"0/20/40/60%", "0/5/10/15", "Standard spell damage/healing"} {
+		for _, want := range []string{"durations follow each spell's mastery values", "0/5/10/15", "Standard spell damage/healing"} {
 			if !strings.Contains(text, want) {
 				t.Errorf("%s missing %q: %s", school, want, text)
 			}
+		}
+		if strings.Contains(text, "0/20/40/60%") {
+			t.Errorf("%s advertises the retired universal duration multiplier", school)
 		}
 	}
 	// Each distinct flask geometry is stated once; one shared geometry is "All flasks".
@@ -235,8 +242,8 @@ func TestSkillTooltipAuditRetunedFlaskWiring(t *testing.T) {
 				if !g.throwFlask(0, key, false) {
 					t.Fatal("retuned flask refused")
 				}
-				p := g.magicProjectiles[0]
-				if p.Damage != d.Flask.Damage[tier]+c.GetEffectiveIntellect()/3 || p.FlaskPoisonFrames != d.Flask.PoisonSeconds[tier]*g.config.GetTPS() || p.FlaskBurnFrames != d.Flask.BurnSeconds[tier]*g.config.GetTPS() {
+				p := g.flasks[0]
+				if p.Damage != d.Flask.Damage[tier]+c.GetEffectiveIntellect()/3 || p.PoisonFrames != d.Flask.PoisonSeconds[tier]*g.config.GetTPS() || p.BurnFrames != d.Flask.BurnSeconds[tier]*g.config.GetTPS() {
 					t.Fatal("projectile did not use the live mastery table")
 				}
 				text := masteryTooltipRowsForSkill(character.SkillBombThrowing).String()

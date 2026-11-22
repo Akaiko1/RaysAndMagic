@@ -3,6 +3,7 @@ package character
 import (
 	"testing"
 	"ugataima/internal/config"
+	"ugataima/internal/stats"
 )
 
 func TestPartyCreation(t *testing.T) {
@@ -11,12 +12,12 @@ func TestPartyCreation(t *testing.T) {
 			StartingGold: 1000,
 			StartingFood: 50,
 			Classes: map[string]config.ClassStats{
-				"knight":   {Might: 18, Intellect: 10, Personality: 12, Endurance: 16, Accuracy: 14, Speed: 13, Luck: 11},
-				"sorcerer": {Might: 8, Intellect: 18, Personality: 16, Endurance: 10, Accuracy: 12, Speed: 14, Luck: 13},
-				"cleric":   {Might: 12, Intellect: 14, Personality: 18, Endurance: 14, Accuracy: 13, Speed: 12, Luck: 15},
-				"archer":   {Might: 14, Intellect: 12, Personality: 13, Endurance: 12, Accuracy: 18, Speed: 16, Luck: 14},
-				"paladin":  {Might: 13, Intellect: 10, Personality: 13, Endurance: 13, Accuracy: 10, Speed: 10, Luck: 11},
-				"druid":    {Might: 10, Intellect: 13, Personality: 13, Endurance: 10, Accuracy: 10, Speed: 11, Luck: 11},
+				"knight":   {Base: stats.StatBonuses{Might: 18, Intellect: 10, Personality: 12, Endurance: 16, Accuracy: 14, Speed: 13, Luck: 11}},
+				"sorcerer": {Base: stats.StatBonuses{Might: 8, Intellect: 18, Personality: 16, Endurance: 10, Accuracy: 12, Speed: 14, Luck: 13}},
+				"cleric":   {Base: stats.StatBonuses{Might: 12, Intellect: 14, Personality: 18, Endurance: 14, Accuracy: 13, Speed: 12, Luck: 15}},
+				"archer":   {Base: stats.StatBonuses{Might: 14, Intellect: 12, Personality: 13, Endurance: 12, Accuracy: 18, Speed: 16, Luck: 14}},
+				"paladin":  {Base: stats.StatBonuses{Might: 13, Intellect: 10, Personality: 13, Endurance: 13, Accuracy: 10, Speed: 10, Luck: 11}},
+				"druid":    {Base: stats.StatBonuses{Might: 10, Intellect: 13, Personality: 13, Endurance: 10, Accuracy: 10, Speed: 11, Luck: 11}},
 			},
 			HitPoints:   config.HitPointsConfig{EnduranceMultiplier: 3, LevelMultiplier: 2},
 			SpellPoints: config.SpellPointsConfig{LevelMultiplier: 2},
@@ -95,12 +96,12 @@ func TestPartyUpdateWithMode(t *testing.T) {
 			StartingGold: 1000,
 			StartingFood: 50,
 			Classes: map[string]config.ClassStats{
-				"knight":   {Might: 18, Intellect: 10, Personality: 12, Endurance: 16, Accuracy: 14, Speed: 13, Luck: 11},
-				"sorcerer": {Might: 8, Intellect: 18, Personality: 16, Endurance: 10, Accuracy: 12, Speed: 14, Luck: 13},
-				"cleric":   {Might: 12, Intellect: 14, Personality: 18, Endurance: 14, Accuracy: 13, Speed: 12, Luck: 15},
-				"archer":   {Might: 14, Intellect: 12, Personality: 13, Endurance: 12, Accuracy: 18, Speed: 16, Luck: 14},
-				"paladin":  {Might: 13, Intellect: 10, Personality: 13, Endurance: 13, Accuracy: 10, Speed: 10, Luck: 11},
-				"druid":    {Might: 10, Intellect: 13, Personality: 13, Endurance: 10, Accuracy: 10, Speed: 11, Luck: 11},
+				"knight":   {Base: stats.StatBonuses{Might: 18, Intellect: 10, Personality: 12, Endurance: 16, Accuracy: 14, Speed: 13, Luck: 11}},
+				"sorcerer": {Base: stats.StatBonuses{Might: 8, Intellect: 18, Personality: 16, Endurance: 10, Accuracy: 12, Speed: 14, Luck: 13}},
+				"cleric":   {Base: stats.StatBonuses{Might: 12, Intellect: 14, Personality: 18, Endurance: 14, Accuracy: 13, Speed: 12, Luck: 15}},
+				"archer":   {Base: stats.StatBonuses{Might: 14, Intellect: 12, Personality: 13, Endurance: 12, Accuracy: 18, Speed: 16, Luck: 14}},
+				"paladin":  {Base: stats.StatBonuses{Might: 13, Intellect: 10, Personality: 13, Endurance: 13, Accuracy: 10, Speed: 10, Luck: 11}},
+				"druid":    {Base: stats.StatBonuses{Might: 10, Intellect: 13, Personality: 13, Endurance: 10, Accuracy: 10, Speed: 11, Luck: 11}},
 			},
 			HitPoints:   config.HitPointsConfig{EnduranceMultiplier: 3, LevelMultiplier: 2},
 			SpellPoints: config.SpellPointsConfig{LevelMultiplier: 2},
@@ -108,13 +109,12 @@ func TestPartyUpdateWithMode(t *testing.T) {
 	}
 
 	for _, tt := range []struct {
-		name        string
-		turnBased   bool
-		wantRegen   int // SP gained per member over two intervals
-		wantReports int // frames reporting a completed cadence
+		name      string
+		turnBased bool
+		wantRegen int // SP gained per member over two intervals
 	}{
-		{"real-time frames pay the cadence", false, 4, 2}, // Personality >= 10 => 2 SP per payout
-		{"turn-based frames pay nothing", true, 0, 0},
+		{"real-time frames pay the period", false, 4}, // Personality >= 10 => 2 SP per payout
+		{"turn-based frames pay nothing", true, 0},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			party := NewParty(cfg)
@@ -123,14 +123,8 @@ func TestPartyUpdateWithMode(t *testing.T) {
 				member.SpellPoints -= 5
 				start[i] = member.SpellPoints
 			}
-			reports := 0
-			for i := 0; i < 2*ManaRegenIntervalFrames; i++ {
-				if party.UpdateWithMode(tt.turnBased) {
-					reports++
-				}
-			}
-			if reports != tt.wantReports {
-				t.Errorf("frames reporting a cadence = %d, want %d", reports, tt.wantReports)
+			for i := 0; i < 2*(config.RegenerationSeconds*config.GetTargetTPS()); i++ {
+				party.UpdateWithMode(PartyClock{TurnBased: tt.turnBased})
 			}
 			for i, member := range party.Members {
 				if want := start[i] + tt.wantRegen; member.SpellPoints != want {
@@ -142,8 +136,6 @@ func TestPartyUpdateWithMode(t *testing.T) {
 
 	t.Run("empty party", func(t *testing.T) {
 		party := &Party{Members: make([]*MMCharacter, 0, 4)}
-		if party.UpdateWithMode(false) {
-			t.Error("an empty party reported a completed cadence")
-		}
+		party.UpdateWithMode(PartyClock{})
 	})
 }

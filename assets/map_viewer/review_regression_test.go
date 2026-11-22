@@ -24,7 +24,8 @@ func TestSavedItemAccentUsesTypeWithoutRarity(t *testing.T) {
 	}{
 		{items.ItemWeapon, cardWeapon}, {items.ItemArmor, cardItem}, {items.ItemAccessory, cardItem},
 		{items.ItemConsumable, cardItem}, {items.ItemQuest, cardItem}, {items.ItemTrinket, cardItem}, {items.ItemCard, cardItem},
-		{items.ItemBattleSpell, cardSpell}, {items.ItemUtilitySpell, cardSpell}, {items.ItemTrap, cardSpell},
+		{items.ItemBattleSpell, cardSpell}, {items.ItemUtilitySpell, cardSpell}, {items.ItemTrap, cardAction},
+		{items.ItemTechnique, cardAction}, {items.ItemThrowable, cardItem}, {items.ItemDevice, cardItem},
 	} {
 		for _, rarity := range []string{"", "legendary"} {
 			it := items.Item{Name: "Unknown saved item", Type: tc.kind, Rarity: rarity}
@@ -105,8 +106,7 @@ func TestSaveBrowserCollectionUsesLoadRulesReadOnly(t *testing.T) {
 	t.Cleanup(func() { storage.SetDataRootForTesting("") })
 	card := items.CreateItemFromYAML("troll_card")
 	card.InstanceID = 987
-	owned := stash.Stash{}
-	owned.CardSlots[0] = card
+	owned := stash.Stash{Album: map[string][]items.Item{"troll_card": {card}}}
 	if err := stash.Save(&owned); err != nil {
 		t.Fatal(err)
 	}

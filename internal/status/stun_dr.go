@@ -1,63 +1,59 @@
 package status
 
-// StunDRFactorsPct scales each stun that lands inside the reset window:
-// 100% -> 50% -> 25% -> 0% (immune), so no target, boss or hero, can be
-// stun-locked. The chain length is mode-agnostic; the reset window is tracked
-// per mode so a TB<->RT switch mid-fight never speeds up the reset.
-var StunDRFactorsPct = []int{100, 50, 25, 0}
+import "ugataima/internal/config"
 
-const (
-	StunDRResetTurns   = 4 // TB: stun-free turns that clear the chain
-	StunDRResetSeconds = 8 // RT: stun-free seconds that clear the chain
-)
+// Stun diminishing returns: each stun that lands inside the reset window lasts
+// the next share of the stun row's repeat_percents (100% -> 50% -> 25% -> 0%,
+// immune), so no target, boss or hero, can be stun-locked. The chain length is
+// mode-agnostic; the reset window (repeat_reset_seconds, whole rounds) is one
+// DualClock, so a TB<->RT switch mid-fight never speeds up the reset.
 
 // StunDRChain points at one target's diminishing-returns state, so monsters and
 // heroes share the rule while keeping their own saved fields.
 type StunDRChain struct {
-	Stacks, MemoryTurns, MemoryFrames *int
+	Stacks *int
+	Memory *DualClock
 }
 
-// Step scales a requested stun by the chain's current factor (rounding up),
-// advances the chain toward immunity and refreshes both reset windows.
-func (c StunDRChain) Step(turns, frames, tps int) (int, int) {
-	i := min(*c.Stacks, len(StunDRFactorsPct)-1)
-	pct := StunDRFactorsPct[i]
-	if *c.Stacks < len(StunDRFactorsPct)-1 {
+// Step scales a requested stun of rounds by the chain's current share (rounding
+// up), advances the chain toward immunity and restarts the reset window. It
+// returns the rounds that land and their RT frames.
+func (c StunDRChain) Step(rounds, tps int) (int, int) {
+	stun := config.Status("stun")
+	shares := stun.RepeatPercents
+	pct := shares[min(*c.Stacks, len(shares)-1)]
+	if *c.Stacks < len(shares)-1 {
 		*c.Stacks++
 	}
-	*c.MemoryTurns = StunDRResetTurns
-	*c.MemoryFrames = StunDRResetSeconds * tps
-	return ceilPct(turns, pct), ceilPct(frames, pct)
+	*c.Memory = DualClock{}
+	c.Memory.Arm(stun.RepeatResetSeconds, tps)
+	landed := ceilPct(rounds, pct)
+	return landed, config.RoundFrames(landed, tps)
 }
 
-// ForgetFrame counts one stun-free real-time frame toward clearing the chain.
-func (c StunDRChain) ForgetFrame() {
-	if *c.MemoryFrames > 0 {
-		*c.MemoryFrames--
-		if *c.MemoryFrames == 0 {
-			*c.Stacks, *c.MemoryTurns = 0, 0
-		}
-	}
-}
-
-// ForgetTurn counts one stun-free turn-based turn toward clearing the chain.
-func (c StunDRChain) ForgetTurn() {
-	if *c.MemoryTurns > 0 {
-		*c.MemoryTurns--
-		if *c.MemoryTurns == 0 {
-			*c.Stacks, *c.MemoryFrames = 0, 0
-		}
+// Forget counts one stun-free tick of the running mode toward clearing the
+// chain.
+func (c StunDRChain) Forget(turn bool) {
+	if c.Memory.Tick(turn) {
+		*c.Stacks = 0
 	}
 }
 
 // Reset clears the chain, e.g. after a rest.
 func (c StunDRChain) Reset() {
-	*c.Stacks, *c.MemoryTurns, *c.MemoryFrames = 0, 0, 0
+	*c.Stacks, *c.Memory = 0, DualClock{}
 }
 
-// ceilPct scales v by pct% (0-100), rounding UP. A TB stun is usually one
-// turn; floor division sent it to 0 below 100% while its RT twin stayed
-// nonzero, leaving the stun overlay stuck. Only pct 0 or v<=0 yields 0.
+// StunDRMemory restores a saved reset window at the one round rate.
+func StunDRMemory(frames, turns, tps int) DualClock {
+	if frames <= 0 && turns <= 0 {
+		return DualClock{}
+	}
+	return DualClock{Frames: frames, Turns: turns, Rate: config.RoundFrames(1, normalTPS(tps))}
+}
+
+// ceilPct scales v by pct% (0-100), rounding UP, so a stun short of immunity
+// keeps at least one round. Only pct 0 or v<=0 yields 0.
 func ceilPct(v, pct int) int {
 	if v <= 0 || pct <= 0 {
 		return 0

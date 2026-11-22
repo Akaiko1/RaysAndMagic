@@ -83,9 +83,9 @@ func tooltipCatalog(t *testing.T) (*CombatSystem, []itemTooltipCard) {
 		cards = append(cards, itemTooltipCard{name: "trap " + key, lines: text})
 	}
 	for _, key := range slices.Sorted(maps.Keys(config.GlobalSpells.Spells)) {
-		status := &UtilitySpellStatus{SpellID: spells.SpellID(key), Duration: 300 * cs.game.config.GetTPS()}
+		status := &BuffStatus{ID: key, Duration: 300 * cs.game.config.GetTPS()}
 		lines, _ := cs.game.buffStatusCardRows(status)
-		cards = append(cards, itemTooltipCard{name: "status " + key, lines: lines, icon: spellTooltipIconName(status.SpellID)})
+		cards = append(cards, itemTooltipCard{name: "status " + key, lines: lines, icon: spellTooltipIconName(spells.SpellID(status.ID))})
 	}
 	campLines, _ := cs.game.campStatusCardRows()
 	cards = append(cards, itemTooltipCard{name: "camp", lines: campLines, icon: campHUDSprite})

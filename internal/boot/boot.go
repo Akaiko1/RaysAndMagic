@@ -30,6 +30,8 @@ func LoadGameData() (*config.Config, *monster.MonsterYAMLConfig) {
 	}
 
 	cfg := config.MustLoadConfig("config.yaml")
+	// Statuses first: every catalog below validates its durations against them.
+	config.MustLoadStatuses("assets/statuses.yaml")
 	config.MustLoadSpellConfig("assets/spells.yaml")
 	config.MustLoadWeaponConfig("assets/weapons.yaml")
 	if err := config.ValidateWeaponSpellReferences(config.GlobalWeapons, config.GlobalSpells); err != nil {
@@ -86,6 +88,9 @@ func LoadGameData() (*config.Config, *monster.MonsterYAMLConfig) {
 	}
 	if err := character.ValidateAlchemyTradeMaterials(config.GlobalAlchemy, character.NPCConfigInstance); err != nil {
 		log.Fatalf("Alchemy materials: %v", err)
+	}
+	if err := character.ValidateRaceSkills(cfg); err != nil {
+		log.Fatalf("Race skills: %v", err)
 	}
 	if err := character.ValidateHeroPitches(cfg); err != nil {
 		log.Fatalf("Hero pitches: %v", err)
@@ -167,7 +172,7 @@ func validateDuelChoices(npcKey string, dlg *character.NPCDialogue, monsterCfg *
 				continue
 			}
 			if c.Action == "start_arena_duel" {
-				if config.GlobalChampionConfig == nil || config.GlobalChampionConfig.Tiers[c.Tier] == nil {
+				if config.GetChampionTier(c.Tier) == nil {
 					log.Fatalf("NPC %q: start_arena_duel choice %q has unknown tier %q", npcKey, c.Text, c.Tier)
 				}
 				found := false

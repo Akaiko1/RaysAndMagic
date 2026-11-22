@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hajimehoshi/ebiten/v2"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
@@ -16,6 +15,8 @@ import (
 	"ugataima/internal/playerprofile"
 	"ugataima/internal/spells"
 	"ugataima/internal/world"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 // loadShippedAchievements installs the shipped catalog until the test ends.
@@ -203,7 +204,6 @@ func TestProfileDamageUsesActualHPLossAndSurvival(t *testing.T) {
 			m := &monster.Monster3D{Key: "goblin", Name: "Goblin"}
 			// Eradication makes the overkill case deterministic.
 			hit := hitFromMonster(m, tc.damage, "physical", true, 0, false, false)
-			hit.IgnoresDodge = true
 			if tc.damage > 40 {
 				hit.DisintegrateChance = 1
 			}

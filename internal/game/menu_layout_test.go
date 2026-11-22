@@ -93,6 +93,19 @@ func TestMenuLayout_NoCollisions(t *testing.T) {
 			},
 		},
 		{
+			name: "collection",
+			build: func(w, h int) []func() (string, uiBox, []uiBox) {
+				var cases []func() (string, uiBox, []uiBox)
+				for _, tab := range []int{collectionTabShowcase, collectionTabBinder} {
+					cases = append(cases, func() (string, uiBox, []uiBox) {
+						r, b := collectionLayoutBoxes(w, h, tab)
+						return fmt.Sprintf("collection/tab%d", tab), r, b
+					})
+				}
+				return cases
+			},
+		},
+		{
 			name: "save-menu",
 			build: func(w, h int) []func() (string, uiBox, []uiBox) {
 				var cases []func() (string, uiBox, []uiBox)

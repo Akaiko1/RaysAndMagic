@@ -4,11 +4,12 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/hajimehoshi/ebiten/v2"
 	"ugataima/internal/character"
 	"ugataima/internal/game/keytracker"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 var campHUDResolutions = [][2]int{{800, 600}, {1024, 768}, {1280, 720}, {1280, 800}, {1366, 768}, {1440, 900}, {1600, 900}, {1680, 1050}, {1920, 1080}, {1920, 1200}, {2560, 1440}, {3440, 1440}, {3840, 2160}}
@@ -16,36 +17,46 @@ var campHUDResolutions = [][2]int{{800, 600}, {1024, 768}, {1280, 720}, {1280, 8
 func TestCampHUDLayout(t *testing.T) {
 	for _, res := range withInterfaceFrames(t, campHUDResolutions) {
 		for _, quick := range []bool{false, true} {
-			t.Run(fmt.Sprintf("%dx%d/quick=%v", res[0], res[1], quick), func(t *testing.T) {
-				g, ch := newThiefTestGame(t)
-				g.config.Display.ScreenWidth, g.config.Display.ScreenHeight = res[0], res[1]
-				ch.QuickSlots = [character.QuickSlotCount]*items.Item{}
-				if quick {
-					ch.QuickSlots[0] = &items.Item{Name: "Potion"}
-				}
-				l, visible := inGameActionBarLayout(g)
-				if !visible || l.hasQuick != quick {
-					t.Fatal("camp availability depends on quick-slot contents")
-				}
-				_, _, _, partyY := partyPortraitLayout(g)
-				viewport := uiBox{"viewport", 0, 0, res[0], partyY}
-				if !viewport.contains(namedLayoutBox("actions", l.bounds)) || l.camp.w < 48 || l.camp.w != l.camp.h {
-					t.Fatalf("unreadable/out-of-bounds camp: %+v", l)
-				}
-				if quick && namedLayoutBox("camp", l.camp).overlaps(namedLayoutBox("slots", l.quick)) {
-					t.Fatal("camp covers quick slots")
-				}
-				for _, lines := range []int{1, 4} {
-					x, y, w, h := g.hudMessageBlockRect(lines)
-					if (uiBox{"chat", x, y, w, h}).overlaps(namedLayoutBox("actions", l.bounds)) || y < 0 {
-						t.Fatal("combat log overlaps the action rail or leaves viewport")
+			for _, auto := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%dx%d/quick=%v/auto=%v", res[0], res[1], quick, auto), func(t *testing.T) {
+					g, ch := newThiefTestGame(t)
+					g.config.Display.ScreenWidth, g.config.Display.ScreenHeight = res[0], res[1]
+					ch.QuickSlots = [character.QuickSlotCount]*items.Item{}
+					if quick {
+						ch.QuickSlots[0] = &items.Item{Name: "Potion"}
 					}
-				}
-				g.menuOpen = true
-				if _, visible := inGameActionBarLayout(g); visible {
-					t.Fatal("camp remained active under the character hub")
-				}
-			})
+					if auto {
+						// Any hero's points show the party AUTO, not only the selected hero's.
+						g.party.Members[len(g.party.Members)-1].FreeStatPoints = 3
+					}
+					l, visible := inGameActionBarLayout(g)
+					if !visible || l.hasQuick != quick || l.hasAuto != auto {
+						t.Fatal("camp availability depends on quick-slot contents, or AUTO ignores stat points")
+					}
+					_, _, _, partyY := partyPortraitLayout(g)
+					viewport := uiBox{"viewport", 0, 0, res[0], partyY}
+					actions := namedLayoutBox("actions", l.bounds)
+					if !viewport.contains(actions) || l.camp.w < 48 || l.camp.w != l.camp.h {
+						t.Fatalf("unreadable/out-of-bounds camp: %+v", l)
+					}
+					if quick && namedLayoutBox("camp", l.camp).overlaps(namedLayoutBox("slots", l.quick)) {
+						t.Fatal("camp covers quick slots")
+					}
+					if auto && (l.auto != layoutRect{l.camp.x - 8 - l.camp.w, l.camp.y, l.camp.w, l.camp.h} || !actions.contains(namedLayoutBox("auto", l.auto))) {
+						t.Fatalf("AUTO %+v is not the camp-sized cell left of the camp inside the rail %+v", l.auto, l.bounds)
+					}
+					for _, lines := range []int{1, 4} {
+						x, y, w, h := g.hudMessageBlockRect(lines)
+						if (uiBox{"chat", x, y, w, h}).overlaps(namedLayoutBox("actions", l.bounds)) || y < 0 {
+							t.Fatal("combat log overlaps the action rail or leaves viewport")
+						}
+					}
+					g.menuOpen = true
+					if _, visible := inGameActionBarLayout(g); visible {
+						t.Fatal("camp remained active under the character hub")
+					}
+				})
+			}
 		}
 	}
 }
@@ -186,7 +197,7 @@ func TestCampPresentationRetiresWithTimeline(t *testing.T) {
 				if state == "confirmation" {
 					g.campConfirmOpen = true
 				} else {
-					g.beginCampRest()
+					g.beginCampRest(false)
 				}
 				if g.campConfirmOpen != (state == "confirmation") || (g.campRest != nil) != (state == "animation") {
 					t.Fatal("fixture did not establish the requested camp state")

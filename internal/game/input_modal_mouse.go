@@ -7,55 +7,16 @@ import "ugataima/internal/character"
 // and wheel handlers never invoke these adapters.
 func (ih *InputHandler) handleMainMenuMouseInput() {
 	g := ih.game
+	if g.mainMenuMode != MenuMain { // the save lists register their own clicks
+		return
+	}
 	panel := mainMenuPanelRect(g.config.GetScreenWidth(), g.config.GetScreenHeight(), g.mainMenuMode)
 	px, py, panelW, panelH := panel.x, panel.y, panel.w, panel.h
-	switch g.mainMenuMode {
-	case MenuMain:
-		x, y, ok := g.leftClickPosition()
-		if ok && g.consumeLeftClickIn(px, py, px+panelW, py+panelH) {
-			ih.mainMenuHoverSelect(x, y, len(mainMenuOptions), panelW, panelH, mainMenuListTopY, mainMenuRowPitch)
-			ih.activateMainMenuSelection()
-		}
-	case MenuSaveSelect:
-		ih.handleSaveLoadMouseInput(px, py, panelW, panelH, true, ih.doSaveToSelectedRow)
-	case MenuLoadSelect:
-		ih.handleSaveLoadMouseInput(px, py, panelW, panelH, false, ih.doLoadFromSelectedRow)
-	}
-}
-
-func (ih *InputHandler) handleSaveLoadMouseInput(px, py, panelW, panelH int, allowRename bool, activate func()) bool {
-	g := ih.game
-	if g.saveRenameOpen {
-		return false
-	}
-	if ih.navigateSavePageMouse(px, py, panelW, panelH) {
-		return true
-	}
-	// Rename exists only on the Save surface, never on Load or Autosave.
-	if allowRename && ih.handleSaveRowRename(px, py, panelW) {
-		return true
-	}
 	x, y, ok := g.leftClickPosition()
-	if ok && g.consumeLeftClickIn(px, py+saveMenuListTopY-6, px+panelW, py+saveMenuListTopY-6+saveRowsPerPage*saveMenuRowPitch) {
-		ih.mainMenuHoverSelect(x, y, saveRowsPerPage, panelW, panelH, saveMenuListTopY, saveMenuRowPitch)
-		activate()
-		return true
+	if ok && g.consumeLeftClickIn(px, py, px+panelW, py+panelH) {
+		ih.mainMenuHoverSelect(x, y, len(mainMenuOptions), panelW, panelH, mainMenuListTopY, mainMenuRowPitch)
+		ih.activateMainMenuSelection()
 	}
-	return false
-}
-
-func (ih *InputHandler) navigateSavePageMouse(px, py, panelW, panelH int) bool {
-	g := ih.game
-	pl, pr := savePagerButtonRects(px, py, panelW, panelH)
-	switch {
-	case g.consumeLeftClickIn(pl.x1, pl.y1, pl.x2, pl.y2):
-		g.savePage = (g.savePage + savePageCount - 1) % savePageCount
-	case g.consumeLeftClickIn(pr.x1, pr.y1, pr.x2, pr.y2):
-		g.savePage = (g.savePage + 1) % savePageCount
-	default:
-		return false
-	}
-	return true
 }
 
 func (ih *InputHandler) handleLevelUpChoiceMouseInput() {
@@ -64,10 +25,10 @@ func (ih *InputHandler) handleLevelUpChoiceMouseInput() {
 	if req == nil || len(req.options) == 0 {
 		return
 	}
-	x, _, w, _, startY, rowH := levelUpChoiceLayout(req, g.config.GetScreenWidth(), g.config.GetScreenHeight())
+	p := makeLevelUpChoicePanel(req, g.config.GetScreenWidth(), g.config.GetScreenHeight())
 	for i := range req.options {
-		y := startY + i*rowH
-		if g.consumeLeftClickIn(x+16, y-2, x+w-16, y-2+rowH) {
+		r := p.target(i)
+		if g.consumeLeftClickIn(r.x, r.y, r.right(), r.bottom()) {
 			req.selection = i
 			if req.isMultiSelect() {
 				g.toggleLevelUpSelection(i)
@@ -78,8 +39,8 @@ func (ih *InputHandler) handleLevelUpChoiceMouseInput() {
 		}
 	}
 	if req.isMultiSelect() {
-		y := startY + len(req.options)*rowH
-		if g.consumeLeftClickIn(x+16, y-2, x+w-16, y-2+rowH) {
+		r := p.confirm
+		if g.consumeLeftClickIn(r.x, r.y, r.right(), r.bottom()) {
 			req.selection = req.confirmRowIndex()
 			g.confirmLevelUpSelections()
 		}

@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"ugataima/internal/character"
+	"ugataima/internal/config"
 )
 
 // sorcererIndex returns the party slot of the (first) Sorcerer.
@@ -45,6 +46,7 @@ func TestApplyLichPromotion_UnlocksDarkAndPicks2(t *testing.T) {
 	if req.maxSelections != 2 {
 		t.Errorf("picker maxSelections = %d, want 2", req.maxSelections)
 	}
+	assertPromotionOffersSchool(t, g, "dark")
 
 	// Cap enforcement: a third toggle is ignored.
 	g.toggleLevelUpSelection(0)
@@ -82,10 +84,29 @@ func TestApplyArchmagePromotion_UnlocksLight(t *testing.T) {
 	if req == nil || req.maxSelections != 2 {
 		t.Fatalf("a 2-pick Light spell picker should be open, got %+v", req)
 	}
+	assertPromotionOffersSchool(t, g, "light")
 	g.toggleLevelUpSelection(0)
 	g.toggleLevelUpSelection(1)
 	g.confirmLevelUpSelections()
 	if learned := len(m.MagicSchools[character.MagicSchoolLight].KnownSpells); learned != 2 {
 		t.Errorf("learned %d Light spells, want 2", learned)
+	}
+}
+
+func assertPromotionOffersSchool(t *testing.T, g *MMGame, school string) {
+	t.Helper()
+	want := config.GetSpellsBySchool(school)
+	req := g.currentLevelUpChoice()
+	if len(req.options) != len(want) {
+		t.Fatalf("promotion offers %d spells, school contains %d", len(req.options), len(want))
+	}
+	for _, key := range want {
+		found := false
+		for _, option := range req.options {
+			found = found || string(option.spellID) == key
+		}
+		if !found {
+			t.Errorf("promotion omitted %s", key)
+		}
 	}
 }

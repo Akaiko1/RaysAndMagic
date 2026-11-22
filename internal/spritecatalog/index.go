@@ -10,14 +10,17 @@ import (
 	"ugataima/internal/assetmanifest"
 )
 
+// Root holds every sprite folder; indexed paths start with it.
+const Root = "assets/sprites"
+
 // spriteBaseDirs are the roots indexed by basename (recursively). Each maps to
 // the placeholder type used when a named sprite is missing. floor/ and sky/ are
 // loaded separately via resolveNamedPNG and intentionally omitted here.
 var spriteBaseDirs = []struct{ dir, typ string }{
-	{"assets/sprites/mobs", "npc_mob"},
-	{"assets/sprites/characters", "npc_mob"},
-	{"assets/sprites/environment", "environment"},
-	{"assets/sprites/interface", "interface"},
+	{Root + "/mobs", "npc_mob"},
+	{Root + "/characters", "npc_mob"},
+	{Root + "/environment", "environment"},
+	{Root + "/interface", "interface"},
 }
 
 // isIgnoredSpriteDir reports folders excluded from the sprite index: archives

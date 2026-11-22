@@ -4,7 +4,7 @@ import "fmt"
 
 type AutoDrinkConfig struct {
 	ThresholdPct    int     `yaml:"threshold_pct"`
-	IntervalSeconds float64 `yaml:"interval_seconds"`
+	IntervalSeconds float64 `yaml:"interval_seconds"` // Timer exception: may be a non-whole-round span, its TB rounds round up
 }
 
 func (c AutoDrinkConfig) Validate() error {

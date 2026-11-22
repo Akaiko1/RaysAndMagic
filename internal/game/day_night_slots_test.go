@@ -47,9 +47,10 @@ func livePhasePack(w *world.World3D, night bool) []*monster.Monster3D {
 	return result
 }
 
-// Case table: all rows cross day/night and active/inactive maps. RT/TB share
-// syncDayNightPacks; both are exercised. Modern/legacy save and merged-region
-// projection are covered separately below. Counts are caps, never retries.
+// Case table: all rows cross day/night and active/inactive maps.
+// syncDayNightPacks reads no combat mode, so the rows run in RT. Modern and
+// legacy saves and merged-region projection are covered separately below.
+// Counts are caps, never retries.
 func TestDayNightPacksUseVacantAuthoredSlots(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -114,46 +115,44 @@ func TestDayNightPacksUseVacantAuthoredSlots(t *testing.T) {
 	for _, tc := range cases {
 		for _, active := range []bool{false, true} {
 			for _, night := range []bool{false, true} {
-				for _, tb := range []bool{false, true} {
-					t.Run(fmt.Sprintf("%s/active=%v/night=%v/TB=%v", tc.name, active, night, tb), func(t *testing.T) {
-						g, _, w := packSlotTestGame(t, active)
-						g.turnBasedMode = tb
-						for _, m := range w.Monsters[:tc.killed] {
-							m.HitPoints = 0
+				t.Run(fmt.Sprintf("%s/active=%v/night=%v", tc.name, active, night), func(t *testing.T) {
+					g, _, w := packSlotTestGame(t, active)
+					g.turnBasedMode = false
+					for _, m := range w.Monsters[:tc.killed] {
+						m.HitPoints = 0
+					}
+					if tc.setup != nil {
+						tc.setup(g, w, night)
+					}
+					g.syncDayNightPacks(night)
+					if active {
+						(&GameLoop{game: g}).removeDeadMonstersByID()
+					}
+					pack := livePhasePack(w, night)
+					if len(pack) != tc.want {
+						t.Fatalf("spawned %d, want %d", len(pack), tc.want)
+					}
+					seen := make(map[[2]int]bool)
+					for _, m := range pack {
+						pos := [2]int{TileIndex(m.X, g.config.GetTileSize()), TileIndex(m.Y, g.config.GetTileSize())}
+						if seen[pos] {
+							t.Fatal("two pack monsters share a slot")
 						}
-						if tc.setup != nil {
-							tc.setup(g, w, night)
+						seen[pos] = true
+						if pos[1] != 20 || pos[0] < 20 || pos[0] > 28 || pos[0]%2 != 0 {
+							t.Fatalf("spawn outside authored slots: %v", pos)
 						}
-						g.syncDayNightPacks(night)
-						if active {
-							(&GameLoop{game: g}).removeDeadMonstersByID()
+						if m.SpawnX != m.X || m.SpawnY != m.Y {
+							t.Fatal("pack home does not reserve its slot")
 						}
-						pack := livePhasePack(w, night)
-						if len(pack) != tc.want {
-							t.Fatalf("spawned %d, want %d", len(pack), tc.want)
+						if active && g.collisionSystem.GetEntityByID(m.ID) == nil {
+							t.Fatal("pack missing collision registration")
 						}
-						seen := make(map[[2]int]bool)
-						for _, m := range pack {
-							pos := [2]int{TileIndex(m.X, g.config.GetTileSize()), TileIndex(m.Y, g.config.GetTileSize())}
-							if seen[pos] {
-								t.Fatal("two pack monsters share a slot")
-							}
-							seen[pos] = true
-							if pos[1] != 20 || pos[0] < 20 || pos[0] > 28 || pos[0]%2 != 0 {
-								t.Fatalf("spawn outside authored slots: %v", pos)
-							}
-							if m.SpawnX != m.X || m.SpawnY != m.Y {
-								t.Fatal("pack home does not reserve its slot")
-							}
-							if active && g.collisionSystem.GetEntityByID(m.ID) == nil {
-								t.Fatal("pack missing collision registration")
-							}
-							if tc.name == "mixed pack shares vacancies" && m.QuestProgressIgnored != (m.Key != "forest_spider") {
-								t.Fatal("quest eligibility changed")
-							}
+						if tc.name == "mixed pack shares vacancies" && m.QuestProgressIgnored != (m.Key != "forest_spider") {
+							t.Fatal("quest eligibility changed")
 						}
-					})
-				}
+					}
+				})
 			}
 		}
 	}

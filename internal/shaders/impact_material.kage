@@ -4,14 +4,23 @@ package main
 //include weapon_noise.kageinc
 
 // Clouds and shards share one program so consecutive source-over draws batch
-// without moving clouds ahead of other impacts' fragments. Negative custom.w
-// selects cloud material; shards retain their positive reflectivity.
+// without moving clouds ahead of other impacts' fragments. custom.w carries
+// impactCloudMarker for a cloud; shards retain their positive reflectivity.
+// Cloud encoding by name: the impactCloud* constants in render_spell_material.go;
+// TestShaderConstantsMatchGo keeps the values equal.
+const (
+	impactCloudMarker = -1
+	impactCloudHot = 0
+	impactCloudDust = 1
+)
+
 func Fragment(dst vec4, uv vec2, color vec4, custom vec4) vec4 {
     // Derivatives must be evaluated before the per-primitive material branch.
     bary := vec3(uv, 1.0-uv.x-uv.y)
     d := min(bary.x, bary.y, bary.z)
     aa := min(0.06, max(0.006, fwidth(d)*0.5))
-    if custom.w < 0.0 {
+    marker := floor(custom.w + .5) // shard reflectivity rounds to 0 or 1
+    if marker == impactCloudMarker {
         return impactCloud(uv, color, custom)
     }
     return impactShard(uv, color, custom, d, aa)
@@ -20,7 +29,8 @@ func Fragment(dst vec4, uv vec2, color vec4, custom vec4) vec4 {
 // A spreading mass of rolling dust/heat. Geometry supplies projected scale;
 // the shader only shapes the material within it. No circular outline or blur.
 func impactCloud(p vec2, color vec4, custom vec4) vec4 {
-	age, seed, kind := custom.x, custom.y, custom.z
+	age, seed := custom.x, custom.y
+	kind := floor(custom.z + .5) // an exact id, safe from interpolation error
 	q := p/(0.16+0.84*sqrt(age))
 	n := fxNoise(q*3.0+vec2(seed, -age*2.8))*0.67+fxNoise(q*7.1+seed+age)*0.33
 	r := length(q)
@@ -31,7 +41,7 @@ func impactCloud(p vec2, color vec4, custom vec4) vec4 {
 	front := smoothstep(0.25, 0.7, r)*(1.0-smoothstep(0.55, 0.95, r))
 	heat := max(0.0, 1.0-age*2.2)*(1.0-r*0.5)
 	tint := color.rgb*(0.35+n*0.7)
-	if kind < 0.5 {
+	if kind == impactCloudHot {
 		tint = mix(color.rgb*0.18, color.rgb*1.15, heat)
 		tint = mix(tint, vec3(1.0, 0.92, 0.66), heat*heat)
 	} else {

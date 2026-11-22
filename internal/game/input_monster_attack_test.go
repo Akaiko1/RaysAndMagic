@@ -5,7 +5,6 @@ import (
 	"math"
 	"testing"
 
-	"github.com/hajimehoshi/ebiten/v2"
 	"ugataima/internal/character"
 	"ugataima/internal/collision"
 	"ugataima/internal/game/keytracker"
@@ -14,6 +13,8 @@ import (
 	"ugataima/internal/monster"
 	"ugataima/internal/spells"
 	"ugataima/internal/threading"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 func mouseCombatHarness(t *testing.T, tb bool) (*MMGame, *InputHandler, *fakePointer, *monster.Monster3D, func()) {
@@ -31,7 +32,7 @@ func mouseCombatHarness(t *testing.T, tb bool) (*MMGame, *InputHandler, *fakePoi
 	g.world.Monsters = []*monster.Monster3D{m}
 	for _, ch := range g.party.Members {
 		ch.HitPoints = ch.MaxHitPoints
-		delete(ch.Equipment, items.SlotSpell)
+		delete(ch.Equipment, items.SlotQuickAction)
 		ch.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("iron_sword")
 		ch.ActionsRemaining = 10
 		ch.RTCooldown, ch.OffHandRTCooldown = 0, 0
@@ -43,6 +44,7 @@ func mouseCombatHarness(t *testing.T, tb bool) (*MMGame, *InputHandler, *fakePoi
 	ih.heldKeys = heldOnly()
 	ui := &UISystem{game: g}
 	r := &Renderer{game: g}
+	g.renderHelper = NewRenderingHelper(g) // the game builds both together
 	g.gameLoop = &GameLoop{game: g, inputHandler: ih, ui: ui, renderer: r}
 	r.beginMonsterPickFrame()
 	r.monsterPick.hits = []monsterPickHit{{monster: m, left: 250, top: 150, size: 140, depth: ts}}
@@ -51,8 +53,8 @@ func mouseCombatHarness(t *testing.T, tb bool) (*MMGame, *InputHandler, *fakePoi
 	tick := func() {
 		g.frameCount++
 		g.uiFrameCount++
-		if g.spellInputCooldown > 0 {
-			g.spellInputCooldown--
+		if g.actionInputStagger > 0 {
+			g.actionInputStagger--
 		}
 		for _, ch := range g.party.Members {
 			if ch.RTCooldown > 0 {
@@ -72,9 +74,9 @@ func mouseCombatHarness(t *testing.T, tb bool) (*MMGame, *InputHandler, *fakePoi
 // the current clock: the RT frame delay or the authored TB delay.
 func mouseHoldRepeatTicks(g *MMGame) int {
 	if g.turnBasedMode {
-		return int(math.Ceil(g.config.UI.TurnBasedMouseHold.DelaySeconds*float64(g.config.GetTPS()))) + 1
+		return g.framesForSeconds(g.config.UI.TurnBasedMouseHold.DelaySeconds) + 1
 	}
-	return rtHoldRepeatDelay + 1
+	return g.framesForSeconds(rtHoldRepeatSeconds) + 1
 }
 
 // partySummonKinds lists every pure-summon source the party can own: card
@@ -168,7 +170,7 @@ func TestMouseSmartAttackTBCadence(t *testing.T) {
 			switch tc.action {
 			case "spell":
 				hero.LearnSpell("fireball")
-				hero.Equipment[items.SlotSpell] = items.Item{Type: items.ItemBattleSpell, SpellEffect: "fireball", SpellCost: 4}
+				hero.Equipment[items.SlotQuickAction] = items.Item{Type: items.ItemBattleSpell, SpellEffect: "fireball", SpellCost: 4}
 				hero.SpellPoints, hero.MaxSpellPoints = 1000, 1000
 			case "flask":
 				hero.Skills[character.SkillBombThrowing] = &character.Skill{Mastery: character.MasteryNovice}
@@ -190,7 +192,11 @@ func TestMouseSmartAttackTBCadence(t *testing.T) {
 			assertActions := func(want int) {
 				t.Helper()
 				shots := len(g.slashEffects)
-				if tc.action != "weapon" {
+				switch tc.action {
+				case "weapon":
+				case "flask":
+					shots = len(g.flasks)
+				default:
 					shots = len(g.magicProjectiles)
 				}
 				if shots != want || hero.ActionsRemaining != 20-want {
@@ -290,7 +296,7 @@ func TestMouseSmartAttackOwnershipAndGates(t *testing.T) {
 				case "stash picked up":
 					g.stashDragPickedUp = true
 				case "cooldown":
-					g.spellInputCooldown = 1000
+					g.actionInputStagger = 1000
 				case "turn":
 					if tb {
 						g.currentTurn = 1
@@ -302,7 +308,7 @@ func TestMouseSmartAttackOwnershipAndGates(t *testing.T) {
 					}
 				}
 				before := len(g.slashEffects)
-				for i := 0; i < rtHoldRepeatDelay+30; i++ {
+				for i := 0; i < g.framesForSeconds(rtHoldRepeatSeconds)+30; i++ {
 					tick()
 				}
 				if len(g.slashEffects) != before {
@@ -393,7 +399,7 @@ func TestMouseSmartAttackStickyDisplayedPose(t *testing.T) {
 					}
 					switch change {
 					case "hit shake":
-						m.HitTintFrames = MonsterHitFlashFrames
+						m.HitTintFrames = g.monsterHitFlashFrames()
 					case "attack frame":
 						s.sprite = attack.Frames[1]
 					case "mirror":
@@ -447,7 +453,7 @@ func TestMouseSmartAttackStickyDisplayedPose(t *testing.T) {
 						}
 						g.currentTurn = 0
 					}
-					for range rtHoldRepeatDelay + 120 {
+					for range g.framesForSeconds(rtHoldRepeatSeconds) + 120 {
 						tick()
 					}
 					if ih.mouseAttackTarget != m || m.HitPoints >= hp {
@@ -481,7 +487,7 @@ func TestMouseSmartAttackStickyInput(t *testing.T) {
 					g.gameLoop.renderer.monsterPick.hits = append(g.gameLoop.renderer.monsterPick.hits, monsterPickHit{monster: want, left: 250, top: 150, size: 140, depth: 32})
 				}
 				hp := want.HitPoints
-				for range rtHoldRepeatDelay + 120 {
+				for range g.framesForSeconds(rtHoldRepeatSeconds) + 120 {
 					tick()
 				}
 				if ih.mouseAttackTarget != want || want.HitPoints >= hp {
@@ -537,7 +543,7 @@ func TestMouseSmartAttackDynamicAcquisition(t *testing.T) {
 				if entry != "kill behind" {
 					fp.moveTo(50, 50)
 				}
-				for range rtHoldRepeatDelay {
+				for range g.framesForSeconds(rtHoldRepeatSeconds) {
 					tick()
 				}
 				if entry != "kill behind" {
@@ -614,7 +620,7 @@ func TestMouseSmartAttackDynamicAcquisitionCancellation(t *testing.T) {
 				} else {
 					fp.hold() // Any held press can acquire once gameplay is available.
 				}
-				for range rtHoldRepeatDelay + 120 {
+				for range g.framesForSeconds(rtHoldRepeatSeconds) + 120 {
 					tick()
 				}
 				if reason == "release" || reason == "world" {
@@ -637,7 +643,7 @@ func TestMouseHoldResumesWhenSprintEnds(t *testing.T) {
 	fp.press()
 	tick()
 	fp.hold()
-	for range rtHoldRepeatDelay + 60 {
+	for range g.framesForSeconds(rtHoldRepeatSeconds) + 60 {
 		tick()
 	}
 	if len(g.slashEffects) != 0 {
@@ -647,7 +653,7 @@ func TestMouseHoldResumesWhenSprintEnds(t *testing.T) {
 		t.Fatal("sprinting dropped the held target")
 	}
 	ih.heldKeys = heldOnly()
-	for range rtHoldRepeatDelay + 60 {
+	for range g.framesForSeconds(rtHoldRepeatSeconds) + 60 {
 		tick()
 	}
 	if len(g.slashEffects) == 0 {
@@ -660,7 +666,7 @@ func TestMouseSmartAttackPreservesHealingPriority(t *testing.T) {
 		g, _, fp, _, tick := mouseCombatHarness(t, tb)
 		caster := g.party.Members[0]
 		caster.LearnSpell("heal_other")
-		caster.Equipment[items.SlotSpell] = items.Item{Name: "Heal", Type: items.ItemUtilitySpell, SpellEffect: items.SpellEffectHealOther, SpellCost: 4}
+		caster.Equipment[items.SlotQuickAction] = items.Item{Name: "Heal", Type: items.ItemUtilitySpell, SpellEffect: items.SpellEffectHealOther, SpellCost: 4}
 		caster.SpellPoints, caster.MaxSpellPoints = 50, 50
 		hurt := g.party.Members[1]
 		hurt.HitPoints = hurt.MaxHitPoints * 30 / 100
@@ -682,12 +688,12 @@ func TestMouseSmartAttackSpellAndSharedInput(t *testing.T) {
 				switch entry {
 				case "spell":
 					caster.LearnSpell("fireball")
-					caster.Equipment[items.SlotSpell] = items.Item{Type: items.ItemBattleSpell, SpellEffect: "fireball", SpellCost: 4}
+					caster.Equipment[items.SlotQuickAction] = items.Item{Type: items.ItemBattleSpell, SpellEffect: "fireball", SpellCost: 4}
 					caster.SpellPoints, caster.MaxSpellPoints = 100, 100
 				case "simultaneous keyboard":
 					ih.keys = keytracker.NewWithSource(func(k ebiten.Key) bool { return k == ebiten.KeyR })
 				case "initial cooldown":
-					g.spellInputCooldown = 30
+					g.actionInputStagger = 30
 				}
 				facing := g.camera.Angle
 				fp.press()
@@ -821,7 +827,7 @@ func TestMouseSmartAttackHoverAcquisitionPolicy(t *testing.T) {
 						r.monsterPick.hits = append(r.monsterPick.hits, victimHit)
 					}
 					firstHP := first.HitPoints
-					for range rtHoldRepeatDelay + 120 {
+					for range g.framesForSeconds(rtHoldRepeatSeconds) + 120 {
 						tick()
 					}
 					acquirable := kind != "caravan" && kind != "charmed" && !summon
@@ -916,18 +922,18 @@ func TestPartyActionChainsPastSelectedMember(t *testing.T) {
 func TestEnsureTBActorUsesActionCapability(t *testing.T) {
 	g, _, _, _, _ := mouseCombatHarness(t, true)
 	caster := g.party.Members[2]
-	caster.Equipment[items.SlotSpell] = items.Item{Type: items.ItemBattleSpell, SpellEffect: "fireball", SpellCost: 4}
+	caster.Equipment[items.SlotQuickAction] = items.Item{Type: items.ItemBattleSpell, SpellEffect: "fireball", SpellCost: 4}
 	caster.SpellPoints = caster.MaxSpellPoints
-	if !g.actionCapable(2, rtActCast) || g.actionCapable(0, rtActCast) {
+	if !g.actionCapable(2, rtActSlotted) || g.actionCapable(0, rtActSlotted) {
 		t.Fatal("bad caster fixture")
 	}
 	g.selectedChar, g.parkSelection = 0, true
-	if !g.ensureTBActor(rtActCast) || g.selectedChar != 2 || g.parkSelection {
+	if !g.ensureTBActor(rtActSlotted) || g.selectedChar != 2 || g.parkSelection {
 		t.Fatalf("cast request selected %d parked=%v, want the capable caster", g.selectedChar, g.parkSelection)
 	}
 	caster.ActionsRemaining = 0
 	g.selectedChar = 0
-	if g.ensureTBActor(rtActCast) || g.selectedChar != 0 {
+	if g.ensureTBActor(rtActSlotted) || g.selectedChar != 0 {
 		t.Fatalf("cast request with no capable actor moved selection to %d", g.selectedChar)
 	}
 	if !g.ensureTBActor(rtActSmart) || g.selectedChar != 0 {
@@ -1007,7 +1013,7 @@ func TestMouseSmartAttackHeldTargetPausesOutsideViewport(t *testing.T) {
 					}
 					r.monsterPick.hits = []monsterPickHit{moved}
 					hp := m.HitPoints
-					for range rtHoldRepeatDelay + 120 {
+					for range g.framesForSeconds(rtHoldRepeatSeconds) + 120 {
 						tick()
 					}
 					r.selectMonsterHover()
@@ -1034,37 +1040,76 @@ func TestMouseSmartAttackHeldTargetPausesOutsideViewport(t *testing.T) {
 	}
 }
 
-// RT/TB: an injured member without a heal is selected and the cursor is off
-// the portraits. C hands the cast to the healer, who heals the selected member
-// rather than themselves.
-func TestHealHandoffKeepsSelectedRecipient(t *testing.T) {
-	for _, unconscious := range []bool{false, true} {
-		for _, tb := range []bool{false, true} {
-			t.Run(fmt.Sprintf("TB=%v/KO=%v", tb, unconscious), func(t *testing.T) {
-				g, ih, fp, _, tick := mouseCombatHarness(t, tb)
-				fp.moveTo(5, 5)
-				g.showPartyStats = false
-				for _, ch := range g.party.Members {
-					ch.MagicSchools = nil
-				}
-				patient, healer := g.party.Members[0], g.party.Members[1]
-				patient.HitPoints = 1
-				if unconscious {
-					patient.AddCondition(character.ConditionUnconscious)
-				}
-				healer.MagicSchools = map[character.MagicSchoolID]*character.MagicSkill{
-					character.MagicSchoolBody: {Mastery: character.MasteryNovice, KnownSpells: []spells.SpellID{"heal_other"}},
-				}
-				healer.MaxSpellPoints, healer.SpellPoints = 50, 50
-				g.selectedChar = 0
-				pressed := true
-				ih.keys = keytracker.NewWithSource(func(k ebiten.Key) bool { return pressed && k == ebiten.KeyC })
-				tick()
-				pressed = false
-				if patient.HitPoints <= 1 || healer.SpellPoints >= 50 {
-					t.Fatalf("patient hp=%d healer sp=%d: the handoff did not heal the selected member", patient.HitPoints, healer.SpellPoints)
-				}
-			})
+// RT/TB: a wounded member without a heal is selected and C hands the cast to
+// the healer. Off the cards it heals the most wounded living member, never
+// the selected one or a member knocked out at 0 HP (that takes a revive); on
+// a card it heals that hero, and on a knocked-out card it refuses and keeps
+// the SP.
+func TestHealHandoffHealsTheHandHealTarget(t *testing.T) {
+	const off, healerCard, koCard = -1, 1, 2
+	for _, pointer := range []int{off, healerCard, koCard} {
+		for _, ko := range []bool{false, true} {
+			if pointer == koCard && !ko {
+				continue
+			}
+			for _, tb := range []bool{false, true} {
+				t.Run(fmt.Sprintf("TB=%v/KO=%v/pointer=%d", tb, ko, pointer), func(t *testing.T) {
+					g, ih, fp, _, tick := mouseCombatHarness(t, tb)
+					fp.moveTo(5, 5)
+					g.showPartyStats = true
+					for _, ch := range g.party.Members {
+						ch.MagicSchools = nil
+					}
+					m := g.party.Members
+					m[0].HitPoints = m[0].MaxHitPoints * 6 / 10 // selected, no heal
+					m[1].HitPoints = m[1].MaxHitPoints * 9 / 10 // the healer
+					m[2].HitPoints = 1                          // the most wounded
+					m[3].HitPoints = m[3].MaxHitPoints * 3 / 10
+					want := 2
+					if ko {
+						m[2].HitPoints = 0
+						m[2].AddCondition(character.ConditionUnconscious)
+						want = 3
+					}
+					healer := m[1]
+					healer.MagicSchools = map[character.MagicSchoolID]*character.MagicSkill{
+						character.MagicSchoolBody: {Mastery: character.MasteryNovice, KnownSpells: []spells.SpellID{"heal_other"}},
+					}
+					healer.MaxSpellPoints, healer.SpellPoints = 50, 50
+					x, y := 5, 5
+					if pointer != off {
+						w, h, left, top := partyPortraitLayout(g)
+						x, y = left+pointer*w+w/2, top+h/2
+						want = pointer
+					}
+					refused := pointer == koCard
+					if refused {
+						want = -1
+					}
+					// The heal reads the UI cursor, the HUD the pointer seam: one mouse.
+					fp.moveTo(x, y)
+					prev := rawCursorPosition
+					t.Cleanup(func() { rawCursorPosition = prev })
+					rawCursorPosition = func() (int, int) { return x, y }
+					before := make([]int, len(m))
+					for i, h := range m {
+						before[i] = h.HitPoints
+					}
+					g.selectedChar = 0
+					pressed := true
+					ih.keys = keytracker.NewWithSource(func(k ebiten.Key) bool { return pressed && k == ebiten.KeyC })
+					tick()
+					pressed = false
+					if spent := healer.SpellPoints < 50; spent == refused {
+						t.Fatalf("healer SP %d: refused=%v", healer.SpellPoints, refused)
+					}
+					for i, h := range m {
+						if healed := h.HitPoints > before[i]; healed != (i == want) {
+							t.Fatalf("member %d healed=%v (hp %v -> %d), want only member %d", i, healed, before, h.HitPoints, want)
+						}
+					}
+				})
+			}
 		}
 	}
 }
@@ -1089,8 +1134,8 @@ func TestMouseHoldDisplayedPartyCycle(t *testing.T) {
 					m.X = g.camera.X + float64(g.config.GetTileSize())
 					g.collisionSystem.RegisterEntity(collision.NewSightBlockingEntity("closed-door", (g.camera.X+m.X)/2, m.Y, 16, 48, collision.CollisionTypeNPC, true))
 				}
-				m.StunFramesRemaining = 100000
-				m.StunTurnsRemaining = 100000
+				m.Stun.Frames = 100000
+				m.Stun.Turns = 100000
 				for i, h := range g.party.Members {
 					h.ActionsRemaining = 2
 					if i%2 == 1 {
@@ -1098,7 +1143,7 @@ func TestMouseHoldDisplayedPartyCycle(t *testing.T) {
 					}
 					if i == 3 {
 						h.LearnSpell("firebolt")
-						h.Equipment[items.SlotSpell] = items.Item{Type: items.ItemBattleSpell, SpellEffect: "firebolt", SpellCost: 2}
+						h.Equipment[items.SlotQuickAction] = items.Item{Type: items.ItemBattleSpell, SpellEffect: "firebolt", SpellCost: 2}
 						h.SpellPoints, h.MaxSpellPoints = 1000, 1000
 					}
 				}
@@ -1228,7 +1273,7 @@ func TestMouseHoldClaimedPressAndMode(t *testing.T) {
 				shown()
 				fp.moveTo(320, 220)
 				before := len(g.slashEffects)
-				for range rtHoldRepeatDelay + 120 {
+				for range g.framesForSeconds(rtHoldRepeatSeconds) + 120 {
 					tick()
 				}
 				if len(g.slashEffects) != before || ih.mouseAttackTarget != nil {
@@ -1239,7 +1284,7 @@ func TestMouseHoldClaimedPressAndMode(t *testing.T) {
 				fp.press()
 				tick()
 				fp.hold()
-				for range rtHoldRepeatDelay + 120 {
+				for range g.framesForSeconds(rtHoldRepeatSeconds) + 120 {
 					tick()
 				}
 				if len(g.slashEffects) <= before {

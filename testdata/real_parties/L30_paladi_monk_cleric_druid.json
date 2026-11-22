@@ -1,0 +1,2505 @@
+{
+ "average_level": 29.8,
+ "card_collection": [
+  "octopus_card",
+  "wolf_card",
+  "ningyo_card",
+  "",
+  "",
+  "",
+  "",
+  ""
+ ],
+ "card_collection_items": [
+  {
+   "ArmorCategory": "",
+   "Attributes": {
+    "value": 500
+   },
+   "Description": "A stamped card of an octopus, ink curling through dark water.",
+   "Name": "Octopus Card",
+   "Rarity": "legendary",
+   "SpellCost": 0,
+   "SpellEffect": "",
+   "SpellSchool": "",
+   "Type": 9,
+   "instance_id": 6184609270256560513
+  },
+  {
+   "ArmorCategory": "",
+   "Attributes": {
+    "value": 500
+   },
+   "Description": "A stamped card of a wolf, mid-howl beneath a pale moon.",
+   "Name": "Wolf Card",
+   "Rarity": "legendary",
+   "SpellCost": 0,
+   "SpellEffect": "",
+   "SpellSchool": "",
+   "Type": 9,
+   "instance_id": 10943825871141567153
+  },
+  {
+   "ArmorCategory": "",
+   "Attributes": {
+    "value": 500
+   },
+   "Description": "A stamped card of a fan-dancer whose lower half fades to mist.",
+   "Name": "Ningyo Card",
+   "Rarity": "legendary",
+   "SpellCost": 0,
+   "SpellEffect": "",
+   "SpellSchool": "",
+   "Type": 9,
+   "instance_id": 2038371516813975332
+  },
+  {
+   "ArmorCategory": "",
+   "Attributes": null,
+   "Description": "",
+   "Name": "",
+   "Rarity": "",
+   "SpellCost": 0,
+   "SpellEffect": "",
+   "SpellSchool": "",
+   "Type": 0
+  },
+  {
+   "ArmorCategory": "",
+   "Attributes": null,
+   "Description": "",
+   "Name": "",
+   "Rarity": "",
+   "SpellCost": 0,
+   "SpellEffect": "",
+   "SpellSchool": "",
+   "Type": 0
+  },
+  {
+   "ArmorCategory": "",
+   "Attributes": null,
+   "Description": "",
+   "Name": "",
+   "Rarity": "",
+   "SpellCost": 0,
+   "SpellEffect": "",
+   "SpellSchool": "",
+   "Type": 0
+  },
+  {
+   "ArmorCategory": "",
+   "Attributes": null,
+   "Description": "",
+   "Name": "",
+   "Rarity": "",
+   "SpellCost": 0,
+   "SpellEffect": "",
+   "SpellSchool": "",
+   "Type": 0
+  },
+  {
+   "ArmorCategory": "",
+   "Attributes": null,
+   "Description": "",
+   "Name": "",
+   "Rarity": "",
+   "SpellCost": 0,
+   "SpellEffect": "",
+   "SpellSchool": "",
+   "Type": 0
+  }
+ ],
+ "map_key": "desert",
+ "max_party_level": 29,
+ "members": [
+  {
+   "accuracy": 10,
+   "actions_remaining": 1,
+   "class": 1,
+   "conditions": null,
+   "endurance": 24,
+   "equipment": [
+    {
+     "item": {
+      "ArmorCategory": "plate",
+      "Attributes": {
+       "armor_class_base": 4,
+       "endurance_scaling_divisor": 5,
+       "equip_slot": 4,
+       "value": 95
+      },
+      "Description": "Each step lands with purpose.",
+      "Name": "Iron Greaves",
+      "Rarity": "uncommon",
+      "SpellCost": 0,
+      "SpellEffect": "",
+      "SpellSchool": "",
+      "Type": 1,
+      "instance_id": 10104315528233749688
+     },
+     "slot": 4
+    },
+    {
+     "item": {
+      "ArmorCategory": "",
+      "Attributes": {
+       "value": 1600
+      },
+      "Description": "Every swing peels the fight a little more naked.",
+      "Name": "Pit Labrys",
+      "Rarity": "unique",
+      "SpellCost": 0,
+      "SpellEffect": "",
+      "SpellSchool": "",
+      "Type": 0,
+      "instance_id": 17576388289428694466
+     },
+     "slot": 0
+    },
+    {
+     "item": {
+      "ArmorCategory": "plate",
+      "Attributes": {
+       "armor_class_base": 4,
+       "endurance_scaling_divisor": 5,
+       "equip_slot": 3,
+       "value": 200
+      },
+      "Description": "Its iron crest throws a long shadow across the eyes.",
+      "Name": "Kabuto",
+      "Rarity": "uncommon",
+      "SpellCost": 0,
+      "SpellEffect": "",
+      "SpellSchool": "",
+      "Type": 1,
+      "instance_id": 2582362721331578429
+     },
+     "slot": 3
+    },
+    {
+     "item": {
+      "ArmorCategory": "plate",
+      "Attributes": {
+       "armor_class_base": 3,
+       "bonus_might": 4,
+       "endurance_scaling_divisor": 5,
+       "equip_slot": 6,
+       "value": 360
+      },
+      "Description": "Make a fist and the whole room takes a step back.",
+      "Name": "Bearpaw Gauntlets",
+      "Rarity": "rare",
+      "SpellCost": 0,
+      "SpellEffect": "",
+      "SpellSchool": "",
+      "Type": 1,
+      "instance_id": 5497338315814707004
+     },
+     "slot": 6
+    },
+    {
+     "item": {
+      "ArmorCategory": "chain",
+      "Attributes": {
+       "armor_class_base": 3,
+       "endurance_scaling_divisor": 7,
+       "equip_slot": 1,
+       "value": 460
+      },
+      "Description": "An arm of iron rings turns more steel than pride admits.",
+      "Name": "Ringmail Vambraces",
+      "Rarity": "rare",
+      "SpellCost": 0,
+      "SpellEffect": "",
+      "SpellSchool": "",
+      "Type": 1,
+      "instance_id": 17046058421298190714,
+      "set": "ringmail"
+     },
+     "slot": 1
+    },
+    {
+     "item": {
+      "ArmorCategory": "plate",
+      "Attributes": {
+       "armor_class_base": 10,
+       "bonus_endurance": 8,
+       "bonus_might": 8,
+       "endurance_scaling_divisor": 5,
+       "equip_slot": 2,
+       "resist_body": 60,
+       "resist_dark": 60,
+       "resist_earth": 60,
+       "value": 8000
+      },
+      "Description": "Cast from a god's broken face; it remembers being worshipped.",
+      "Name": "Mantle of the Idol-King",
+      "Rarity": "legendary",
+      "SpellCost": 0,
+      "SpellEffect": "",
+      "SpellSchool": "",
+      "Type": 1,
+      "instance_id": 2887328021008506494
+     },
+     "slot": 2
+    },
+    {
+     "item": {
+      "ArmorCategory": "",
+      "Attributes": {},
+      "Description": "Restores health to another party member",
+      "Name": "Heal",
+      "Rarity": "",
+      "SpellCost": 8,
+      "SpellEffect": "heal_other",
+      "SpellSchool": "body",
+      "Type": 6,
+      "instance_id": 12772177395423951823
+     },
+     "slot": 11
+    },
+    {
+     "item": {
+      "ArmorCategory": "",
+      "Attributes": {
+       "bonus_might": 5,
+       "equip_slot": 7,
+       "value": 300
+      },
+      "Description": "Cinched tight, it lends the courage of oaks.",
+      "Name": "Belt of Strength",
+      "Rarity": "rare",
+      "SpellCost": 0,
+      "SpellEffect": "",
+      "SpellSchool": "",
+      "Type": 2,
+      "instance_id": 12698932124144655955
+     },
+     "slot": 7
+    },
+    {
+     "item": {
+      "ArmorCategory": "",
+      "Attributes": {
+       "bonus_endurance": 8,
+       "bonus_might": 12,
+       "equip_slot": 9,
+       "value": 2500
+      },
+      "Description": "Whoever wears it speaks, and the jungle listens.",
+      "Name": "Warlord's Signet",
+      "Rarity": "legendary",
+      "SpellCost": 0,
+      "SpellEffect": "",
+      "SpellSchool": "",
+      "Type": 2,
+      "instance_id": 10136718652509036320
+     },
+     "slot": 9
+    },
+    {
+     "item": {
+      "ArmorCategory": "",
+      "Attributes": {
+       "bonus_endurance": 6,
+       "equip_slot": 5,
+       "resist_body": 30,
+       "resist_earth": 30,
+       "value": 400
+      },
+      "Description": "It drinks the rain and shrugs off the jungle's poisons.",
+      "Name": "Vine-Woven Cloak",
+      "Rarity": "uncommon",
+      "SpellCost": 0,
+      "SpellEffect": "",
+      "SpellSchool": "",
+      "Type": 2,
+      "instance_id": 11200028965977583704
+     },
+     "slot": 5
+    }
+   ],
+   "experience": 2785,
+   "free_stat_points": 0,
+   "hit_points": 165,
+   "intellect": 10,
+   "level": 29,
+   "luck": 11,
+   "magic_schools": [
+    {
+     "known_spells": [
+      "heal",
+      "heal_other"
+     ],
+     "level": 1,
+     "mastery": 0,
+     "school": "body"
+    }
+   ],
+   "max_hit_points": 207,
+   "max_spell_points": 98,
+   "might": 99,
+   "name": "Auberon",
+   "next_tb_attack_off_hand": true,
+   "permanent_bonuses": {
+    "might": 4
+   },
+   "personality": 50,
+   "rare_class": {
+    "anchor": {}
+   },
+   "reactive_combat": {},
+   "skills": [
+    {
+     "level": 2,
+     "mastery": 1,
+     "type": 12
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 0
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 5
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 8
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 10
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 28
+    },
+    {
+     "level": 4,
+     "mastery": 3,
+     "type": 2
+    },
+    {
+     "level": 4,
+     "mastery": 3,
+     "type": 9
+    },
+    {
+     "level": 2,
+     "mastery": 1,
+     "type": 11
+    }
+   ],
+   "speed": 16,
+   "spell_points": 98,
+   "tb_round_action_floor": 1
+  },
+  {
+   "accuracy": 11,
+   "actions_remaining": 2,
+   "class": 8,
+   "conditions": null,
+   "endurance": 32,
+   "equipment": [
+    {
+     "item": {
+      "ArmorCategory": "",
+      "Attributes": {
+       "bonus_endurance": 5,
+       "bonus_speed": 4,
+       "equip_slot": 5,
+       "value": 280
+      },
+      "Description": "A clan crest at the back; it carries an old, steadying pride.",
+      "Name": "Haori Cloak",
+      "Rarity": "uncommon",
+      "SpellCost": 0,
+      "SpellEffect": "",
+      "SpellSchool": "",
+      "Type": 2,
+      "instance_id": 1754998708243891785
+     },
+     "slot": 5
+    },
+    {
+     "item": {
+      "ArmorCategory": "",
+      "Attributes": {
+       "bonus_luck": 5,
+       "bonus_speed": 5,
+       "equip_slot": 8,
+       "value": 280
+      },
+      "Description": "A bat's earbone on a thong; the world feels a half-step slower, easier to read.",
+      "Name": "Sonar Pendant",
+      "Rarity": "uncommon",
+      "SpellCost": 0,
+      "SpellEffect": "",
+      "SpellSchool": "",
+      "Type": 2,
+      "instance_id": 16482248770631409726
+     },
+     "slot": 8
+    },
+    {
+     "item": {
+      "ArmorCategory": "cloth",
+      "Attributes": {
+       "armor_class_base": 1,
+       "bonus_speed": 6,
+       "equip_slot": 4,
+       "value": 180
+      },
+      "Description": "Pleated silk that whispers; the feet beneath it do not.",
+      "Name": "Silk Hakama",
+      "Rarity": "uncommon",
+      "SpellCost": 0,
+      "SpellEffect": "",
+      "SpellSchool": "",
+      "Type": 1,
+      "instance_id": 1005250235692767828
+     },
+     "slot": 4
+    },
+    {
+     "item": {
+      "ArmorCategory": "",
+      "Attributes": {},
+      "Description": "A Monk's bare hands, trained to strike like honed steel",
+      "Name": "Fists",
+      "Rarity": "legendary",
+      "SpellCost": 0,
+      "SpellEffect": "",
+      "SpellSchool": "",
+      "Type": 0,
+      "instance_id": 3428799086124400517
+     },
+     "slot": 0
+    },
+    {
+     "item": {
+      "ArmorCategory": "",
+      "Attributes": {},
+      "Description": "A jolt of psychic force that wounds and may stun the target",
+      "Name": "Psychic Shock",
+      "Rarity": "",
+      "SpellCost": 10,
+      "SpellEffect": "psychic_shock",
+      "SpellSchool": "mind",
+      "Type": 5,
+      "instance_id": 1976510828395565538
+     },
+     "slot": 11
+    }
+   ],
+   "experience": 1273,
+   "free_stat_points": 0,
+   "hit_points": 160,
+   "intellect": 8,
+   "level": 31,
+   "luck": 10,
+   "magic_schools": [
+    {
+     "known_spells": [
+      "heal_other",
+      "harm"
+     ],
+     "level": 4,
+     "mastery": 3,
+     "school": "body"
+    },
+    {
+     "known_spells": [
+      "mind_blast",
+      "psychic_shock",
+      "awaken"
+     ],
+     "level": 1,
+     "mastery": 0,
+     "school": "mind"
+    },
+    {
+     "known_spells": [
+      "spirit_lash",
+      "raise_dead"
+     ],
+     "level": 4,
+     "mastery": 3,
+     "school": "spirit"
+    }
+   ],
+   "max_hit_points": 187,
+   "max_spell_points": 87,
+   "might": 99,
+   "name": "Sora",
+   "next_tb_attack_off_hand": true,
+   "permanent_bonuses": {
+    "speed": 2
+   },
+   "personality": 12,
+   "quick_slots": [
+    {
+     "item": {
+      "ArmorCategory": "",
+      "Attributes": {},
+      "Description": "A whip of spirit energy that scourges a foe",
+      "Name": "Spirit Lash",
+      "Rarity": "",
+      "SpellCost": 6,
+      "SpellEffect": "spirit_lash",
+      "SpellSchool": "spirit",
+      "Type": 5,
+      "instance_id": 17258364518407771528
+     },
+     "slot": 0
+    },
+    {
+     "item": {
+      "ArmorCategory": "",
+      "Attributes": {},
+      "Description": "A jolt of psychic force that wounds and may stun the target",
+      "Name": "Psychic Shock",
+      "Rarity": "",
+      "SpellCost": 10,
+      "SpellEffect": "psychic_shock",
+      "SpellSchool": "mind",
+      "Type": 5,
+      "instance_id": 1976510828395565538
+     },
+     "slot": 1
+    },
+    {
+     "item": {
+      "ArmorCategory": "",
+      "Attributes": {},
+      "Description": "Rouses every unconscious party member back to 1 HP",
+      "Name": "Awaken",
+      "Rarity": "",
+      "SpellCost": 4,
+      "SpellEffect": "awaken",
+      "SpellSchool": "mind",
+      "Type": 6,
+      "instance_id": 7884879722583303325
+     },
+     "slot": 3
+    },
+    {
+     "item": {
+      "ArmorCategory": "",
+      "Attributes": {},
+      "Description": "Restores a fallen ally (not eradicated) to 25% of their health",
+      "Name": "Raise Dead",
+      "Rarity": "",
+      "SpellCost": 14,
+      "SpellEffect": "raise_dead",
+      "SpellSchool": "spirit",
+      "Type": 6,
+      "instance_id": 6902671633749259813
+     },
+     "slot": 4
+    }
+   ],
+   "rare_class": {
+    "anchor": {}
+   },
+   "reactive_combat": {},
+   "skills": [
+    {
+     "level": 4,
+     "mastery": 3,
+     "type": 22
+    },
+    {
+     "level": 4,
+     "mastery": 3,
+     "type": 23
+    },
+    {
+     "level": 4,
+     "mastery": 3,
+     "type": 24
+    },
+    {
+     "level": 2,
+     "mastery": 1,
+     "type": 17
+    },
+    {
+     "level": 4,
+     "mastery": 3,
+     "type": 12
+    }
+   ],
+   "speed": 57,
+   "spell_points": 87,
+   "tb_round_action_floor": 1
+  },
+  {
+   "accuracy": 8,
+   "actions_remaining": 1,
+   "class": 3,
+   "conditions": null,
+   "endurance": 62,
+   "equipment": [
+    {
+     "item": {
+      "ArmorCategory": "chain",
+      "Attributes": {
+       "armor_class_base": 2,
+       "endurance_scaling_divisor": 7,
+       "equip_slot": 6,
+       "value": 400
+      },
+      "Description": "Cold links that never flinch off a blade.",
+      "Name": "Ringmail Gloves",
+      "Rarity": "rare",
+      "SpellCost": 0,
+      "SpellEffect": "",
+      "SpellSchool": "",
+      "Type": 1,
+      "instance_id": 2595408944528713093,
+      "set": "ringmail"
+     },
+     "slot": 6
+    },
+    {
+     "item": {
+      "ArmorCategory": "",
+      "Attributes": {
+       "bonus_luck": 6,
+       "bonus_personality": 8,
+       "equip_slot": 8,
+       "value": 360
+      },
+      "Description": "Cool jade worn smooth by a courtier's restless thumb.",
+      "Name": "Jade Netsuke",
+      "Rarity": "rare",
+      "SpellCost": 0,
+      "SpellEffect": "",
+      "SpellSchool": "",
+      "Type": 2,
+      "instance_id": 15790536724300628118
+     },
+     "slot": 8
+    },
+    {
+     "item": {
+      "ArmorCategory": "chain",
+      "Attributes": {
+       "armor_class_base": 3,
+       "bonus_speed": 3,
+       "endurance_scaling_divisor": 7,
+       "equip_slot": 4,
+       "value": 440
+      },
+      "Description": "Heavy steps, but nothing bites through them.",
+      "Name": "Ringmail Boots",
+      "Rarity": "rare",
+      "SpellCost": 0,
+      "SpellEffect": "",
+      "SpellSchool": "",
+      "Type": 1,
+      "instance_id": 10017019955887360286,
+      "set": "ringmail"
+     },
+     "slot": 4
+    },
+    {
+     "item": {
+      "ArmorCategory": "",
+      "Attributes": {
+       "bonus_speed": 8,
+       "equip_slot": 5,
+       "value": 300
+      },
+      "Description": "Leathery membrane that drinks the lantern-light; you move quieter under it.",
+      "Name": "Batwing Cloak",
+      "Rarity": "uncommon",
+      "SpellCost": 0,
+      "SpellEffect": "",
+      "SpellSchool": "",
+      "Type": 2,
+      "instance_id": 6267976107458410408
+     },
+     "slot": 5
+    },
+    {
+     "item": {
+      "ArmorCategory": "chain",
+      "Attributes": {
+       "armor_class_base": 4,
+       "endurance_scaling_divisor": 7,
+       "equip_slot": 3,
+       "value": 420
+      },
+      "Description": "The weave sings a little when the crowd does.",
+      "Name": "Ringmail Coif",
+      "Rarity": "rare",
+      "SpellCost": 0,
+      "SpellEffect": "",
+      "SpellSchool": "",
+      "Type": 1,
+      "instance_id": 16388599710650509646,
+      "set": "ringmail"
+     },
+     "slot": 3
+    },
+    {
+     "item": {
+      "ArmorCategory": "",
+      "Attributes": {
+       "value": 1500
+      },
+      "Description": "The crowd counts the chimes.",
+      "Name": "Morningstar",
+      "Rarity": "unique",
+      "SpellCost": 0,
+      "SpellEffect": "",
+      "SpellSchool": "",
+      "Type": 0,
+      "instance_id": 1847770855889688935
+     },
+     "slot": 0
+    },
+    {
+     "item": {
+      "ArmorCategory": "chain",
+      "Attributes": {
+       "armor_class_base": 6,
+       "endurance_scaling_divisor": 7,
+       "equip_slot": 2,
+       "value": 620
+      },
+      "Description": "Ten thousand rings, and not one of them lies.",
+      "Name": "Ringmail Hauberk",
+      "Rarity": "rare",
+      "SpellCost": 0,
+      "SpellEffect": "",
+      "SpellSchool": "",
+      "Type": 1,
+      "instance_id": 1589494936748908838,
+      "set": "ringmail"
+     },
+     "slot": 2
+    },
+    {
+     "item": {
+      "ArmorCategory": "",
+      "Attributes": {},
+      "Description": "Restores health to another party member",
+      "Name": "Heal",
+      "Rarity": "",
+      "SpellCost": 8,
+      "SpellEffect": "heal_other",
+      "SpellSchool": "body",
+      "Type": 6,
+      "instance_id": 14692300057941206402
+     },
+     "slot": 11
+    }
+   ],
+   "experience": 2831,
+   "free_stat_points": 0,
+   "hit_points": 224,
+   "intellect": 12,
+   "level": 29,
+   "luck": 10,
+   "magic_schools": [
+    {
+     "known_spells": [
+      "heal_other",
+      "harm",
+      "mass_heal"
+     ],
+     "level": 4,
+     "mastery": 3,
+     "school": "body"
+    },
+    {
+     "known_spells": [
+      "mind_blast"
+     ],
+     "level": 1,
+     "mastery": 0,
+     "school": "mind"
+    },
+    {
+     "known_spells": [
+      "spirit_lash",
+      "bless",
+      "heroism"
+     ],
+     "level": 4,
+     "mastery": 3,
+     "school": "spirit"
+    }
+   ],
+   "max_hit_points": 251,
+   "max_spell_points": 119,
+   "might": 10,
+   "name": "Celestine",
+   "next_tb_attack_off_hand": true,
+   "personality": 99,
+   "quick_slots": [
+    {
+     "item": {
+      "ArmorCategory": "",
+      "Attributes": {},
+      "Description": "Fills the party with valor, boosting physical attacks",
+      "Name": "Heroism",
+      "Rarity": "",
+      "SpellCost": 12,
+      "SpellEffect": "heroism",
+      "SpellSchool": "spirit",
+      "Type": 6,
+      "instance_id": 3730954587587487047
+     },
+     "slot": 3
+    },
+    {
+     "item": {
+      "ArmorCategory": "",
+      "Attributes": {},
+      "Description": "Blesses the party with divine protection",
+      "Name": "Bless",
+      "Rarity": "",
+      "SpellCost": 15,
+      "SpellEffect": "bless",
+      "SpellSchool": "spirit",
+      "Type": 6,
+      "instance_id": 3150737821954838004
+     },
+     "slot": 4
+    }
+   ],
+   "rare_class": {
+    "anchor": {}
+   },
+   "reactive_combat": {},
+   "skills": [
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 31
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 17
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 5
+    },
+    {
+     "level": 4,
+     "mastery": 3,
+     "type": 8
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 10
+    },
+    {
+     "level": 4,
+     "mastery": 3,
+     "type": 12
+    }
+   ],
+   "speed": 16,
+   "spell_points": 119,
+   "tb_round_action_floor": 1
+  },
+  {
+   "accuracy": 10,
+   "actions_remaining": 2,
+   "class": 5,
+   "conditions": null,
+   "endurance": 23,
+   "equipment": [
+    {
+     "item": {
+      "ArmorCategory": "",
+      "Attributes": {
+       "equip_slot": 9,
+       "intellect_scaling_divisor": 6,
+       "value": 260
+      },
+      "Description": "A folded ofuda; the ink still hums where the brush pressed hard.",
+      "Name": "Onmyoji Talisman",
+      "Rarity": "uncommon",
+      "SpellCost": 0,
+      "SpellEffect": "",
+      "SpellSchool": "",
+      "Type": 2,
+      "instance_id": 5818487477449188246
+     },
+     "slot": 10
+    },
+    {
+     "item": {
+      "ArmorCategory": "leather",
+      "Attributes": {
+       "armor_class_base": 2,
+       "endurance_scaling_divisor": 10,
+       "equip_slot": 1,
+       "value": 240
+      },
+      "Description": "Catch the blade on the wrap, not the bone.",
+      "Name": "Padded Greaves",
+      "Rarity": "uncommon",
+      "SpellCost": 0,
+      "SpellEffect": "",
+      "SpellSchool": "",
+      "Type": 1,
+      "instance_id": 16579318152246689722,
+      "set": "padded"
+     },
+     "slot": 1
+    },
+    {
+     "item": {
+      "ArmorCategory": "",
+      "Attributes": {},
+      "Description": "A searing beam of holy light that scales with both Intellect and Personality",
+      "Name": "Ray of Light",
+      "Rarity": "",
+      "SpellCost": 8,
+      "SpellEffect": "ray_of_light",
+      "SpellSchool": "light",
+      "Type": 5,
+      "instance_id": 11997865957769353560
+     },
+     "slot": 11
+    },
+    {
+     "item": {
+      "ArmorCategory": "leather",
+      "Attributes": {
+       "armor_class_base": 2,
+       "bonus_speed": 4,
+       "endurance_scaling_divisor": 10,
+       "equip_slot": 4,
+       "value": 220
+      },
+      "Description": "They remember every sidestep that mattered.",
+      "Name": "Padded Boots",
+      "Rarity": "uncommon",
+      "SpellCost": 0,
+      "SpellEffect": "",
+      "SpellSchool": "",
+      "Type": 1,
+      "instance_id": 8505690764142773552,
+      "set": "padded"
+     },
+     "slot": 4
+    },
+    {
+     "item": {
+      "ArmorCategory": "leather",
+      "Attributes": {
+       "armor_class_base": 1,
+       "endurance_scaling_divisor": 10,
+       "equip_slot": 3,
+       "value": 15
+      },
+      "Description": "A scuffed browband that keeps splinters - and doubts - at bay.",
+      "Name": "Leather Helmet",
+      "Rarity": "common",
+      "SpellCost": 0,
+      "SpellEffect": "",
+      "SpellSchool": "",
+      "Type": 1,
+      "instance_id": 16295402058393338185
+     },
+     "slot": 3
+    },
+    {
+     "item": {
+      "ArmorCategory": "",
+      "Attributes": {
+       "equip_slot": 9,
+       "intellect_scaling_divisor": 6,
+       "personality_scaling_divisor": 8,
+       "value": 200
+      },
+      "Description": "A thin whisper of power circling a finger.",
+      "Name": "Magic Ring",
+      "Rarity": "rare",
+      "SpellCost": 0,
+      "SpellEffect": "",
+      "SpellSchool": "",
+      "Type": 2,
+      "instance_id": 3113974245872146741
+     },
+     "slot": 9
+    },
+    {
+     "item": {
+      "ArmorCategory": "leather",
+      "Attributes": {
+       "armor_class_base": 4,
+       "endurance_scaling_divisor": 10,
+       "equip_slot": 2,
+       "value": 320
+      },
+      "Description": "Every stitch bought with somebody's bruise.",
+      "Name": "Padded Vest",
+      "Rarity": "uncommon",
+      "SpellCost": 0,
+      "SpellEffect": "",
+      "SpellSchool": "",
+      "Type": 1,
+      "instance_id": 4557974688315153362,
+      "set": "padded"
+     },
+     "slot": 2
+    },
+    {
+     "item": {
+      "ArmorCategory": "",
+      "Attributes": {
+       "value": 90
+      },
+      "Description": "A staff carved from ancient oak, perfect for magic users",
+      "Name": "Oak Staff",
+      "Rarity": "common",
+      "SpellCost": 0,
+      "SpellEffect": "",
+      "SpellSchool": "",
+      "Type": 0,
+      "instance_id": 10888074666972800100
+     },
+     "slot": 0
+    },
+    {
+     "item": {
+      "ArmorCategory": "leather",
+      "Attributes": {
+       "armor_class_base": 1,
+       "bonus_accuracy": 3,
+       "endurance_scaling_divisor": 10,
+       "equip_slot": 6,
+       "value": 200
+      },
+      "Description": "Soft outside, stubborn inside.",
+      "Name": "Padded Gloves",
+      "Rarity": "uncommon",
+      "SpellCost": 0,
+      "SpellEffect": "",
+      "SpellSchool": "",
+      "Type": 1,
+      "instance_id": 5203104423403015061,
+      "set": "padded"
+     },
+     "slot": 6
+    },
+    {
+     "item": {
+      "ArmorCategory": "",
+      "Attributes": {
+       "bonus_speed": 8,
+       "equip_slot": 5,
+       "value": 300
+      },
+      "Description": "Leathery membrane that drinks the lantern-light; you move quieter under it.",
+      "Name": "Batwing Cloak",
+      "Rarity": "uncommon",
+      "SpellCost": 0,
+      "SpellEffect": "",
+      "SpellSchool": "",
+      "Type": 2,
+      "instance_id": 10694684764498368322
+     },
+     "slot": 5
+    }
+   ],
+   "experience": 272,
+   "free_stat_points": 0,
+   "hit_points": 145,
+   "intellect": 99,
+   "level": 30,
+   "luck": 11,
+   "magic_schools": [
+    {
+     "known_spells": [
+      "day_of_the_gods",
+      "ray_of_light"
+     ],
+     "level": 4,
+     "mastery": 3,
+     "school": "light"
+    },
+    {
+     "known_spells": [
+      "ice_bolt",
+      "water_breathing"
+     ],
+     "level": 3,
+     "mastery": 2,
+     "school": "water"
+    },
+    {
+     "known_spells": [
+      "awaken"
+     ],
+     "level": 1,
+     "mastery": 0,
+     "school": "mind"
+    },
+    {
+     "known_spells": [
+      "deadly_swarm",
+      "stone_blossom",
+      "town_portal",
+      "stone_skin"
+     ],
+     "level": 4,
+     "mastery": 3,
+     "school": "earth"
+    }
+   ],
+   "max_hit_points": 172,
+   "max_spell_points": 227,
+   "might": 10,
+   "name": "Mirelle",
+   "permanent_bonuses": {
+    "intellect": 3
+   },
+   "personality": 54,
+   "promotion": 1,
+   "quick_slots": [
+    {
+     "item": {
+      "ArmorCategory": "",
+      "Attributes": {},
+      "Description": "Lobs a granite bud in a high arc; it lands 7 tiles out and blooms - crushing and stunning everything nearby",
+      "Name": "Stone Blossom",
+      "Rarity": "",
+      "SpellCost": 20,
+      "SpellEffect": "stone_blossom",
+      "SpellSchool": "earth",
+      "Type": 5,
+      "instance_id": 8532626189496118923
+     },
+     "slot": 0
+    },
+    {
+     "item": {
+      "ArmorCategory": "",
+      "Attributes": {},
+      "Description": "Hardens the party's skin to stone, reducing all incoming damage",
+      "Name": "Stone Skin",
+      "Rarity": "",
+      "SpellCost": 10,
+      "SpellEffect": "stone_skin",
+      "SpellSchool": "earth",
+      "Type": 6,
+      "instance_id": 15903363870421609425
+     },
+     "slot": 1
+    },
+    {
+     "item": {
+      "ArmorCategory": "",
+      "Attributes": {},
+      "Description": "Blesses the party with scaling resistance to all damage for 5 minutes",
+      "Name": "Day of the Gods",
+      "Rarity": "",
+      "SpellCost": 20,
+      "SpellEffect": "day_of_the_gods",
+      "SpellSchool": "light",
+      "Type": 6,
+      "instance_id": 1249142329864221438
+     },
+     "slot": 2
+    },
+    {
+     "item": {
+      "ArmorCategory": "",
+      "Attributes": {},
+      "Description": "Opens a portal to any town or tavern the party has ever visited",
+      "Name": "Town Portal",
+      "Rarity": "",
+      "SpellCost": 20,
+      "SpellEffect": "town_portal",
+      "SpellSchool": "earth",
+      "Type": 6,
+      "instance_id": 757868329148430922
+     },
+     "slot": 3
+    },
+    {
+     "item": {
+      "ArmorCategory": "",
+      "Attributes": {},
+      "Description": "Allows underwater exploration by enabling breathing underwater",
+      "Name": "Water Breathing",
+      "Rarity": "",
+      "SpellCost": 10,
+      "SpellEffect": "water_breathing",
+      "SpellSchool": "water",
+      "Type": 6,
+      "instance_id": 5449450566387769669
+     },
+     "slot": 4
+    }
+   ],
+   "rare_class": {
+    "anchor": {}
+   },
+   "reactive_combat": {},
+   "skills": [
+    {
+     "level": 4,
+     "mastery": 3,
+     "type": 12
+    },
+    {
+     "level": 3,
+     "mastery": 2,
+     "type": 11
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 27
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 17
+    },
+    {
+     "level": 4,
+     "mastery": 3,
+     "type": 6
+    },
+    {
+     "level": 4,
+     "mastery": 3,
+     "type": 7
+    }
+   ],
+   "speed": 16,
+   "spell_points": 227,
+   "tb_round_action_floor": 1
+  }
+ ],
+ "reserve": [
+  {
+   "accuracy": 11,
+   "class": 4,
+   "conditions": null,
+   "endurance": 6,
+   "equipment": [
+    {
+     "item": {
+      "ArmorCategory": "",
+      "Attributes": {},
+      "Description": "Launches a small, fast bolt of fire",
+      "Name": "Fire Bolt",
+      "Rarity": "",
+      "SpellCost": 3,
+      "SpellEffect": "firebolt",
+      "SpellSchool": "fire",
+      "Type": 5,
+      "instance_id": 15040955130661517965
+     },
+     "slot": 11
+    },
+    {
+     "item": {
+      "ArmorCategory": "",
+      "Attributes": {
+       "value": 120
+      },
+      "Description": "A light dagger enchanted for spellcasters",
+      "Name": "Magic Dagger",
+      "Rarity": "uncommon",
+      "SpellCost": 0,
+      "SpellEffect": "",
+      "SpellSchool": "",
+      "Type": 0,
+      "instance_id": 14556301663805862350
+     },
+     "slot": 0
+    }
+   ],
+   "experience": 272,
+   "free_stat_points": 145,
+   "hit_points": 102,
+   "intellect": 17,
+   "level": 30,
+   "luck": 11,
+   "magic_schools": [
+    {
+     "known_spells": [
+      "sparks"
+     ],
+     "level": 1,
+     "mastery": 0,
+     "school": "air"
+    },
+    {
+     "known_spells": [
+      "torch_light",
+      "firebolt"
+     ],
+     "level": 1,
+     "mastery": 0,
+     "school": "fire"
+    },
+    {
+     "known_spells": [
+      "ice_bolt"
+     ],
+     "level": 1,
+     "mastery": 0,
+     "school": "water"
+    }
+   ],
+   "max_hit_points": 102,
+   "max_spell_points": 81,
+   "might": 6,
+   "name": "Vaelith",
+   "owed_level_choices": [
+    3,
+    6,
+    9,
+    12,
+    15,
+    18,
+    21,
+    24,
+    27,
+    30
+   ],
+   "personality": 12,
+   "race": "dark_elf",
+   "rare_class": {
+    "anchor": {}
+   },
+   "reactive_combat": {},
+   "skills": [
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 17
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 1
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 6
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 26
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 35
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 7
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 12
+    }
+   ],
+   "speed": 12,
+   "spell_points": 81
+  },
+  {
+   "accuracy": 8,
+   "class": 3,
+   "conditions": null,
+   "endurance": 10,
+   "equipment": [
+    {
+     "item": {
+      "ArmorCategory": "",
+      "Attributes": {},
+      "Description": "Restores health to another party member",
+      "Name": "Heal",
+      "Rarity": "",
+      "SpellCost": 8,
+      "SpellEffect": "heal_other",
+      "SpellSchool": "body",
+      "Type": 6,
+      "instance_id": 5955246963911431503
+     },
+     "slot": 11
+    },
+    {
+     "item": {
+      "ArmorCategory": "",
+      "Attributes": {
+       "value": 150
+      },
+      "Description": "A blessed mace that channels divine power",
+      "Name": "Holy Mace",
+      "Rarity": "uncommon",
+      "SpellCost": 0,
+      "SpellEffect": "",
+      "SpellSchool": "",
+      "Type": 0,
+      "instance_id": 6058319287091874616
+     },
+     "slot": 0
+    }
+   ],
+   "experience": 272,
+   "free_stat_points": 145,
+   "hit_points": 110,
+   "intellect": 13,
+   "level": 30,
+   "luck": 11,
+   "magic_schools": [
+    {
+     "known_spells": [
+      "spirit_lash"
+     ],
+     "level": 1,
+     "mastery": 0,
+     "school": "spirit"
+    },
+    {
+     "known_spells": [
+      "heal_other",
+      "harm"
+     ],
+     "level": 1,
+     "mastery": 0,
+     "school": "body"
+    },
+    {
+     "known_spells": [
+      "mind_blast"
+     ],
+     "level": 1,
+     "mastery": 0,
+     "school": "mind"
+    }
+   ],
+   "max_hit_points": 110,
+   "max_spell_points": 79,
+   "might": 8,
+   "name": "Auralis",
+   "owed_level_choices": [
+    3,
+    6,
+    9,
+    12,
+    15,
+    18,
+    21,
+    24,
+    27,
+    30
+   ],
+   "personality": 18,
+   "race": "celestial",
+   "rare_class": {
+    "anchor": {}
+   },
+   "reactive_combat": {},
+   "skills": [
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 5
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 31
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 32
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 8
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 10
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 12
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 17
+    }
+   ],
+   "speed": 10,
+   "spell_points": 79
+  },
+  {
+   "accuracy": 17,
+   "class": 2,
+   "conditions": null,
+   "endurance": 9,
+   "equipment": [
+    {
+     "item": {
+      "ArmorCategory": "",
+      "Attributes": {
+       "value": 140
+      },
+      "Description": "A well-crafted bow for precise ranged combat",
+      "Name": "Hunting Bow",
+      "Rarity": "common",
+      "SpellCost": 0,
+      "SpellEffect": "",
+      "SpellSchool": "",
+      "Type": 0,
+      "instance_id": 14726536981016818292
+     },
+     "slot": 0
+    },
+    {
+     "item": {
+      "ArmorCategory": "",
+      "Attributes": {},
+      "Description": "Extends your vision beyond normal limits",
+      "Name": "Wizard Eye",
+      "Rarity": "",
+      "SpellCost": 8,
+      "SpellEffect": "wizard_eye",
+      "SpellSchool": "air",
+      "Type": 6,
+      "instance_id": 15896618944410570483
+     },
+     "slot": 11
+    }
+   ],
+   "experience": 272,
+   "free_stat_points": 145,
+   "hit_points": 108,
+   "intellect": 10,
+   "level": 30,
+   "luck": 12,
+   "magic_schools": [
+    {
+     "known_spells": [
+      "wizard_eye"
+     ],
+     "level": 1,
+     "mastery": 0,
+     "school": "air"
+    }
+   ],
+   "max_hit_points": 108,
+   "max_spell_points": 73,
+   "might": 9,
+   "name": "Brinna",
+   "owed_level_choices": [
+    3,
+    6,
+    9,
+    12,
+    15,
+    18,
+    21,
+    24,
+    27,
+    30
+   ],
+   "personality": 10,
+   "race": "halfling",
+   "rare_class": {
+    "anchor": {}
+   },
+   "reactive_combat": {},
+   "skills": [
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 7
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 25
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 34
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 1
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 16
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 11
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 4
+    }
+   ],
+   "speed": 14,
+   "spell_points": 73
+  },
+  {
+   "accuracy": 13,
+   "class": 7,
+   "conditions": null,
+   "endurance": 14,
+   "equipment": [
+    {
+     "item": {
+      "ArmorCategory": "",
+      "Attributes": {
+       "value": 100
+      },
+      "Description": "A sturdy iron sword favored by knights",
+      "Name": "Iron Sword",
+      "Rarity": "common",
+      "SpellCost": 0,
+      "SpellEffect": "",
+      "SpellSchool": "",
+      "Type": 0,
+      "instance_id": 13040752803734657621
+     },
+     "slot": 0
+    }
+   ],
+   "experience": 272,
+   "free_stat_points": 145,
+   "hit_points": 118,
+   "intellect": 8,
+   "level": 30,
+   "luck": 10,
+   "magic_schools": null,
+   "max_hit_points": 118,
+   "max_spell_points": 70,
+   "might": 15,
+   "name": "Gwen",
+   "owed_level_choices": [
+    3,
+    6,
+    9,
+    12,
+    15,
+    18,
+    21,
+    24,
+    27,
+    30
+   ],
+   "personality": 8,
+   "rare_class": {
+    "anchor": {}
+   },
+   "reactive_combat": {},
+   "skills": [
+    {
+     "level": 2,
+     "mastery": 1,
+     "type": 18
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 4
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 7
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 0
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 11
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 21
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 6
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 3
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 10
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 5
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 1
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 2
+    }
+   ],
+   "speed": 12,
+   "spell_points": 70
+  },
+  {
+   "accuracy": 15,
+   "class": 2,
+   "conditions": null,
+   "endurance": 10,
+   "equipment": [
+    {
+     "item": {
+      "ArmorCategory": "",
+      "Attributes": {
+       "value": 140
+      },
+      "Description": "A well-crafted bow for precise ranged combat",
+      "Name": "Hunting Bow",
+      "Rarity": "common",
+      "SpellCost": 0,
+      "SpellEffect": "",
+      "SpellSchool": "",
+      "Type": 0,
+      "instance_id": 9022680082805881727
+     },
+     "slot": 0
+    },
+    {
+     "item": {
+      "ArmorCategory": "",
+      "Attributes": {},
+      "Description": "Extends your vision beyond normal limits",
+      "Name": "Wizard Eye",
+      "Rarity": "",
+      "SpellCost": 8,
+      "SpellEffect": "wizard_eye",
+      "SpellSchool": "air",
+      "Type": 6,
+      "instance_id": 765224992654474708
+     },
+     "slot": 11
+    }
+   ],
+   "experience": 272,
+   "free_stat_points": 145,
+   "hit_points": 110,
+   "intellect": 10,
+   "level": 30,
+   "luck": 10,
+   "magic_schools": [
+    {
+     "known_spells": [
+      "wizard_eye"
+     ],
+     "level": 1,
+     "mastery": 0,
+     "school": "air"
+    }
+   ],
+   "max_hit_points": 110,
+   "max_spell_points": 73,
+   "might": 12,
+   "name": "Silvelyn",
+   "owed_level_choices": [
+    3,
+    6,
+    9,
+    12,
+    15,
+    18,
+    21,
+    24,
+    27,
+    30
+   ],
+   "personality": 10,
+   "rare_class": {
+    "anchor": {}
+   },
+   "reactive_combat": {},
+   "skills": [
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 7
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 25
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 1
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 16
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 11
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 4
+    }
+   ],
+   "speed": 12,
+   "spell_points": 73
+  },
+  {
+   "accuracy": 12,
+   "class": 0,
+   "conditions": null,
+   "endurance": 15,
+   "equipment": [
+    {
+     "item": {
+      "ArmorCategory": "",
+      "Attributes": {
+       "value": 100
+      },
+      "Description": "A sturdy iron sword favored by knights",
+      "Name": "Iron Sword",
+      "Rarity": "common",
+      "SpellCost": 0,
+      "SpellEffect": "",
+      "SpellSchool": "",
+      "Type": 0,
+      "instance_id": 4346172747340075909
+     },
+     "slot": 0
+    }
+   ],
+   "experience": 272,
+   "free_stat_points": 145,
+   "hit_points": 120,
+   "intellect": 10,
+   "level": 30,
+   "luck": 10,
+   "magic_schools": null,
+   "max_hit_points": 120,
+   "max_spell_points": 73,
+   "might": 15,
+   "name": "Gareth",
+   "owed_level_choices": [
+    3,
+    6,
+    9,
+    12,
+    15,
+    18,
+    21,
+    24,
+    27,
+    30
+   ],
+   "personality": 10,
+   "rare_class": {
+    "anchor": {}
+   },
+   "reactive_combat": {},
+   "skills": [
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 29
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 7
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 8
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 9
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 10
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 11
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 0
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 3
+    }
+   ],
+   "speed": 10,
+   "spell_points": 73
+  },
+  {
+   "accuracy": 10,
+   "class": 4,
+   "conditions": null,
+   "endurance": 8,
+   "equipment": [
+    {
+     "item": {
+      "ArmorCategory": "",
+      "Attributes": {
+       "value": 120
+      },
+      "Description": "A light dagger enchanted for spellcasters",
+      "Name": "Magic Dagger",
+      "Rarity": "uncommon",
+      "SpellCost": 0,
+      "SpellEffect": "",
+      "SpellSchool": "",
+      "Type": 0,
+      "instance_id": 2686359036173651656
+     },
+     "slot": 0
+    },
+    {
+     "item": {
+      "ArmorCategory": "",
+      "Attributes": {},
+      "Description": "Launches a small, fast bolt of fire",
+      "Name": "Fire Bolt",
+      "Rarity": "",
+      "SpellCost": 3,
+      "SpellEffect": "firebolt",
+      "SpellSchool": "fire",
+      "Type": 5,
+      "instance_id": 2122806079127387516
+     },
+     "slot": 11
+    }
+   ],
+   "experience": 272,
+   "free_stat_points": 145,
+   "hit_points": 106,
+   "intellect": 15,
+   "level": 30,
+   "luck": 12,
+   "magic_schools": [
+    {
+     "known_spells": [
+      "ice_bolt"
+     ],
+     "level": 1,
+     "mastery": 0,
+     "school": "water"
+    },
+    {
+     "known_spells": [
+      "sparks"
+     ],
+     "level": 1,
+     "mastery": 0,
+     "school": "air"
+    },
+    {
+     "known_spells": [
+      "torch_light",
+      "firebolt"
+     ],
+     "level": 1,
+     "mastery": 0,
+     "school": "fire"
+    }
+   ],
+   "max_hit_points": 106,
+   "max_spell_points": 79,
+   "might": 8,
+   "name": "Lysander",
+   "owed_level_choices": [
+    3,
+    6,
+    9,
+    12,
+    15,
+    18,
+    21,
+    24,
+    27,
+    30
+   ],
+   "personality": 12,
+   "rare_class": {
+    "anchor": {}
+   },
+   "reactive_combat": {},
+   "skills": [
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 1
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 6
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 7
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 12
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 17
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 26
+    }
+   ],
+   "speed": 10,
+   "spell_points": 79
+  },
+  {
+   "accuracy": 18,
+   "class": 10,
+   "conditions": null,
+   "endurance": 9,
+   "equipment": [
+    {
+     "item": {
+      "ArmorCategory": "",
+      "Attributes": {
+       "value": 180
+      },
+      "Description": "A long rifle with a brass sight, built for careful shots",
+      "Name": "Surveyor's Rifle",
+      "Rarity": "uncommon",
+      "SpellCost": 0,
+      "SpellEffect": "",
+      "SpellSchool": "",
+      "Type": 0,
+      "instance_id": 11871563110323349093
+     },
+     "slot": 0
+    },
+    {
+     "item": {
+      "ArmorCategory": "leather",
+      "Attributes": {
+       "armor_class_base": 2,
+       "endurance_scaling_divisor": 10,
+       "equip_slot": 2,
+       "value": 25
+      },
+      "Description": "Worn smooth by a hundred roads; it smells of rain and smoke.",
+      "Name": "Leather Armor",
+      "Rarity": "common",
+      "SpellCost": 0,
+      "SpellEffect": "",
+      "SpellSchool": "",
+      "Type": 1,
+      "instance_id": 2693385014783460559
+     },
+     "slot": 2
+    },
+    {
+     "item": {
+      "ArmorCategory": "leather",
+      "Attributes": {
+       "armor_class_base": 1,
+       "endurance_scaling_divisor": 10,
+       "equip_slot": 3,
+       "value": 15
+      },
+      "Description": "A scuffed browband that keeps splinters - and doubts - at bay.",
+      "Name": "Leather Helmet",
+      "Rarity": "common",
+      "SpellCost": 0,
+      "SpellEffect": "",
+      "SpellSchool": "",
+      "Type": 1,
+      "instance_id": 14947115970685493536
+     },
+     "slot": 3
+    }
+   ],
+   "experience": 1273,
+   "free_stat_points": 150,
+   "hit_points": 111,
+   "intellect": 12,
+   "level": 31,
+   "luck": 10,
+   "magic_schools": null,
+   "max_hit_points": 111,
+   "max_spell_points": 76,
+   "might": 9,
+   "name": "Mara",
+   "owed_level_choices": [
+    3,
+    6,
+    9,
+    12,
+    15,
+    18,
+    21,
+    24,
+    27,
+    30
+   ],
+   "personality": 8,
+   "rare_class": {
+    "anchor": {}
+   },
+   "reactive_combat": {},
+   "skills": [
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 4
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 7
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 16
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 38
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 39
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 40
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 41
+    },
+    {
+     "level": 2,
+     "mastery": 1,
+     "type": 25
+    }
+   ],
+   "speed": 13,
+   "spell_points": 76
+  },
+  {
+   "accuracy": 13,
+   "class": 11,
+   "conditions": null,
+   "endurance": 11,
+   "equipment": [
+    {
+     "item": {
+      "ArmorCategory": "",
+      "Attributes": {
+       "value": 120
+      },
+      "Description": "A light dagger enchanted for spellcasters",
+      "Name": "Magic Dagger",
+      "Rarity": "uncommon",
+      "SpellCost": 0,
+      "SpellEffect": "",
+      "SpellSchool": "",
+      "Type": 0,
+      "instance_id": 15508429188890088328
+     },
+     "slot": 0
+    },
+    {
+     "item": {
+      "ArmorCategory": "leather",
+      "Attributes": {
+       "armor_class_base": 2,
+       "endurance_scaling_divisor": 10,
+       "equip_slot": 2,
+       "value": 25
+      },
+      "Description": "Worn smooth by a hundred roads; it smells of rain and smoke.",
+      "Name": "Leather Armor",
+      "Rarity": "common",
+      "SpellCost": 0,
+      "SpellEffect": "",
+      "SpellSchool": "",
+      "Type": 1,
+      "instance_id": 2085857442867942026
+     },
+     "slot": 2
+    }
+   ],
+   "experience": 1273,
+   "free_stat_points": 150,
+   "hit_points": 115,
+   "intellect": 15,
+   "level": 31,
+   "luck": 13,
+   "magic_schools": null,
+   "max_hit_points": 115,
+   "max_spell_points": 80,
+   "might": 8,
+   "name": "Elara",
+   "owed_level_choices": [
+    3,
+    6,
+    9,
+    12,
+    15,
+    18,
+    21,
+    24,
+    27,
+    30
+   ],
+   "personality": 10,
+   "rare_class": {
+    "anchor": {}
+   },
+   "reactive_combat": {},
+   "skills": [
+    {
+     "level": 2,
+     "mastery": 1,
+     "type": 42
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 43
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 44
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 1
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 7
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 11
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 17
+    }
+   ],
+   "speed": 12,
+   "spell_points": 80
+  },
+  {
+   "accuracy": 10,
+   "class": 12,
+   "conditions": null,
+   "endurance": 12,
+   "equipment": [
+    {
+     "item": {
+      "ArmorCategory": "",
+      "Attributes": {
+       "value": 90
+      },
+      "Description": "A staff carved from ancient oak, perfect for magic users",
+      "Name": "Oak Staff",
+      "Rarity": "common",
+      "SpellCost": 0,
+      "SpellEffect": "",
+      "SpellSchool": "",
+      "Type": 0,
+      "instance_id": 15161206595652457271
+     },
+     "slot": 0
+    },
+    {
+     "item": {
+      "ArmorCategory": "leather",
+      "Attributes": {
+       "armor_class_base": 2,
+       "endurance_scaling_divisor": 10,
+       "equip_slot": 2,
+       "value": 25
+      },
+      "Description": "Worn smooth by a hundred roads; it smells of rain and smoke.",
+      "Name": "Leather Armor",
+      "Rarity": "common",
+      "SpellCost": 0,
+      "SpellEffect": "",
+      "SpellSchool": "",
+      "Type": 1,
+      "instance_id": 17087237203529019237
+     },
+     "slot": 2
+    }
+   ],
+   "experience": 1273,
+   "free_stat_points": 150,
+   "hit_points": 117,
+   "intellect": 15,
+   "level": 31,
+   "luck": 10,
+   "magic_schools": null,
+   "max_hit_points": 117,
+   "max_spell_points": 80,
+   "might": 9,
+   "name": "Kael",
+   "owed_level_choices": [
+    3,
+    6,
+    9,
+    12,
+    15,
+    18,
+    21,
+    24,
+    27,
+    30
+   ],
+   "personality": 10,
+   "rare_class": {
+    "anchor": {}
+   },
+   "reactive_combat": {},
+   "skills": [
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 45
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 46
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 47
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 7
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 11
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 12
+    },
+    {
+     "level": 1,
+     "mastery": 0,
+     "type": 17
+    },
+    {
+     "level": 2,
+     "mastery": 1,
+     "type": 6
+    }
+   ],
+   "speed": 16,
+   "spell_points": 80
+  }
+ ],
+ "saved_at": "2026-10-10T18:37:26+04:00",
+ "source": "save20.json"
+}

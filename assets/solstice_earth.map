@@ -3,19 +3,19 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXYXX
 XXX......XXXXXXXXXXXXXXXXX....YX
 XXX.ca...XXXXXXXXXXXXXYXXX.T..XX
-XXX.@....XXXXXXXX........X@.m.XX  >[npc:solstice_earth_cache], [npc:solstice_earth_brace_two]
+XXX.@....XXXXXXXX@.......X@.m.XX  >[npc:solstice_earth_cache], [npc:solstice_earth_brace_one], [npc:solstice_earth_brace_two]
 XXX....bcXXXXXXXX.ca.........@XX  >[npc:solstice_records_earth_record]
 XXX......XXXXXXXY........Y.T..XX
-XXXXXX.XYXXXXXXXX..@.....Xab@.XX  >[npc:solstice_earth_brace_one], [npc:solstice_earth_brace_three]
+XXXXXX.XYXXXXXXXX........Xab@.XX  >[npc:solstice_earth_brace_three]
 XXXXXX~XXXXXXXXXX.....bc.X....XX
 XXXXXX.XXXXXXXXXX........XXXYXXX
 XXXXXX.XXXXXXXXXXXXX.XXXXXXXXXXX
 XXX........XXXXXXXXX~XXXXXXXXXXX
-XXX.ab..@..XXXXXXXXX.XXXXXXXXXXX  >[npc:solstice_earth_security_bypass]
+XXX.ab.....XXXXXXXXX.XXXXXXXXXXX
 XXX........XXXXXXXXX.XXXXXXXXXXX
 XXXTTTTTTTTXXXXXXXXX.XXXXXXXXXXX
 XXX.....ca.XXXXX........XXXXXXXX
-XXX........XXXXX.bc.....XXXXXXXX
+XXX@.......XXXXX.bc.....XXXXXXXX  >[npc:solstice_earth_security_bypass]
 XXXXXX.XXYXXXXXX........XXXXXXXX
 XXXXXX.XXXXXXXXXTTTTTTTTXXXXXXXX
 XX.......XXYXXXX........XXXXXXXX

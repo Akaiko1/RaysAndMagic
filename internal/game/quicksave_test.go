@@ -93,9 +93,9 @@ func TestQuicksaveKeys(t *testing.T) {
 		g.openMainMenu()
 		g.mainMenuMode = MenuSaveSelect
 		g.savePage, g.slotSelection = 0, quicksaveRow
-		ih.doSaveToSelectedRow()
+		ih.game.saveToSelectedRow()
 		g.mainMenuMode = MenuLoadSelect
-		ih.doLoadFromSelectedRow()
+		ih.game.loadSelectedRow()
 		if g.party.Gold != 100 {
 			t.Fatalf("loading the Quicksave row gave gold %d, want 100 (an autosave or menu save overwrote it)", g.party.Gold)
 		}

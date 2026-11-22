@@ -35,3 +35,12 @@ func IntSign(x int) int {
 		return 0
 	}
 }
+
+// ScaleCount is a count at another scale: n x k to the nearest integer, never
+// rounding a positive count to zero (a frame count at another tick rate).
+func ScaleCount(n int, k float64) int {
+	if n <= 0 {
+		return n
+	}
+	return max(1, int(float64(n)*k+0.5))
+}

@@ -22,3 +22,24 @@ func TestFlaskBurnMasteryValidation(t *testing.T) {
 		})
 	}
 }
+
+// Every flask, crafted or reusable, tints its burst with its brew_color.
+func TestFlaskNeedsBurstTint(t *testing.T) {
+	for _, key := range []string{"fire_flask", "solstice_everflow_retort"} {
+		t.Run(key, func(t *testing.T) {
+			previous := GlobalItems
+			t.Cleanup(func() { GlobalItems = previous })
+			if _, err := LoadItemConfig("../../assets/items.yaml"); err != nil {
+				t.Fatal(err)
+			}
+			d, _ := GetItemDefinition(key)
+			if err := validateCraftedItem(key, d); err != nil {
+				t.Fatalf("authored flask rejected: %v", err)
+			}
+			d.BrewColor = [3]int{}
+			if err := validateCraftedItem(key, d); err == nil {
+				t.Fatal("flask without brew_color accepted")
+			}
+		})
+	}
+}

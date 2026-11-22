@@ -8,12 +8,15 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
+	"ugataima/internal/monster"
+	"ugataima/internal/quests"
 	"ugataima/internal/world"
 )
 
@@ -1142,11 +1145,13 @@ func TestLegendaryDropAnnouncementDoesNotPersistOnTheBag(t *testing.T) {
 
 // THE RULE, one row per authored duration: a duration is written in SECONDS and
 // converted with the live tps, so the same wall-clock time elapses at 60 and at
-// 120 (the shipped build runs 120 - config.yaml, and main.go forces it on macOS).
+// 120 (the shipped build runs config.yaml's engine.tps, 120).
 // Written as a table because these were frame counts commented "at 60fps": every
 // one of them elapsed in HALF its documented time in the shipped game, and the
 // prompt grace commented "two seconds is longer than any blip" was one second.
 func TestTimedDurationsAreTpsIndependent(t *testing.T) {
+	cfg := loadTestConfig(t)
+	monster.MustLoadMonsterConfig("../../assets/monsters.yaml")
 	cases := []struct {
 		name    string
 		seconds float64
@@ -1161,6 +1166,21 @@ func TestTimedDurationsAreTpsIndependent(t *testing.T) {
 		}},
 		{"badge aura period", badgeAuraPeriodSeconds, func(g *MMGame) int {
 			return g.framesForSeconds(badgeAuraPeriodSeconds)
+		}},
+		{"hero Speed curve at Speed 0", AttackCooldownInterceptSeconds, func(g *MMGame) int { return g.speedCurveFrames(0) }},
+		{"real-time recovery floor", RTCooldownMinSeconds, func(g *MMGame) int { return g.clampRTCooldown(0) }},
+		{"input stagger", cfg.UI.InputStaggerSeconds, func(g *MMGame) int { return g.inputStaggerFrames() }},
+		{"attack-key hold repeat", rtHoldRepeatSeconds, func(g *MMGame) int {
+			held := 0
+			for !g.holdRepeats(held) {
+				held++
+			}
+			return held
+		}},
+		{"monster attack cooldown", cfg.MonsterAI.AttackCooldownSeconds, func(g *MMGame) int {
+			m := monster.NewMonster3DFromConfig(0, 0, "goblin", g.config)
+			m.AttackCooldownMultiplier = 1
+			return m.AttackCooldownFrames()
 		}},
 	}
 	// loadTestConfig returns the SHARED config.GlobalConfig pointer, so the tick
@@ -1186,6 +1206,22 @@ func TestTimedDurationsAreTpsIndependent(t *testing.T) {
 	}
 	// And the whole banner timeline follows, not just its legs.
 	fast, slow := atTPS(120), atTPS(60)
+	// A hero's recoveries keep their seconds too: the Speed curve is scaled
+	// before any rounding to frames.
+	for _, g := range []*MMGame{fast, slow} {
+		g.combat = NewCombatSystem(g)
+		g.party.Members[0].Speed = 40
+	}
+	for name, recovery := range map[string]func(g *MMGame) int{
+		"weapon":        func(g *MMGame) int { return g.combat.WeaponCooldownFrames(g.party.Members[0]) },
+		"5 s action":    func(g *MMGame) int { return g.combat.actionCooldownBreakdown(g.party.Members[0], 5).TotalFrames },
+		"action pacing": func(g *MMGame) int { return g.combat.CalculateActionCooldownFrames(g.party.Members[0]) },
+	} {
+		fastSec, slowSec := float64(recovery(fast))/120, float64(recovery(slow))/60
+		if math.Abs(fastSec-slowSec) > 0.02 {
+			t.Errorf("%s recovery at Speed 40 lasts %.3fs at 120 tps and %.3fs at 60", name, fastSec, slowSec)
+		}
+	}
 	for _, kind := range []screenBannerKind{bannerQuestDone, bannerInteractPrompt} {
 		fastSec := float64(fast.bannerLifetime(kind)) / 120
 		slowSec := float64(slow.bannerLifetime(kind)) / 60
@@ -1239,5 +1275,54 @@ func TestNoHardcodedTickRateFallbacks(t *testing.T) {
 	}
 	if len(offenders) > 0 {
 		t.Fatalf("hardcoded tick rates (use config.DefaultTPS):\n%s", strings.Join(offenders, "\n"))
+	}
+}
+
+// Loot handed straight to the party - a crate's, a quest purse paid at a
+// turn-in or by an encounter's auto-claim - names a legendary as it arrives,
+// like a ground container.
+func TestLegendaryLootHandedToThePartyIsAnnounced(t *testing.T) {
+	relic := items.Item{Name: "Relic", Type: items.ItemTrinket, Rarity: "legendary"}
+	for _, route := range []string{"crate", "quest purse"} {
+		t.Run(route, func(t *testing.T) {
+			g := bannerGame(t)
+			switch route {
+			case "crate":
+				g.grantCrateLoot(&character.NPC{Name: "Crate"}, []items.Item{relic}, 0, 0)
+			case "quest purse":
+				g.payQuestRewards(&quests.QuestRewards{}, []items.Item{relic})
+			}
+			g.tickScreenBanners()
+			if b := g.currentScreenBanner(); b == nil || b.kind != bannerLegendaryDrop || !strings.Contains(b.text, relic.Name) {
+				t.Fatalf("banner = %+v, want the legendary banner naming %q", b, relic.Name)
+			}
+		})
+	}
+}
+
+// An encounter quest's auto-claim pays its reward items and its pool roll,
+// like a turn-in does.
+func TestEncounterQuestPaysItsRewardItems(t *testing.T) {
+	g := bannerGame(t)
+	id := "encounter_items"
+	def := &quests.QuestDefinition{Name: "Test Encounter", Type: quests.QuestTypeEncounter,
+		Rewards: quests.QuestRewards{Gold: 10, Items: []string{"health_potion"}, ItemPool: []string{"mirage_salt"}}}
+	g.questManager = quests.NewQuestManager(&quests.QuestConfig{Quests: map[string]*quests.QuestDefinition{id: def}})
+	previous := quests.GlobalQuestManager
+	quests.GlobalQuestManager = g.questManager
+	t.Cleanup(func() { quests.GlobalQuestManager = previous })
+	if err := g.questManager.ActivateQuest(id); err != nil {
+		t.Fatal(err)
+	}
+	g.party.Inventory = nil
+	(&GameLoop{game: g}).awardEncounterRewards(&monster.EncounterRewards{QuestID: id})
+	var got []string
+	for _, it := range g.party.Inventory {
+		got = append(got, it.Name)
+	}
+	potion, _ := config.GetItemDefinition("health_potion")
+	salt, _ := config.GetItemDefinition("mirage_salt")
+	if !slices.Contains(got, potion.Name) || !slices.Contains(got, salt.Name) {
+		t.Fatalf("inventory after the auto-claim = %v, want %q and %q", got, potion.Name, salt.Name)
 	}
 }

@@ -7,9 +7,9 @@ import (
 
 	"ugataima/internal/character"
 	"ugataima/internal/collision"
-	"ugataima/internal/items"
 	"ugataima/internal/monster"
 	"ugataima/internal/quests"
+	"ugataima/internal/status"
 )
 
 // The valve interact-quest advances via OnInteract on its own tag and
@@ -58,7 +58,7 @@ func finishInteractQuest(t *testing.T, qm *quests.QuestManager, id string) {
 	for i := 0; i < q.Target(); i++ {
 		qm.OnInteract(q.Definition.TargetMonster)
 	}
-	if !q.Completed || q.Status != quests.QuestStatusCompleted {
+	if !q.Completed || q.Status() != quests.QuestStatusCompleted {
 		t.Fatalf("%s not completed after %d interactions: %+v", id, q.Target(), q)
 	}
 }
@@ -120,10 +120,11 @@ func TestGoldenThiefBug_FlagsAndQuestGatedEvasion(t *testing.T) {
 
 	gtb := monster.NewMonster3DFromConfig(g.camera.X+500, g.camera.Y+500, "golden_thief_bug", g.config)
 	g.world.Monsters = append(g.world.Monsters, gtb)
-	if !gtb.IgnoresArmor || gtb.InfernoChance <= 0 || gtb.TeleportAtHP <= 0 ||
-		gtb.TeleportAtHP >= gtb.MaxHitPoints || gtb.PassiveUntilQuest != "culverts_valves" {
-		t.Fatalf("GTB flags not parsed: HP=%d ignoresArmor=%v inferno=%.2f teleAtHP=%d quest=%q",
-			gtb.MaxHitPoints, gtb.IgnoresArmor, gtb.InfernoChance, gtb.TeleportAtHP, gtb.PassiveUntilQuest)
+	nova := monsterPartyAttack(gtb, "inferno")
+	if gtb.Abilities.MeltArmor.Chance <= 0 || nova == nil || nova.Trigger != monster.PartyAttackNova || gtb.Abilities.Teleport.AtHP <= 0 ||
+		gtb.Abilities.Teleport.AtHP >= gtb.MaxHitPoints || gtb.PassiveUntilQuest != "culverts_valves" {
+		t.Fatalf("GTB flags not parsed: HP=%d meltArmor=%.2f inferno=%+v teleAtHP=%d quest=%q",
+			gtb.MaxHitPoints, gtb.Abilities.MeltArmor.Chance, nova, gtb.Abilities.Teleport.AtHP, gtb.PassiveUntilQuest)
 	}
 
 	// Quest not taken -> evasive: never chases (target = self), updateBoss handles
@@ -139,7 +140,7 @@ func TestGoldenThiefBug_FlagsAndQuestGatedEvasion(t *testing.T) {
 		t.Errorf("evasive GTB must expose the shared evasive AI mode (flag=%v behavior=%v)",
 			gtb.BossEvasive, gtb.CurrentAIBehavior())
 	}
-	if !cs.updateBoss(gtb, true, true, true) {
+	if !cs.updateBoss(gtb, true) {
 		t.Errorf("evasive GTB should be fully handled by updateBoss (no normal attack)")
 	}
 
@@ -180,63 +181,29 @@ func TestGoldenThiefBug_EvasiveBlinksOnDamage(t *testing.T) {
 		t.Fatalf("GTB should be evasive before the valve quest is done")
 	}
 
-	// First tick (far, undamaged) just establishes the HP baseline - it must NOT blink.
+	// Far and unhurt it must NOT blink.
 	startX, startY := gtb.X, gtb.Y
-	if !cs.updateBoss(gtb, true, false, false) {
+	if !cs.updateBoss(gtb, false) {
 		t.Fatalf("evasive GTB action should be fully handled by updateBoss")
 	}
 	if gtb.X != startX || gtb.Y != startY {
 		t.Fatalf("undamaged evasive GTB far from the party must not blink")
 	}
 
-	// Now it takes a hit. The damage debt latches, so the next tick blinks it away
-	// even though the party is far - and even though no hit-flash timer is set.
-	gtb.HitPoints -= 100
+	// Now a hero's attack hurts it. The blow is owed, so the next tick blinks it
+	// away even though the party is far - and even though no hit-flash timer is set.
+	hp := gtb.HitPoints
+	strikeBoss(cs, gtb, true)
+	if gtb.HitPoints >= hp {
+		t.Fatal("fixture: the blow took no HP")
+	}
 	preX, preY := gtb.X, gtb.Y
-	cs.updateBoss(gtb, true, false, false)
+	cs.updateBoss(gtb, false)
 	if gtb.X == preX && gtb.Y == preY {
 		t.Errorf("a wounded evasive GTB should blink to a new tile, even from far away")
 	}
 	if gtb.BossHurtPending {
 		t.Errorf("a successful blink should clear the hurt debt")
-	}
-}
-
-// An armour-piercing melee hit skips the party's armor class: through the one
-// monster-hit choke point, the Golden Thief Bug's hit on an armoured member
-// lands as hard as an ordinary hit on the same member unarmoured, and harder
-// than an ordinary hit on the armoured member.
-func TestIgnoresArmor_MeleeHitSkipsPartyArmor(t *testing.T) {
-	cs := newTestCombatSystemWithConfig(t)
-	monster.MustLoadMonsterConfig("../../assets/monsters.yaml")
-	member := cs.game.party.Members[0]
-	member.Luck = 0
-	gtb := monster.NewMonster3DFromConfig(0, 0, "golden_thief_bug", cs.game.config)
-	if !gtb.IgnoresArmor {
-		t.Fatal("golden_thief_bug no longer authors ignores_armor")
-	}
-	loss := func(armored, ignoresArmor bool) int {
-		t.Helper()
-		member.Equipment = map[items.EquipSlot]items.Item{}
-		if armored {
-			equipArmorPieces(t, member, "leather_armor")
-			if cs.armorMitigationPct(member, true) <= 0 {
-				t.Fatal("setup: the armour mitigates nothing")
-			}
-		}
-		if chance := cs.PerfectDodgeChance(member); chance != 0 {
-			t.Fatalf("setup: perfect dodge %d%%, want 0", chance)
-		}
-		member.MaxHitPoints, member.HitPoints = 10000, 10000
-		cs.monsterHitCharacter(gtb, member, gtb.Name, hitFromMonster(gtb, 100, "physical", ignoresArmor, 0, true, false))
-		return 10000 - member.HitPoints
-	}
-	piercing, armored, bare := loss(true, gtb.IgnoresArmor), loss(true, false), loss(false, false)
-	if piercing != bare {
-		t.Errorf("armour-piercing hit took %d, want the unarmoured %d", piercing, bare)
-	}
-	if armored >= bare {
-		t.Errorf("ordinary hit on armour took %d, want less than the unarmoured %d (positive control)", armored, bare)
 	}
 }
 
@@ -273,7 +240,7 @@ func TestBlinkLandsCenteredAndResetsPath(t *testing.T) {
 // TestGoldenThiefBugInfernoIsRangeBound covers the reported bug: in turn-based
 // the nova used to be rolled BEFORE any distance check, and with
 // aggro_whole_map: true the Golden Thief Bug burned the party from anywhere on
-// the map. The nova is now bound to its authored inferno_range_tiles in BOTH
+// the map. The nova is now bound to its authored abilities.inferno.range_tiles in BOTH
 // modes; melee reach still lets it replace a normal hit.
 func TestGoldenThiefBugInfernoIsRangeBound(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
@@ -286,25 +253,30 @@ func TestGoldenThiefBugInfernoIsRangeBound(t *testing.T) {
 	gtb := monster.NewMonster3DFromConfig(g.camera.X, g.camera.Y, "golden_thief_bug", g.config)
 	g.world.Monsters = append(g.world.Monsters, gtb)
 	g.collisionSystem.RegisterEntity(collision.NewEntity(gtb.ID, gtb.X, gtb.Y, 16, 16, collision.CollisionTypeMonster, false))
-	if gtb.InfernoRangeTiles <= 0 {
-		t.Fatalf("setup: golden_thief_bug must author inferno_range_tiles, got %.1f", gtb.InfernoRangeTiles)
+	nova := monsterPartyAttack(gtb, "inferno")
+	if nova == nil || nova.RangeTiles <= 0 {
+		t.Fatalf("setup: golden_thief_bug must author an inferno nova with range_tiles, got %+v", nova)
 	}
 	// Aggressive (the quest gate is a separate concern) and guaranteed to roll.
 	finishInteractQuest(t, g.questManager, "culverts_valves")
-	gtb.InfernoChance = 1.0
-	gtb.TeleportAtHP = 0 // isolate the nova from the low-HP blink
+	setPartyAttackChance(gtb, "inferno", 1.0)
+	gtb.Abilities.Teleport.AtHP = 0 // isolate the nova from the low-HP blink
 
 	member := g.party.Members[0]
 	member.MaxHitPoints, member.HitPoints = 200, 200
+	member.Luck = 0 // Luck buys Perfect Dodge; a dodged nova deals nothing
+	if got := cs.PerfectDodgeChance(member); got != 0 {
+		t.Fatalf("fixture: %s still dodges %d%%", member.Name, got)
+	}
 	hpBefore := func() int { return member.HitPoints }
 
 	// 1) Far beyond the authored reach: no nova, in either mode.
 	gtb.X, gtb.Y = g.camera.X+40*tile, g.camera.Y
-	gtb.InfernoCDFrames = 0
-	if cs.updateBoss(gtb, true, false, true) {
+	gtb.NovaRollCD = status.DualClock{}
+	if cs.updateBoss(gtb, false) {
 		t.Error("nova fired from 40 tiles - the range gate is not applied")
 	}
-	if cs.updateBoss(gtb, true, true, true) { // TB passes attackTick=true every pass
+	if cs.updateBoss(gtb, true) { // TB passes attackTick=true every pass
 		t.Error("nova fired from 40 tiles on a TB pass - the range gate is bypassed at the melee-moment branch")
 	}
 	if hpBefore() != 200 {
@@ -312,21 +284,21 @@ func TestGoldenThiefBugInfernoIsRangeBound(t *testing.T) {
 	}
 
 	// 2) Inside the authored reach but outside melee: the ranged roll fires...
-	gtb.X, gtb.Y = g.camera.X+float64(gtb.InfernoRangeTiles-1)*tile, g.camera.Y
-	gtb.InfernoCDFrames = 0
-	if !cs.updateBoss(gtb, true, false, true) {
-		t.Fatal("nova should fire from inside inferno_range_tiles")
+	gtb.X, gtb.Y = g.camera.X+float64(nova.RangeTiles-1)*tile, g.camera.Y
+	gtb.NovaRollCD = status.DualClock{}
+	if !cs.updateBoss(gtb, false) {
+		t.Fatal("nova should fire from inside its range_tiles")
 	}
 	if hpBefore() == 200 {
 		t.Error("in-range nova dealt no damage")
 	}
 	// ...and then respects its cadence instead of re-rolling every tick.
-	if gtb.InfernoCDFrames != BossInfernoRangedRollSeconds*g.config.GetTPS() {
+	if gtb.NovaRollCD.Frames != BossNovaRangedRollSeconds*g.config.GetTPS() {
 		t.Errorf("ranged nova cadence = %d frames, want %d",
-			gtb.InfernoCDFrames, BossInfernoRangedRollSeconds*g.config.GetTPS())
+			gtb.NovaRollCD.Frames, BossNovaRangedRollSeconds*g.config.GetTPS())
 	}
 	hpAfterFirst := hpBefore()
-	if cs.updateBoss(gtb, true, false, true) {
+	if cs.updateBoss(gtb, false) {
 		t.Error("nova re-fired while its cadence was still running")
 	}
 	if hpBefore() != hpAfterFirst {
@@ -335,8 +307,8 @@ func TestGoldenThiefBugInfernoIsRangeBound(t *testing.T) {
 
 	// 3) Melee moment inside reach: the nova may still replace the normal hit.
 	gtb.X, gtb.Y = g.camera.X+tile, g.camera.Y
-	gtb.InfernoCDFrames = 0
-	if !cs.updateBoss(gtb, true, true, false) {
+	gtb.NovaRollCD = status.DualClock{}
+	if !cs.updateBoss(gtb, true) {
 		t.Error("adjacent nova should still replace the normal attack")
 	}
 }

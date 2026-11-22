@@ -1,15 +1,13 @@
 package game
 
 import (
-	"bytes"
 	"fmt"
 	"os"
 	"strings"
 
 	"ugataima/internal/character"
+	"ugataima/internal/strictyaml"
 	"ugataima/internal/world"
-
-	"gopkg.in/yaml.v3"
 )
 
 // Terrain symbols are authored independently of the first-person render class:
@@ -43,9 +41,7 @@ func loadAtlasStyle(path string, tiles *world.TileManager, npcs *character.NPCCo
 	if err != nil {
 		return style, err
 	}
-	decoder := yaml.NewDecoder(bytes.NewReader(data))
-	decoder.KnownFields(true)
-	if err := decoder.Decode(&style); err != nil {
+	if err := strictyaml.Decode(data, &style); err != nil {
 		return style, fmt.Errorf("world atlas %s: %w", path, err)
 	}
 	if tiles == nil || style.Tiles == nil {

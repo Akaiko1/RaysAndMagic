@@ -108,7 +108,7 @@ func TestChamberExperienceBudget(t *testing.T) {
 				t.Fatal(err)
 			}
 			g.questManager.MarkCompleted("chamber_reward")
-			if !g.claimQuestReward("chamber_reward") {
+			if !g.claimQuestReward("chamber_reward", nil) {
 				t.Fatal("quest reward could not be claimed")
 			}
 		} else {
@@ -364,7 +364,7 @@ func TestChamberArenaLifecycle(t *testing.T) {
 				}
 				outX, outY := (float64(r[0])-.5)*ts, py
 				messages := len(g.combatLogHistory)
-				if g.collisionSystem.CanMoveTo("player", outX, outY) || g.canMovePartyTo(outX, outY) || g.safeForcedArrival(r[0]-1, TileIndex(py, ts), "") {
+				if g.collisionSystem.CanMoveTo("player", outX, outY) || g.canMovePartyTo(outX, outY) || g.forcedArrivalOpen(r[0]-1, TileIndex(py, ts)) {
 					t.Fatal("arena accepted an outside landing")
 				}
 				if len(g.combatLogHistory) != messages {
@@ -392,13 +392,13 @@ func TestChamberArenaLifecycle(t *testing.T) {
 					t.Fatal("Jump escaped")
 				}
 				hero := g.party.Members[0]
-				hero.RareClass.Anchor = character.SpatialAnchor{MapKey: key, X: outX, Y: outY, Frames: 1000}
-				if g.performSpatialStep(hero, "return_step", 3) {
+				hero.RareClass.Anchor = character.SpatialAnchor{MapKey: key, X: outX, Y: outY, Clock: framesClock(1000)}
+				if g.performSpatialStep(hero, config.Technique("return_step"), 3) {
 					t.Fatal("Return Step escaped")
 				}
 				messages = len(g.combatLogHistory)
 				g.arenaBarrierMessageAfter = 0
-				if g.performSpatialStep(hero, "fold_step", 3) && !g.adventureArenaAllows(g.camera.X, g.camera.Y) {
+				if g.performSpatialStep(hero, config.Technique("fold_step"), 3) && !g.adventureArenaAllows(g.camera.X, g.camera.Y) {
 					t.Fatal("Fold Step escaped")
 				}
 				if len(g.combatLogHistory) != messages {
@@ -414,9 +414,9 @@ func TestChamberArenaLifecycle(t *testing.T) {
 					{X: sx, Y: sy, MapKey: key, Group: "arena_probe", AutoActivate: true, ExcludeSelf: true, CooldownSeconds: 5},
 					{X: r[0] - 1, Y: sy, MapKey: key, Group: "arena_probe"},
 				}
-				delete(wm.GlobalTeleporterRegistry.LastUsedByGroup, "arena_probe")
+				delete(wm.GlobalTeleporterRegistry.GroupCooldowns, "arena_probe")
 				ih.checkTeleporter()
-				if g.camera.X != px || g.camera.Y != py || !wm.GlobalTeleporterRegistry.LastUsedByGroup["arena_probe"].IsZero() {
+				if g.camera.X != px || g.camera.Y != py || !wm.GlobalTeleporterRegistry.GroupReady("arena_probe") {
 					t.Fatal("blocked teleporter moved the party or consumed its cooldown")
 				}
 				g.world.Tiles[sy][sx], wm.GlobalTeleporterRegistry.Teleporters = tile, registry

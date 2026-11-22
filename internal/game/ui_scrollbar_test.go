@@ -27,7 +27,7 @@ func scrollbarCases() []scrollbarCase {
 	alchemy := func(h *displayedModalHarness) (alchemyMaterialLayout, *config.AlchemyRecipe) {
 		r := &config.GlobalAlchemy.Recipes[0]
 		content := computeTabbedMenuLayout(h.g.config.GetScreenWidth(), gameplayViewportBottom(h.g)).content
-		return makeAlchemyMaterialLayout(computeRareBookLayout(content, true), r), r
+		return makeAlchemyMaterialLayout(computeRareBookLayout(content, true, 1), r), r
 	}
 	potion := func(h *displayedModalHarness, row int) potionSettingsLayout {
 		p := makeAudioSettingsPanelLayout(h.g.config.GetScreenWidth(), h.g.config.GetScreenHeight(), true)

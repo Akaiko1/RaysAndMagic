@@ -51,6 +51,23 @@ func scrollbarGrabStrip(track layoutRect) layoutRect {
 
 // drawScrollbar draws a list's scrollbar and, when enabled, lets the pointer
 // drag it. key names the list across frames; set stores a new offset.
+// onWheelOver registers the wheel over area: move gets 1 for a step down (the
+// next page or row) and -1 for a step up.
+func (ui *UISystem) onWheelOver(area layoutRect, enabled bool, move func(dir int)) {
+	ui.onDisplayedInput(uiCommandPointer, area, func() {
+		px, py := pointerPosition()
+		_, wheel := pointerWheel()
+		if !enabled || wheel == 0 || !isMouseHoveringBox(px, py, area.x, area.y, area.right(), area.bottom()) {
+			return
+		}
+		if wheel > 0 {
+			move(-1)
+		} else {
+			move(1)
+		}
+	})
+}
+
 func (ui *UISystem) drawScrollbar(dst *ebiten.Image, key string, track layoutRect, offset, contentH int, enabled bool, set func(int)) {
 	drawScrollbarThumb(dst, track, offset, contentH)
 	if enabled {
