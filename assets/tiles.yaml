@@ -707,6 +707,8 @@ tiles:
   # screen. Objects without an authored floor inherit the dominant nearby floor,
   # so these blend into wood, tatami, and garden rooms. Shoji are placed in front
   # of rack alcoves to occlude them from the room; the alcove is entered around.
+  # A shoji is a flat screen, not a cross: linked_panels joins it to the screens
+  # beside and diagonal to it, so a row of H reads as one folding wall.
   castle_lantern:
     name: "Stone Lantern"
     type: "structure"
@@ -742,6 +744,7 @@ tiles:
     size_class: full_tile
     sprite: "shoji_screen"
     render_type: "crossed_prop"
+    linked_panels: true
     letter: "H"
     biomes: ["japanese_castle"]
 

@@ -1363,6 +1363,40 @@ type MonsterRenderConfig struct {
 	WalkFrameSeconds float64                  `yaml:"walk_frame_seconds"`
 	Death            MonsterDeathRenderConfig `yaml:"death"`
 	MinSpriteSize    int                      `yaml:"min_sprite_size"`
+	HoverHalo        HoverHaloConfig          `yaml:"hover_halo"`
+}
+
+// HoverHaloConfig is the glowing rim around the monster under the cursor.
+type HoverHaloConfig struct {
+	Color [3]int `yaml:"color"` // RGB, 0-255
+	// WidthPx is how far the glow reaches from the outline in a 720-row view;
+	// it scales with the view height.
+	WidthPx float64 `yaml:"width_px"`
+	// Strength is the glow's opacity at the outline; 0 hides the halo.
+	Strength float64 `yaml:"strength"`
+}
+
+// HoverHaloMaxWidthPx is the widest halo the blur keeps smooth: its taps stay
+// about a pixel apart up to a 1080-row view.
+const HoverHaloMaxWidthPx = 8
+
+func DefaultHoverHaloConfig() HoverHaloConfig {
+	return HoverHaloConfig{Color: [3]int{255, 232, 150}, WidthPx: 5, Strength: 1}
+}
+
+func (c HoverHaloConfig) Validate() error {
+	for _, channel := range c.Color {
+		if channel < 0 || channel > 255 {
+			return fmt.Errorf("graphics.monster.hover_halo.color: %v is not RGB in 0-255", c.Color)
+		}
+	}
+	if !(c.WidthPx >= 1 && c.WidthPx <= HoverHaloMaxWidthPx) {
+		return fmt.Errorf("graphics.monster.hover_halo.width_px: %v is outside 1-%d", c.WidthPx, HoverHaloMaxWidthPx)
+	}
+	if !(c.Strength >= 0 && c.Strength <= 1) {
+		return fmt.Errorf("graphics.monster.hover_halo.strength: %v is outside 0-1", c.Strength)
+	}
+	return nil
 }
 
 type NPCRenderConfig struct {
@@ -1517,6 +1551,13 @@ type TileData struct {
 	// back to a centred standee when no wall is adjacent. Animated sheets
 	// (w == h*4) cycle frames like any standee.
 	WallMounted bool `yaml:"wall_mounted,omitempty"`
+	// LinkedPanels turns a crossed_prop into flat panels exactly a tile long
+	// that join every neighbouring linked_panels tile, whatever its kind: half
+	// a panel runs from the tile centre to each one beside it (edge to edge)
+	// or diagonal to it (corner to corner), so a row reads as one screen and a
+	// corner folds. One neighbour gives a whole straight panel; none, a whole
+	// panel along a side of the tile picked at random with the world's layout.
+	LinkedPanels bool `yaml:"linked_panels,omitempty"`
 	// ImpassableAura forces the rising "impassable" bubble glow on a FLOOR tile
 	// (render_type floor) that blocks movement but reads like walkable
 	// ground - e.g. a chasm pit. Wall/billboard blockers get the aura
@@ -2068,6 +2109,7 @@ func LoadConfig(filename string) (*Config, error) {
 	var config Config
 	config.Camping = DefaultCampingConfig()
 	config.Graphics.Monster.Death = DefaultMonsterDeathRenderConfig()
+	config.Graphics.Monster.HoverHalo = DefaultHoverHaloConfig()
 	config.Graphics.Monster.WalkFrameSeconds = DefaultMonsterWalkFrameSeconds
 	config.Graphics.View.TurnStepSeconds = DefaultTurnStepSeconds
 	// Defaults applied before unmarshal so an absent key keeps the default while a
@@ -2272,6 +2314,9 @@ func LoadConfig(filename string) (*Config, error) {
 		return nil, fmt.Errorf("graphics.monster.walk_frame_seconds must be in (0, 5]")
 	}
 	if err := config.Graphics.Monster.Death.Validate(); err != nil {
+		return nil, err
+	}
+	if err := config.Graphics.Monster.HoverHalo.Validate(); err != nil {
 		return nil, err
 	}
 	if err := validateNightMoteRenderConfig(config.Graphics.NightMotes); err != nil {

@@ -31,6 +31,8 @@ type TransparentSpriteData struct {
 	spriteName       string
 	nightMotePalette nightMotePalette
 	emitsNightMotes  bool
+	// panelArms is set on linked-panel tiles of the crossed-tile cache.
+	panelArms panelArms
 }
 
 type LightSource struct {
@@ -158,14 +160,16 @@ type Renderer struct {
 	// many core shells. The material shader batches the whole slab with 32-bit
 	// indices instead of splitting every surface into a separate draw command.
 	standeeMaterialIdx []uint32
-	// Reusable slab-surface buffers (A/B keep both crossed-tree slabs live for
-	// the interleaved arm draw).
-	standeeSurfaces  []standeeSurface
-	standeeSurfacesB []standeeSurface
-	crossedGeometry  crossedFrameGeometry
-	treeSpatial      renderSpatialIndex
-	propSpatial      renderSpatialIndex
-	loadDiagnostics  renderLoadDiagnostics
+	// Reusable slab-surface buffers: every plane of a cross drawn whole stays
+	// live for the interleaved arm draw.
+	standeeSurfaces []standeeSurface
+	// One surface buffer per further plane of a cross drawn whole.
+	standeeSurfacesMore [maxCrossPlanes - 1][]standeeSurface
+	crossedGeometry     crossedFrameGeometry
+	hoverHalo           hoverHaloPass
+	treeSpatial         renderSpatialIndex
+	propSpatial         renderSpatialIndex
+	loadDiagnostics     renderLoadDiagnostics
 
 	// Per-frame draw counters surfaced in the FPS overlay (perf diagnostics).
 	statTreesDrawn      int
@@ -510,6 +514,7 @@ func (r *Renderer) buildTransparentSpriteCache() {
 		}
 	}
 
+	r.linkPanels(treeCache)
 	r.transparentSpritesCache = cache
 	r.treeTilesCache = treeCache
 	r.treeSpatial.rebuild(treeCache, tileSize)
@@ -3115,8 +3120,9 @@ type UnifiedSpriteRenderData struct {
 	tileX    int
 	tileY    int
 	tileType world.TileType3D
-	// Every crossed tree expands into four arm entries at every distance.
-	// The painter pass can place other objects between the far/near arms.
+	// Every crossed tile expands into one entry per arm (four for a cross) at
+	// every distance. The painter pass can place other objects between the
+	// far/near arms.
 	// treeCenterDepth remains the projection depth used to build every arm;
 	// depthPerp becomes only that arm's global sort key.
 	treeArmOnly     bool
@@ -3125,6 +3131,8 @@ type UnifiedSpriteRenderData struct {
 	treeArmLo       int
 	treeArmHi       int
 	treeCenterDepth float64
+	// panelArms is non-zero on a linked-panel tile: the arms it raises.
+	panelArms panelArms
 	// Monster specific
 	monster          *monster.Monster3D
 	monsterPickIndex int  // index in this completed frame, or -1 when culled
@@ -3249,16 +3257,29 @@ func (r *Renderer) crossedTreeRenderData(td *TransparentSpriteData, camX, camY, 
 	if td == nil || r.game == nil {
 		return UnifiedSpriteRenderData{}, false
 	}
-	distance, depthPerp, ok := cullAndProject(
-		td.worldX, td.worldY,
-		camX, camY, camDirX, camDirY,
-		0, viewDistSq,
-	)
-	if !ok {
+	dx, dy := td.worldX-camX, td.worldY-camY
+	distanceSq := dx*dx + dy*dy
+	if distanceSq > viewDistSq {
 		return UnifiedSpriteRenderData{}, false
 	}
+	// An arm reaches ahead of the tile centre, so the tile stays while that
+	// reach is in front of the camera. Its size is then measured at a point
+	// pushed forward to a safe depth: the slab takes its pose from the tile and
+	// only its vertical scale from (depth, size, bottom), which any depth on
+	// the same sight line gives alike.
+	reach := r.crossReachWorld(td)
+	depthPerp := dx*camDirX + dy*camDirY
+	if depthPerp <= -reach {
+		return UnifiedSpriteRenderData{}, false
+	}
+	measureX, measureY := td.worldX, td.worldY
+	if depthPerp < reach {
+		push := reach - depthPerp
+		measureX, measureY, depthPerp = measureX+camDirX*push, measureY+camDirY*push, reach
+	}
+	distance := math.Sqrt(distanceSq)
 	screenXf, bottomF, sizeF, visible := r.game.renderHelper.CalculateEnvironmentSpriteMetricsF(
-		td.worldX, td.worldY, distance, td.tileType, 1.0,
+		measureX, measureY, math.Hypot(measureX-camX, measureY-camY), td.tileType, 1.0,
 	)
 	if !visible {
 		return UnifiedSpriteRenderData{}, false
@@ -3277,6 +3298,7 @@ func (r *Renderer) crossedTreeRenderData(td *TransparentSpriteData, camX, camY, 
 		tileX:      td.tileX,
 		tileY:      td.tileY,
 		tileType:   td.tileType,
+		panelArms:  td.panelArms,
 	}, true
 }
 
@@ -3291,7 +3313,6 @@ func (r *Renderer) splitCrossedTreesForPainterOrder(sprites []UnifiedSpriteRende
 		return sprites
 	}
 
-	const yawA, yawB = math.Pi / 4, 3 * math.Pi / 4
 	tileSize := float64(r.game.config.GetTileSize())
 	for i := start; i < end; i++ {
 		tree := sprites[i]
@@ -3299,19 +3320,19 @@ func (r *Renderer) splitCrossedTreesForPainterOrder(sprites []UnifiedSpriteRende
 			continue
 		}
 		worldX, worldY := TileCenterFromTile(tree.tileX, tree.tileY, tileSize)
-		footprint := r.spriteFootprintWorld(r.crossedProjectedWidth(tree), tree.depthPerp)
+		layout := r.crossLayoutOf(tree, r.spriteFootprintWorld(r.crossedProjectedWidth(tree), tree.depthPerp))
 		// EVERY cross splits, unconditionally: the four center-to-corner arms
 		// are disjoint in 3D, so with each arm depth-sorted globally, crosses
 		// occlude each other (and everything else) exactly. Gating the split on
 		// a nearby-overlap scan left cross-vs-cross order to one whole-entry
 		// depth key, which is wrong the moment two crowns overlap on screen.
-		arms, ok := r.crossedStandeeArms(worldX, worldY, yawA, yawB, footprint)
+		arms, count, ok := r.crossedStandeeArms(worldX, worldY, layout)
 		if !ok {
 			continue
 		}
 
 		tree.treeCenterDepth = tree.depthPerp
-		for armIndex, arm := range arms {
+		for armIndex, arm := range arms[:count] {
 			part := tree
 			part.treeArmOnly = true
 			part.treeArmIndex = armIndex
@@ -3548,7 +3569,7 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 		}
 		// No NEAR cull (unlike other standees): a tree must stay visible when
 		// the player walks right up to it. Only the far view-distance cull
-		// applies; depthPerp<=0 drops trees behind the camera.
+		// applies, and a tile whose arms all lie behind the camera drops.
 		tree, ok := r.crossedTreeRenderData(td, camX, camY, camDirX, camDirY, viewDistSq)
 		if !ok {
 			continue
@@ -3957,10 +3978,7 @@ func (r *Renderer) drawTintedSpriteF(screen *ebiten.Image, sprite *ebiten.Image,
 var hoverHighlightTint = [4]float32{1.0, 0.95, 0.6, 0.6}
 
 // standeeHoverBoost brightens a standee token (container or NPC) while the
-// cursor is over it. The billboard overlay/edge-glow trick doesn't map onto
-// the token mesh: a flat silhouette halo neither turns with the token's yaw
-// nor matches its foreshortened outline, so on tokens the hover cue is the
-// token itself lighting up.
+// cursor is over it. Monsters take the rim of drawMobHoverHalo instead.
 const standeeHoverBoost = 1.4
 
 // drawUnifiedGroundContainerSprite draws a ground container (loot bag or
@@ -4236,15 +4254,15 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 		gg = br * (1 - 0.75*f)
 		bb = br * (1 - 0.75*f)
 	}
-	if s.monster == r.hoveredMonster {
-		rr *= standeeHoverBoost
-		gg *= standeeHoverBoost
-		bb *= standeeHoverBoost
-	}
 
-	r.drawMob(screen, s, mobFrame{sprite: h.sprite, key: s.monster.Key, standee: h.standee,
+	frame := mobFrame{sprite: h.sprite, key: s.monster.Key, standee: h.standee,
 		x: h.p0x + h.dx/2, y: h.p0y + h.dy/2, yaw: s.monster.StandeeYaw, left: drawLeftF, top: screenYF,
-		mirror: h.flipped, rr: rr, gg: gg, bb: bb})
+		mirror: h.flipped, rr: rr, gg: gg, bb: bb}
+	r.drawMob(screen, s, frame)
+	// The hover cue is a rim: the monster keeps its own colours.
+	if s.monster == r.hoveredMonster {
+		r.drawMobHoverHalo(screen, s, frame, h)
+	}
 	r.drawMonsterStatusFX(screen, s, screenY)
 }
 

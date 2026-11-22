@@ -385,7 +385,8 @@ func (g *MMGame) dropPropTilesFromRenderCaches(tiles map[[2]int]bool) {
 	if r := g.gameLoop.renderer; r != nil {
 		r.transparentSpritesCache = filterOutPropTiles(r.transparentSpritesCache, tiles)
 		r.treeTilesCache = filterOutPropTiles(r.treeTilesCache, tiles)
-		r.clearCanopyShadeCache() // canopy shade is derived from tree tiles; rebuilt lazily
+		r.linkPanels(r.treeTilesCache) // a panel beside a dropped one lets go of it
+		r.clearCanopyShadeCache()      // canopy shade is derived from tree tiles; rebuilt lazily
 		r.precomputeFloorColorCache()
 	}
 	if g.gameLoop.ui != nil {

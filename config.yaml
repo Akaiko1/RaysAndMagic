@@ -735,6 +735,11 @@ graphics:
       fade_seconds: 5
       loot_hop_seconds: 0.45
       loot_hop_height_tiles: 0.25
+    # Glowing rim around the monster under the cursor.
+    hover_halo:
+      color: [255, 232, 150]
+      width_px: 5      # glow reach from the outline in a 720-row view (1-8); scales with the view height
+      strength: 1.0    # opacity at the outline, 0-1; 0 hides the halo
 
   # NPC rendering (larger than monsters for better visibility)
   npc:

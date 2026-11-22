@@ -445,9 +445,9 @@ func TestTileManagerFallback(t *testing.T) {
 	}
 }
 
-// The three field-contract rules: a camera-facing standee cannot block
-// movement, wall_mounted belongs to the flat standee alone, and no_spin only
-// means something where there is a spin.
+// The field-contract rules: a camera-facing standee cannot block movement,
+// wall_mounted belongs to the flat standee alone, no_spin only means something
+// where there is a spin, and linked_panels re-aims a built cross.
 func TestTileFieldContractValidation(t *testing.T) {
 	classes := map[string]float64{"small_prop": 0.5, "full_tile": 1.0, "tree": 2.0, "person": 0.6}
 	tests := []struct {
@@ -491,6 +491,15 @@ func TestTileFieldContractValidation(t *testing.T) {
 			name:    "no_spin on a crossed prop",
 			body:    "size_class: small_prop\n    sprite: prop\n    render_type: crossed_prop\n    no_spin: true",
 			wantErr: "never spins",
+		},
+		{
+			name: "linked panels on a crossed prop",
+			body: "size_class: full_tile\n    sprite: prop\n    render_type: crossed_prop\n    linked_panels: true",
+		},
+		{
+			name:    "linked panels on a tree",
+			body:    "size_class: tree\n    sprite: tree\n    render_type: crossed_standee\n    linked_panels: true",
+			wantErr: "uses linked_panels but render_type",
 		},
 		{
 			name: "no_spin on a landmark",

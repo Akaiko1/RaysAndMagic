@@ -134,7 +134,7 @@ func TestNaturalCrossBudgetLogicalCamera(t *testing.T) {
 				r.crossedGeometry.end()
 				r.drawCrossedTreeStandees(dst, entry)
 				check(r.standeeSurfaces)
-				check(r.standeeSurfacesB)
+				check(r.standeeSurfacesMore[0])
 				restore()
 			}
 		})
@@ -522,7 +522,8 @@ func TestApproachAngle(t *testing.T) {
 // BEHIND the camera plane while the arms are still on screen. The arms must
 // survive that as clamped spans - a failed projection here used to abort the
 // split and drop the draw to the two-whole-slabs fallback, which paints the
-// back arm over the front one.
+// back arm over the front one. An arm wholly beside the view has no span at
+// all: clamped onto the edge column it would draw its plane's other half.
 func TestCrossedArmsSurvivePointBlankCamera(t *testing.T) {
 	cfg := loadTestConfig(t)
 	game := newTestGame(cfg, newTestWorldSized(cfg, 20, 20))
@@ -540,18 +541,39 @@ func TestCrossedArmsSurvivePointBlankCamera(t *testing.T) {
 	game.camera.X, game.camera.Y = treeX, treeY+0.6*ts
 	for deg := 0; deg < 360; deg += 15 {
 		game.camera.Angle = float64(deg) * math.Pi / 180
-		arms, ok := r.crossedStandeeArms(treeX, treeY, math.Pi/4, 3*math.Pi/4, footprint)
+		arms, count, ok := r.crossedStandeeArms(treeX, treeY, twoPlaneCross(crossDiagonalYawA, crossDiagonalYawB, footprint))
 		if !ok {
 			t.Fatalf("angle %d: point-blank arms degenerated to the whole-slab fallback", deg)
 		}
 		visible := 0
-		for _, arm := range arms {
-			if arm.lo <= arm.hi {
-				visible++
+		for _, arm := range arms[:count] {
+			if arm.lo > arm.hi {
+				continue
+			}
+			visible++
+			if arm.lo < 0 || arm.hi >= game.worldWidth() {
+				t.Fatalf("angle %d: arm span %d..%d leaves the view", deg, arm.lo, arm.hi)
 			}
 		}
+		// Turned toward the cross (it stands due north of the camera), some arm
+		// is in view; turned away, none need be.
+		if facing := math.Abs(float64(deg) - 270); facing <= 60 && visible == 0 {
+			t.Fatalf("angle %d: no visible arm spans while facing the cross", deg)
+		}
 		if visible == 0 {
-			t.Fatalf("angle %d: no visible arm spans while standing beside the cross", deg)
+			for i, arm := range arms[:count] {
+				layout := twoPlaneCross(crossDiagonalYawA, crossDiagonalYawB, footprint)
+				plane := layout.planes[arm.slabIdx]
+				side := 1.0
+				if i%2 == 1 {
+					side = -1
+				}
+				endX := treeX + math.Cos(plane.yaw)*side*footprint/2
+				endY := treeY + math.Sin(plane.yaw)*side*footprint/2
+				if lo, hi, ok := game.renderHelper.projectSegmentSpanX(treeX, treeY, endX, endY); ok && hi >= 0 && lo < game.worldWidth() {
+					t.Fatalf("angle %d: arm %d spans %d..%d inside the view but was dropped", deg, i, lo, hi)
+				}
+			}
 		}
 	}
 }

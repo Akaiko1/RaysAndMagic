@@ -96,6 +96,10 @@ func (tm *TileManager) validateTileConfiguration() error {
 		if data.WallMounted && data.RenderType != config.TileRenderStandee {
 			return fmt.Errorf("tile %q uses wall_mounted but render_type is %q, want standee", key, data.RenderType)
 		}
+		// Panels are the two planes of a built cross, re-aimed at the neighbours.
+		if data.LinkedPanels && data.RenderType != config.TileRenderCrossedProp {
+			return fmt.Errorf("tile %q uses linked_panels but render_type is %q, want %s", key, data.RenderType, config.TileRenderCrossedProp)
+		}
 		// no_spin pins a pose, so it only means something where there IS a spin;
 		// a cross is static by construction.
 		if data.NoSpin && data.RenderType != config.TileRenderStandee &&
@@ -520,6 +524,13 @@ func (tm *TileManager) GetSizeTiles(tileType TileType3D) float64 {
 func (tm *TileManager) IsWallMounted(tileType TileType3D) bool {
 	data := tm.GetTileData(tileType)
 	return data != nil && data.WallMounted
+}
+
+// IsLinkedPanel reports whether a tile draws as panels joined to its
+// neighbours (config linked_panels) instead of a fixed cross.
+func (tm *TileManager) IsLinkedPanel(tileType TileType3D) bool {
+	data := tm.GetTileData(tileType)
+	return data != nil && data.LinkedPanels
 }
 
 // GetSprite returns the sprite name for a tile type

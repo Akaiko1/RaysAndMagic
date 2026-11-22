@@ -1,0 +1,33 @@
+//kage:unit pixels
+
+package main
+
+// Hover halo. Source 0 holds a silhouette's alpha. The first pass blurs it
+// along X; the second blurs that along Y and keeps what lies outside the
+// silhouette (source 1), so only a soft rim remains.
+
+// Step is the tap spacing along the pass axis, in pixels.
+var Step vec2
+
+// Tint is the rim colour and its opacity. Zero opacity selects the blur pass.
+var Tint vec4
+
+func Fragment(dstPos vec4, srcPos vec2, color vec4) vec4 {
+	const taps = 25
+	sum := 0.0
+	total := 0.0
+	for i := 0; i < taps; i++ {
+		t := float(i) - float(taps-1)/2.0
+		w := exp(-t * t / 32.0) // sigma = 4 steps
+		sum += w * imageSrc0At(srcPos+t*Step).a
+		total += w
+	}
+	blurred := sum / total
+	if Tint.a == 0.0 {
+		return vec4(blurred)
+	}
+	// Half the blur lies outside a straight edge: scale it to full there.
+	rim := clamp(blurred*2.0, 0.0, 1.0) * (1.0 - imageSrc1At(srcPos).a)
+	rim = rim * rim * (3.0 - 2.0*rim)
+	return vec4(Tint.rgb*rim, rim) * Tint.a
+}

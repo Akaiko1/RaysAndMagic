@@ -178,8 +178,8 @@ func TestStandeeVolumeMatchesMaterialPath(t *testing.T) {
 				}
 			}
 			img.Clear()
-			r.drawCrossedSlabs(img, sprite, key, worldX, worldY, yawA, yawB,
-				footprint, depth, heightF, bottomF, 1, volume, -1)
+			r.drawCrossedSlabs(img, sprite, key, worldX, worldY, twoPlaneCross(yawA, yawB, footprint),
+				depth, heightF, bottomF, 1, volume, -1)
 		})
 		pix := make([]byte, 4*w*h)
 		img.ReadPixels(pix)

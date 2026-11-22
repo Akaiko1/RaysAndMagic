@@ -746,15 +746,15 @@ type treeArm struct {
 	depth   float64
 }
 
-// crossedStandeeArms projects the four disjoint center-to-corner arms of a
-// crossed standee. Camera-space perpendicular depth is the renderer-wide
-// painter key; using Euclidean distance here can invert two arms near the edge
-// of the view even though the unified sprite pass orders everything else by
-// perpendicular depth.
-func (r *Renderer) crossedStandeeArms(worldX, worldY, yawA, yawB, footprint float64) ([4]treeArm, bool) {
-	var arms [4]treeArm
+// crossedStandeeArms projects the disjoint centre-to-end arms a crossed
+// layout raises and returns how many there are. Camera-space perpendicular
+// depth is the renderer-wide painter key; using Euclidean distance here can
+// invert two arms near the edge of the view even though the unified sprite
+// pass orders everything else by perpendicular depth.
+func (r *Renderer) crossedStandeeArms(worldX, worldY float64, layout crossLayout) ([maxCrossArms]treeArm, int, bool) {
+	var arms [maxCrossArms]treeArm
 	if r == nil || r.game == nil || r.game.camera == nil || r.game.renderHelper == nil {
-		return arms, false
+		return arms, 0, false
 	}
 
 	screenW := r.game.worldWidth()
@@ -772,9 +772,13 @@ func (r *Renderer) crossedStandeeArms(worldX, worldY, yawA, yawB, footprint floa
 	camDirX, camDirY := math.Cos(cam.Angle), math.Sin(cam.Angle)
 	anyVisible := false
 	armIndex := 0
-	for slabIdx, yaw := range [2]float64{yawA, yawB} {
-		dx, dy := math.Cos(yaw), math.Sin(yaw)
-		for _, side := range [2]float64{+1, -1} {
+	for slabIdx, plane := range layout.planes[:layout.count] {
+		dx, dy := math.Cos(plane.yaw), math.Sin(plane.yaw)
+		footprint := plane.footprint
+		for sideIndex, side := range [2]float64{+1, -1} {
+			if !plane.arms[sideIndex] {
+				continue
+			}
 			cornerX := worldX + dx*side*footprint/2
 			cornerY := worldY + dy*side*footprint/2
 			// Segment projection, not point projection: pressed up against the
@@ -789,17 +793,21 @@ func (r *Renderer) crossedStandeeArms(worldX, worldY, yawA, yawB, footprint floa
 				slabIdx: slabIdx,
 				depth:   (midX-cam.X)*camDirX + (midY-cam.Y)*camDirY,
 			}
+			arm.lo, arm.hi = 1, 0 // empty span: behind the camera or beside the view
 			if visible {
 				anyVisible = true
-				arm.lo, arm.hi = clampCol(lo), clampCol(hi)
-			} else {
-				arm.lo, arm.hi = 1, 0 // empty span: the arm is fully behind the camera
+				// An arm wholly beside the view must not be clamped onto the
+				// edge column: it would draw its plane's other half there, and
+				// a linked panel may not have raised that half.
+				if hi >= 0 && lo < screenW {
+					arm.lo, arm.hi = clampCol(lo), clampCol(hi)
+				}
 			}
 			arms[armIndex] = arm
 			armIndex++
 		}
 	}
-	return arms, anyVisible
+	return arms, armIndex, anyVisible
 }
 
 // drawStandeeSprite draws the sprite as a thick wooden token of world yaw `yaw`
@@ -1648,8 +1656,10 @@ func (r *Renderer) reserveStandeeBuffers() {
 	if cap(r.standeeSurfaces) < surfaceCapacity {
 		r.standeeSurfaces = make([]standeeSurface, 0, surfaceCapacity)
 	}
-	if cap(r.standeeSurfacesB) < surfaceCapacity {
-		r.standeeSurfacesB = make([]standeeSurface, 0, surfaceCapacity)
+	for i := range r.standeeSurfacesMore {
+		if cap(r.standeeSurfacesMore[i]) < surfaceCapacity {
+			r.standeeSurfacesMore[i] = make([]standeeSurface, 0, surfaceCapacity)
+		}
 	}
 }
 
@@ -1662,7 +1672,7 @@ func (r *Renderer) drawCrossedTreeStandees(screen *ebiten.Image, s UnifiedSprite
 		}
 		if slab, ok, found := r.crossedGeometry.lookup(s); found {
 			if ok {
-				r.drawStandeeSlabColumns(screen, slab, s.treeArmLo, s.treeArmHi)
+				r.drawCrossArm(screen, slab, s)
 			}
 			return
 		}
@@ -1713,7 +1723,6 @@ func (r *Renderer) drawCrossedTreeStandees(screen *ebiten.Image, s UnifiedSprite
 	bottomF := s.bottomF
 	key := makeStandeeCoreKey(r.prefixedStandeeKeyName("tree", spriteName), sprite, true)
 
-	const yawA, yawB = math.Pi / 4, 3 * math.Pi / 4
 	centerDepth := s.depthPerp
 	if s.treeArmOnly {
 		centerDepth = s.treeCenterDepth
@@ -1721,8 +1730,12 @@ func (r *Renderer) drawCrossedTreeStandees(screen *ebiten.Image, s UnifiedSprite
 	// Footprint = the art's OWN projected width, like landmark monuments - a
 	// tile-diagonal footprint squeezed the art horizontally (square oak drew
 	// ~30% too thin once the square-projection FOV removed the old horizontal
-	// stretch that was masking it).
-	footprint := r.spriteFootprintWorld(widthF, centerDepth)
+	// stretch that was masking it). Linked panels span their tile instead.
+	layout := r.crossLayoutOf(s, r.spriteFootprintWorld(widthF, centerDepth))
+	// A cross takes the one-pass volume compositor. A panel ends against the
+	// walls and panels beside it, so it keeps the material path, which carries
+	// the seam allowance.
+	volume := s.panelArms == 0
 
 	// The collector globally sorts all four arms. Cache a prepared plane until
 	// its other arm draws, even when other objects render between the arms.
@@ -1732,10 +1745,10 @@ func (r *Renderer) drawCrossedTreeStandees(screen *ebiten.Image, s UnifiedSprite
 		if s.treeArmLo > s.treeArmHi {
 			return
 		}
-		yaw := yawA
-		if s.treeArmSlab == 1 {
-			yaw = yawB
+		if s.treeArmSlab < 0 || s.treeArmSlab >= layout.count {
+			return
 		}
+		plane := layout.planes[s.treeArmSlab]
 		cache := &r.crossedGeometry
 		cacheable := cache.active && cache.used < maxFrameCrossSlabs
 		surfaces := r.standeeSurfaces[:0]
@@ -1743,15 +1756,15 @@ func (r *Renderer) drawCrossedTreeStandees(screen *ebiten.Image, s UnifiedSprite
 			surfaces = cache.buffer()
 		}
 		slab, ok := r.prepareStandeeSlab(
-			sprite, key, worldX, worldY, yaw, centerDepth, heightF, bottomF,
-			b, b, b, true, false, footprint, surfaces, coreLayers,
+			sprite, key, worldX, worldY, plane.yaw, centerDepth, heightF, bottomF,
+			b, b, b, true, false, plane.footprint, surfaces, coreLayers,
 		)
-		slab.volumeComposite = true
+		slab.volumeComposite = volume
 		if cacheable {
 			cache.store(s, slab, ok)
 		}
 		if ok {
-			r.drawStandeeSlabColumns(screen, slab, s.treeArmLo, s.treeArmHi)
+			r.drawCrossArm(screen, slab, s)
 		}
 		if !cacheable {
 			r.standeeSurfaces = slab.surfaces[:0]
@@ -1759,13 +1772,24 @@ func (r *Renderer) drawCrossedTreeStandees(screen *ebiten.Image, s UnifiedSprite
 		return
 	}
 
-	r.drawCrossedSlabs(screen, sprite, key, worldX, worldY, yawA, yawB, footprint, s.depthPerp, heightF, bottomF, b, true, coreLayers)
+	r.drawCrossedSlabs(screen, sprite, key, worldX, worldY, layout, s.depthPerp, heightF, bottomF, b, volume, coreLayers)
 }
 
-// drawCrossedSlabs renders two perpendicular standee planes (yawA, yawB) crossing
-// at (worldX,worldY) over a square footprint, split into four center->corner ARMS
-// drawn far->near for exact occlusion. Shared by static crossed trees (diagonal
-// yaws) and spinning landmark monuments (rotating yaws).
+// drawCrossArm draws one arm of a split cross: the columns of its plane's slab
+// that belong to the arm. A linked panel is given the door's seam allowance,
+// since its ends meet the flanking walls the same way.
+func (r *Renderer) drawCrossArm(screen *ebiten.Image, slab standeeSlab, s UnifiedSpriteRenderData) {
+	if s.panelArms != 0 {
+		r.standeeWallOcclusion = standeeWallOcclusion{depthAllowance: doorDepthAllowanceWorld(float64(r.game.config.GetTileSize()))}
+	}
+	r.drawStandeeSlabColumns(screen, slab, s.treeArmLo, s.treeArmHi)
+	r.standeeWallOcclusion = standeeWallOcclusion{}
+}
+
+// drawCrossedSlabs renders the planes of a crossed layout meeting at
+// (worldX,worldY), split into centre->end ARMS drawn far->near for exact
+// occlusion. Shared by static crossed trees (diagonal yaws), spinning landmark
+// monuments (rotating yaws) and linked panels (the arms toward neighbours).
 //
 // The arms are disjoint in 3D (they meet only on the central axis), so any two
 // project to screen segments that share only the center column - they can't swap
@@ -1777,41 +1801,47 @@ func (r *Renderer) drawCrossedTreeStandees(screen *ebiten.Image, s UnifiedSprite
 // Each arm draws the WHOLE slab clipped to its columns, so the texture stays
 // continuous and batched. Both arms of a plane share one slab, so each yaw's slab
 // is prepared ONCE and reused; the two slabs stay live together for the
-// interleaved draw, hence two reused buffers (A/B).
-func (r *Renderer) drawCrossedSlabs(screen, sprite *ebiten.Image, key standeeCoreKey, worldX, worldY, yawA, yawB, footprint, depthPerp float64, heightF, bottomF float64, b float32, volumeComposite bool, coreLayers int) {
-	slabs := [2]standeeSlab{}
-	slabOK := [2]bool{}
-	slabs[0], slabOK[0] = r.prepareStandeeSlab(sprite, key, worldX, worldY, yawA, depthPerp, heightF, bottomF, b, b, b, true, false, footprint, r.standeeSurfaces[:0], coreLayers)
-	slabs[1], slabOK[1] = r.prepareStandeeSlab(sprite, key, worldX, worldY, yawB, depthPerp, heightF, bottomF, b, b, b, true, false, footprint, r.standeeSurfacesB[:0], coreLayers)
-	slabs[0].volumeComposite = volumeComposite
-	slabs[1].volumeComposite = volumeComposite
+// interleaved draw, hence one reused buffer per plane.
+func (r *Renderer) drawCrossedSlabs(screen, sprite *ebiten.Image, key standeeCoreKey, worldX, worldY float64, layout crossLayout, depthPerp float64, heightF, bottomF float64, b float32, volumeComposite bool, coreLayers int) {
+	slabs := [maxCrossPlanes]standeeSlab{}
+	slabOK := [maxCrossPlanes]bool{}
+	for i, plane := range layout.planes[:layout.count] {
+		buffer := r.standeeSurfaces[:0]
+		if i > 0 {
+			buffer = r.standeeSurfacesMore[i-1][:0]
+		}
+		slabs[i], slabOK[i] = r.prepareStandeeSlab(sprite, key, worldX, worldY, plane.yaw, depthPerp, heightF, bottomF, b, b, b, true, false, plane.footprint, buffer, coreLayers)
+		slabs[i].volumeComposite = volumeComposite
+	}
 
-	arms, allOK := r.crossedStandeeArms(worldX, worldY, yawA, yawB, footprint)
+	arms, count, allOK := r.crossedStandeeArms(worldX, worldY, layout)
 	if !allOK {
 		// Camera atop the tile: center/corners fall behind the view plane and the
 		// arm spans are meaningless. Best-effort whole-plane far->near.
-		if slabOK[0] {
-			r.drawStandeeSlabColumns(screen, slabs[0], -1, -1)
-		}
-		if slabOK[1] {
-			r.drawStandeeSlabColumns(screen, slabs[1], -1, -1)
+		for i := 0; i < layout.count; i++ {
+			if slabOK[i] {
+				r.drawStandeeSlabColumns(screen, slabs[i], -1, -1)
+			}
 		}
 	} else {
-		// Four fixed arms: an inline insertion sort avoids sort.Slice's
+		// A handful of arms: an inline insertion sort avoids sort.Slice's
 		// reflection/closure allocation in every crossed tree every frame.
-		for i := 1; i < len(arms); i++ {
+		for i := 1; i < count; i++ {
 			for j := i; j > 0 && arms[j-1].depth < arms[j].depth; j-- {
 				arms[j-1], arms[j] = arms[j], arms[j-1]
 			}
 		}
-		for _, a := range arms {
+		for _, a := range arms[:count] {
 			if slabOK[a.slabIdx] {
 				r.drawStandeeSlabColumns(screen, slabs[a.slabIdx], a.lo, a.hi)
 			}
 		}
 	}
-	r.standeeSurfaces = slabs[0].surfaces[:0] // reclaim backing arrays (caps grow)
-	r.standeeSurfacesB = slabs[1].surfaces[:0]
+	// Reclaim the backing arrays (caps grow).
+	r.standeeSurfaces = slabs[0].surfaces[:0]
+	for i := 1; i < layout.count; i++ {
+		r.standeeSurfacesMore[i-1] = slabs[i].surfaces[:0]
+	}
 }
 
 // drawWallStandee draws a token flush to a wall (pose from wallStickPose),
@@ -1916,7 +1946,7 @@ func (r *Renderer) drawLandmarkStandee(screen, sprite *ebiten.Image, keyName str
 	heightF := standeeHeightForWidth(sizeF, sprite.Bounds().Dx(), sprite.Bounds().Dy())
 	key := makeStandeeCoreKey(keyName, sprite, true)
 	footprint := r.spriteFootprintWorld(sizeF, depthPerp)
-	r.drawCrossedSlabs(screen, sprite, key, worldX, worldY, spinYaw, spinYaw+math.Pi/2, footprint, depthPerp, heightF, bottomF, b, false, -1)
+	r.drawCrossedSlabs(screen, sprite, key, worldX, worldY, twoPlaneCross(spinYaw, spinYaw+math.Pi/2, footprint), depthPerp, heightF, bottomF, b, false, -1)
 	return true
 }
 

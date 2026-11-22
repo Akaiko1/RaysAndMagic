@@ -2482,6 +2482,7 @@ func (r *Renderer) finalizeMapRenderPrewarm(task *mapRenderPrewarmTask) {
 		r.reserveStandeeBuffers()
 	}
 	_, _ = r.ensureFloorShader()
+	_ = compileShader(&r.hoverHalo.shader, "hover_halo.kage")
 	_, _ = r.ensureAuraCurtainShader()
 	_ = r.ensureWeaponMaterialShaders()
 	_ = r.ensureWorldMaterial()
