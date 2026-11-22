@@ -7,7 +7,7 @@ import (
 )
 
 // The endgame bosses rally DEDICATED adds: each authored summon is its own
-// monster key at the boss's level, not the ordinary map mob it is drawn as.
+// monster at the boss's level, never a mob that maps place.
 func TestEndgameBossesSummonDedicatedLevelMatchedAdds(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	// The monster catalog is a GLOBAL the helper does not load; without it the
@@ -24,12 +24,9 @@ func TestEndgameBossesSummonDedicatedLevelMatchedAdds(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				// The add borrows the art of the ordinary mob it is a variant of.
-				if _, err := monsterPkg.MonsterConfig.GetMonsterByKey(def.Sprite); err != nil {
-					t.Fatalf("%s: drawn as %q, which is no map mob", summonKey, def.Sprite)
-				}
-				if summonKey == def.Sprite {
-					t.Fatalf("boss still resolves the ordinary map mob %q", summonKey)
+				// A map mob has a map letter and home biomes; an add has neither.
+				if def.Letter != "" || len(def.Biomes) != 0 {
+					t.Fatalf("boss summons the map mob %q (letter %q, biomes %v)", summonKey, def.Letter, def.Biomes)
 				}
 				add := monsterPkg.NewMonster3DFromConfig(0, 0, summonKey, cs.game.config)
 				if add.Level != boss.Level {
