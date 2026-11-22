@@ -810,7 +810,9 @@ graphics:
     # The lists come from a review of every sprite (2026-11-06): rim despill
     # where a magenta rim shows on art that is not purple or pink; full despill
     # where magenta residue sits inside such art (specks in gaps and holes,
-    # creases in dark fur, background trapped between tentacles).
+    # creases in dark fur, background trapped between tentacles). Redrawn art
+    # is re-checked against its class (last pass 2026-11-22): a family whose new
+    # art is purple leaves the lists, one that no longer changes a pixel too.
     enabled: true           # false: every sprite loads exactly as its PNG
     color: [255, 0, 255]    # key RGB (magenta); [0, 0, 0] or absent means magenta
     tolerance: 60           # per-channel slack: a pixel this close to the key is a key pixel
@@ -857,7 +859,6 @@ graphics:
       - chest_regal
       - city_shop_potions
       - clocktower_door
-      - clocktower_stairs_down
       - clocktower_stairs_up
       - culvert_chest
       - culvert_valve
@@ -873,21 +874,13 @@ graphics:
       - elf_moon_pavilion
       - elf_planter
       - elf_ranger_hall
-      - fern_patch
-      - grass
-      - grass0
-      - grass1
-      - highlands_heather
       - highlands_mist_collector_used
       - highlands_pine
-      - highlands_rock_outcrop
       - large_coral
       - lich_nexus_chest
       - lich_nexus_exit
-      - mushroom_ring
       - nomad_city_exterior
-      - old_platan
-      - pilgrim_moonbell
+      - nomad_palm_planter
       - pyramid_entrance
       - pyramid_facade
       - sakura_azalea_shrub
@@ -916,16 +909,13 @@ graphics:
       - solstice_sky_reed
       - solstice_sluice_control
       - solstice_sun_resin
-      - solstice_survey_marker
       - solstice_whisper_silk
       - spell_lectern_cleric
       - steam_boiler
       - sword_rack
       - thieves_guild
       - wall_anim_landscape
-      - wall_anim_portrait
       - wall_blueprint
-      - wall_dragon
       - wall_gear_cluster
       - wall_landscape
       - wall_lever
@@ -933,7 +923,6 @@ graphics:
       - wall_pipe_valve
       - wall_portrait
       - wall_sigil
-      - wooden_planks
       # interface
       - buff_fx_bless
       - buff_fx_day_of_the_gods
@@ -947,6 +936,7 @@ graphics:
       - spellbook_tab_light
       - spellbook_tab_water
       # mobs
+      - alien_enforcer
       - ancient_god_of_death
       - bandit
       - bear
@@ -969,6 +959,7 @@ graphics:
       - grandfather_clock
       - hobbit_archer_attacking_r
       - isis
+      - kappa
       - karasu_tengu
       - kasa_obake
       - kitsune_onmyoji
@@ -977,6 +968,7 @@ graphics:
       - minotaur
       - ningyo
       - octopus
+      - possessed_tome
       - puma
       - rainbow_salmon_leaping_r
       - rat
@@ -984,7 +976,6 @@ graphics:
       - revenant
       - ring_tailed_lemur
       - ronin_marksman
-      - sakura_jorogumo
       - solstice_anchor_automaton
       - solstice_aureth
       - solstice_cinder_hound
@@ -1030,19 +1021,17 @@ graphics:
       - masked_serpent_dancer
       - mountain_troll
       - mummy
+      - deathbound_mummy
       - ocelot
       - old_samurai
       - orc
       - orc_warlord
       - pixie
-      - possessed_tome
       - skeleton
       - troll
       # environment
       - bag_legendary
       - coral_reef
-      - deep_jungle_fern
-      - deep_jungle_log
       - gear_pile
       - parts_crate
       - wall_skull
