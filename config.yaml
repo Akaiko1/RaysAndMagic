@@ -811,7 +811,7 @@ graphics:
     # where a magenta rim shows on art that is not purple or pink; full despill
     # where magenta residue sits inside such art (specks in gaps and holes,
     # creases in dark fur, background trapped between tentacles). Redrawn art
-    # is re-checked against its class (last pass 2026-11-22): a family whose new
+    # is re-checked against its class (last pass 2026-11-23): a family whose new
     # art is purple leaves the lists, one that no longer changes a pixel too.
     enabled: true           # false: every sprite loads exactly as its PNG
     color: [255, 0, 255]    # key RGB (magenta); [0, 0, 0] or absent means magenta
@@ -843,9 +843,6 @@ graphics:
       - arena_bones
       - arena_gate
       - bag
-      - bag_common
-      - bag_rare
-      - bag_uncommon
       - barrel_blue
       - barrel_blue_open
       - barrel_green
@@ -854,16 +851,11 @@ graphics:
       - barrel_red_open
       - broken_grandfather_clock
       - campfire
-      - chest_chrono
-      - chest_gearwood
-      - chest_regal
       - city_shop_potions
       - clocktower_door
       - clocktower_stairs_up
       - culvert_chest
       - culvert_valve
-      - desert_buried_saddlebags
-      - desert_buried_saddlebags_used
       - dragon_cliffs_bone_lair
       - dragon_cliffs_ember_lair
       - dragon_cliffs_wind_pine
@@ -884,7 +876,6 @@ graphics:
       - pyramid_entrance
       - pyramid_facade
       - sakura_azalea_shrub
-      - sakura_bamboo_fence
       - sakura_clover_flowers
       - sakura_ema_rack
       - sakura_fallen_petals
@@ -894,7 +885,6 @@ graphics:
       - sakura_incense_brazier
       - sakura_kitsune_statues
       - sakura_main_shrine
-      - sakura_omikuji_box
       - sakura_sake_barrels
       - sakura_stone_lantern
       - sakura_taiko_drum
@@ -902,13 +892,9 @@ graphics:
       - sakura_torii_gate
       - sakura_tsukubai_basin
       - shoji_screen
-      - solstice_deepvein_moss
-      - solstice_furnace_bloom
-      - solstice_rain_pearl
       - solstice_ruins_facade
       - solstice_sky_reed
       - solstice_sluice_control
-      - solstice_sun_resin
       - solstice_whisper_silk
       - spell_lectern_cleric
       - steam_boiler
@@ -1030,10 +1016,7 @@ graphics:
       - skeleton
       - troll
       # environment
-      - bag_legendary
       - coral_reef
-      - gear_pile
-      - parts_crate
       - wall_skull
 
 day_night:
