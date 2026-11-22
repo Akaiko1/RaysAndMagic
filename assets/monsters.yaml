@@ -2321,9 +2321,7 @@ monsters:
     biomes: ["clock_tower_workshop", "clock_tower_gearworks", "clock_tower_belfry"]
     resistances: { mind: 100, physical: 15, fire: -20 }
 
-  # Boss-only adds. They deliberately have their own definitions instead of
-  # scaling the ordinary map mobs: each encounter can be balanced independently,
-  # while the shared mummy/alien sprites remain the visual identity.
+  # Boss-only adds have independent encounter balance and dedicated sprite families.
   deathbound_mummy:
     type: "undead"
     name: "Deathbound Mummy"
@@ -2338,7 +2336,7 @@ monsters:
     alert_radius: 12
     attack_radius: 1
     speed: 1.25
-    sprite: "mummy"
+    sprite: "deathbound_mummy"
     size_class: person
     resistances: { mind: 100, body: 65, fire: -25, dark: 60, light: -60 }
 
@@ -2357,7 +2355,7 @@ monsters:
     projectile_spell: "alien_dark_bolt"
     ranged_attack_range: 5
     speed: 2.6
-    sprite: "alien"
+    sprite: "enforcer_alien"
     size_class: person
     resistances: { fire: 35, dark: 45, physical: -35 }
 
