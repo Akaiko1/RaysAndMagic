@@ -857,10 +857,10 @@ npcs:
       interval_seconds: 5
       duration_seconds: 1.4
       crystals:
-        - {center: [0.3574, 0.5445], radius: [0.014, 0.028], color: [255, 65, 30]}
-        - {center: [0.3574, 0.6945], radius: [0.014, 0.028], color: [55, 170, 255]}
-        - {center: [0.6424, 0.5445], radius: [0.014, 0.028], color: [40, 255, 145]}
-        - {center: [0.6424, 0.6945], radius: [0.014, 0.028], color: [255, 190, 30]}
+        - {center: [0.32228, 0.4905], radius: [0.02029, 0.0552], color: [255, 65, 30]}
+        - {center: [0.32084, 0.73098], radius: [0.02029, 0.05574], color: [55, 170, 255]}
+        - {center: [0.67738, 0.49575], radius: [0.02002, 0.05411], color: [40, 255, 145]}
+        - {center: [0.6786, 0.73008], radius: [0.02056, 0.05628], color: [255, 190, 30]}
     prompt_verb: enter
     transparent: true
     size_class: "structure"
@@ -893,10 +893,10 @@ npcs:
       interval_seconds: 5
       duration_seconds: 1.4
       crystals:
-        - {center: [0.3574, 0.5445], radius: [0.014, 0.028], color: [255, 65, 30]}
-        - {center: [0.3574, 0.6945], radius: [0.014, 0.028], color: [55, 170, 255]}
-        - {center: [0.6424, 0.5445], radius: [0.014, 0.028], color: [40, 255, 145]}
-        - {center: [0.6424, 0.6945], radius: [0.014, 0.028], color: [255, 190, 30]}
+        - {center: [0.32228, 0.4905], radius: [0.02029, 0.0552], color: [255, 65, 30]}
+        - {center: [0.32084, 0.73098], radius: [0.02029, 0.05574], color: [55, 170, 255]}
+        - {center: [0.67738, 0.49575], radius: [0.02002, 0.05411], color: [40, 255, 145]}
+        - {center: [0.6786, 0.73008], radius: [0.02056, 0.05628], color: [255, 190, 30]}
     prompt_verb: enter
     transparent: true
     size_class: "structure"

@@ -866,7 +866,6 @@ graphics:
       - elf_ranger_hall
       - highlands_mist_collector_used
       - highlands_pine
-      - large_coral
       - lich_nexus_chest
       - lich_nexus_exit
       - nomad_city_exterior
@@ -1014,7 +1013,6 @@ graphics:
       - skeleton
       - troll
       # environment
-      - coral_reef
       - wall_skull
 
 day_night:
