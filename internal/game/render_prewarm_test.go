@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"slices"
 	"testing"
 	"time"
 
@@ -453,11 +454,12 @@ func TestMapRenderStreamingProgressRespectsAppScreen(t *testing.T) {
 		active       bool
 		wantQueued   int
 		wantActive   bool
+		wantStarted  bool // running or already published: an empty plan may finish within one Update
 		wantProgress int
 	}{
 		{name: "main menu keeps queued loader cold", screen: AppScreenMainMenu, wantQueued: 1},
 		{name: "party creation keeps queued loader cold", screen: AppScreenPartyCreate, wantQueued: 1},
-		{name: "gameplay starts queued loader", screen: AppScreenInGame, wantActive: true},
+		{name: "gameplay starts queued loader", screen: AppScreenInGame, wantStarted: true},
 		{name: "main menu pauses active loader", screen: AppScreenMainMenu, active: true, wantActive: true},
 		{name: "party creation pauses active loader", screen: AppScreenPartyCreate, active: true, wantActive: true},
 		{name: "gameplay advances active loader", screen: AppScreenInGame, active: true, wantActive: true, wantProgress: 1},
@@ -494,8 +496,14 @@ func TestMapRenderStreamingProgressRespectsAppScreen(t *testing.T) {
 			if got := len(r.mapRenderResourcePrewarmMapKeys); got != tt.wantQueued {
 				t.Fatalf("queued loaders = %d, want %d", got, tt.wantQueued)
 			}
-			if got := r.mapRenderResourcePrewarmActive != nil; got != tt.wantActive {
-				t.Fatalf("active loader = %v, want %v", got, tt.wantActive)
+			active := r.mapRenderResourcePrewarmActive != nil
+			published := slices.Contains(r.mapRenderResidentMapKeys, "forest")
+			if tt.wantStarted {
+				if !active && !published {
+					t.Fatal("queued loader neither running nor published")
+				}
+			} else if active != tt.wantActive || published {
+				t.Fatalf("active loader = %v, published = %v; want active %v, nothing published", active, published, tt.wantActive)
 			}
 			if steps != tt.wantProgress {
 				t.Fatalf("streaming steps = %d, want %d", steps, tt.wantProgress)
