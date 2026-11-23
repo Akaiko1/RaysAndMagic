@@ -51,7 +51,7 @@ func fireflySwarmFlicker(seed int, seconds float64) float64 {
 }
 
 // World-space paths keep the swarm volumetric when the party turns or strafes.
-func (r *Renderer) drawFireflySwarmEffect(screen *ebiten.Image, s UnifiedSpriteRenderData, _ float64) {
+func (r *Renderer) drawFireflySwarmEffect(screen *ebiten.Image, s UnifiedSpriteRenderData, opacity float64) {
 	ts := r.game.config.GetTileSize()
 	wx, wy := TileCenterFromTile(s.tileX, s.tileY, ts)
 	seed := fireflySwarmSeed(s.tileX, s.tileY)
@@ -67,7 +67,7 @@ func (r *Renderer) drawFireflySwarmEffect(screen *ebiten.Image, s UnifiedSpriteR
 		}
 		sy := r.game.viewHorizon() + (.5*ts-height)*r.game.viewFocal()/depth
 		radius := math.Max(3, ts*.065*r.game.viewFocal()/depth)
-		alpha := fireflyPulse(seconds, phase)
+		alpha := fireflyPulse(seconds, phase) * opacity
 		r.drawFirefly(screen, sx, sy, radius, alpha, seconds*53+phase, [3]int{255, 218, 80}, [3]int{255, 252, 170})
 	}
 }

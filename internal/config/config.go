@@ -1201,6 +1201,43 @@ type GraphicsConfig struct {
 
 	// NightMotes controls the moving motes emitted by authored tree tiles at night.
 	NightMotes NightMoteRenderConfig `yaml:"night_motes"`
+
+	// WalkablePropFade fades scenery the party walks through as it closes in.
+	WalkablePropFade WalkablePropFadeConfig `yaml:"walkable_prop_fade"`
+}
+
+// WalkablePropFadeConfig: walkable scenery (grass, ferns, walk-through benches)
+// is fully drawn from FromTiles away, fades out on the way in and is gone at
+// ToTiles. Solid and wall-mounted props are never walked through and stay.
+type WalkablePropFadeConfig struct {
+	FromTiles float64 `yaml:"from_tiles"`
+	ToTiles   float64 `yaml:"to_tiles"`
+}
+
+// WalkablePropFadeMaxTiles caps the fade start: beyond it the fade would touch
+// scenery the party is not walking through.
+const WalkablePropFadeMaxTiles = 6
+
+func DefaultWalkablePropFadeConfig() WalkablePropFadeConfig {
+	return WalkablePropFadeConfig{FromTiles: 2, ToTiles: 1}
+}
+
+func (c WalkablePropFadeConfig) Validate() error {
+	if !(c.ToTiles > 0 && c.ToTiles < c.FromTiles) {
+		return fmt.Errorf("graphics.walkable_prop_fade.to_tiles: %v must be above 0 and below from_tiles (%v)", c.ToTiles, c.FromTiles)
+	}
+	if !(c.FromTiles <= WalkablePropFadeMaxTiles) {
+		return fmt.Errorf("graphics.walkable_prop_fade.from_tiles: %v is above %d", c.FromTiles, WalkablePropFadeMaxTiles)
+	}
+	return nil
+}
+
+// Opacity at a distance in tiles: 1 from FromTiles out, 0 at ToTiles and
+// closer, a smoothstep between.
+func (c WalkablePropFadeConfig) Opacity(distanceTiles float64) float64 {
+	t := (distanceTiles - c.ToTiles) / (c.FromTiles - c.ToTiles)
+	t = math.Max(0, math.Min(1, t))
+	return t * t * (3 - 2*t)
 }
 
 // RangedHeldConfig frames cosmetic equipment and limits recovery without delaying attacks.
@@ -2110,6 +2147,7 @@ func LoadConfig(filename string) (*Config, error) {
 	config.Camping = DefaultCampingConfig()
 	config.Graphics.Monster.Death = DefaultMonsterDeathRenderConfig()
 	config.Graphics.Monster.HoverHalo = DefaultHoverHaloConfig()
+	config.Graphics.WalkablePropFade = DefaultWalkablePropFadeConfig()
 	config.Graphics.Monster.WalkFrameSeconds = DefaultMonsterWalkFrameSeconds
 	config.Graphics.View.TurnStepSeconds = DefaultTurnStepSeconds
 	// Defaults applied before unmarshal so an absent key keeps the default while a
@@ -2317,6 +2355,9 @@ func LoadConfig(filename string) (*Config, error) {
 		return nil, err
 	}
 	if err := config.Graphics.Monster.HoverHalo.Validate(); err != nil {
+		return nil, err
+	}
+	if err := config.Graphics.WalkablePropFade.Validate(); err != nil {
 		return nil, err
 	}
 	if err := validateNightMoteRenderConfig(config.Graphics.NightMotes); err != nil {

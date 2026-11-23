@@ -668,6 +668,13 @@ graphics:
     lifetime_seconds: 7
     max_active: 96
 
+  # Scenery the party walks through (grass, ferns, walk-through benches) fades
+  # out on the way in instead of vanishing at once. Solid and wall-mounted
+  # props stay drawn.
+  walkable_prop_fade:
+    from_tiles: 2.0  # fully drawn from this far out (at most 6)
+    to_tiles: 1.0    # gone at this distance and closer (above 0, below from_tiles)
+
   # Distance effects
   brightness_min: 0.3
 

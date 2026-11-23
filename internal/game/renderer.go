@@ -3449,7 +3449,7 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 	// Get player's current tile for sprite culling
 	playerTileX, playerTileY := r.game.GetPlayerTilePosition()
 	tileSize := float64(r.game.config.GetTileSize())
-	minDistSq := tileSize * tileSize
+	fadeEnd := r.game.config.Graphics.WalkablePropFade.ToTiles * tileSize
 
 	// 1. Collect transparent environment sprites (ferns, mushrooms)
 	if world.GlobalTileManager != nil {
@@ -3464,20 +3464,19 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 			if !wallMounted && spriteData.tileX == playerTileX && spriteData.tileY == playerTileY {
 				continue
 			}
-			near := minDistSq
-			// SOLID props never near-cull: the party cannot stand ON them, only
-			// right against them - and an impassable object that vanishes at
-			// point-blank reads as an invisible wall (the planks pile). Walkable
-			// greenery keeps the cull so it doesn't smear across the screen.
-			if world.GlobalTileManager != nil && world.GlobalTileManager.IsSolid(spriteData.tileType) {
-				near = 0
+			// Walkable scenery has faded out by fadeEnd and is culled there, so it
+			// never smears across the screen. Solid and wall-mounted props never
+			// near-cull: an impassable object that vanishes at point-blank reads
+			// as an invisible wall (the planks pile).
+			near := 0.0
+			if walkablePropFades(spriteData.tileType) {
+				near = fadeEnd * fadeEnd
 			}
 			// Wall-mounted decorations are drawn on the adjacent wall (wallStickPose),
 			// so cull/size from there - the tile centre culls when you stand on it.
 			// Same effective-position rule as npcEffectivePos.
 			ex, ey := spriteData.worldX, spriteData.worldY
 			if wallMounted {
-				near = 0
 				if r.game.config.Graphics.Standee.Enabled {
 					if wx, wy, _, ok := r.game.wallStickPose(ex, ey); ok {
 						ex, ey = wx, wy
@@ -4054,16 +4053,27 @@ func (r *Renderer) smoothYaw(st standeeEnvYawState, seen bool, target, speed flo
 	return st
 }
 
+// walkablePropFades: scenery the party walks through. Solid props are never
+// walked through and wall-mounted ones are drawn on their wall.
+func walkablePropFades(tileType world.TileType3D) bool {
+	tiles := world.GlobalTileManager
+	return tiles != nil && !tiles.IsSolid(tileType) && !tiles.IsWallMounted(tileType)
+}
+
 // drawUnifiedEnvironmentSprite draws an environment sprite from unified data
 func (r *Renderer) drawUnifiedEnvironmentSprite(screen *ebiten.Image, s UnifiedSpriteRenderData) {
 	tileSize := float64(r.game.config.GetTileSize())
 	worldX, worldY := TileCenterFromTile(s.tileX, s.tileY, tileSize)
 	distance := Distance(worldX, worldY, r.game.camera.X, r.game.camera.Y)
+	opacity := 1.0
+	if walkablePropFades(s.tileType) {
+		opacity = r.game.config.Graphics.WalkablePropFade.Opacity(distance / tileSize)
+	}
 	if isFireflySwarmTile(s.tileType) {
 		if !r.spriteDepthBufferVisible(s) {
 			return
 		}
-		r.drawFireflySwarmEffect(screen, s, distance)
+		r.drawFireflySwarmEffect(screen, s, opacity)
 		return
 	}
 	if s.sprite == nil {
@@ -4143,7 +4153,7 @@ func (r *Renderer) drawUnifiedEnvironmentSprite(screen *ebiten.Image, s UnifiedS
 		// (short grass tuft wearing the tall variant's silhouette).
 		key := makeStandeeCoreKey(r.prefixedStandeeKeyName("tile", name), frame, false)
 		if r.drawStandeeSprite(screen, frame, key, worldX, worldY, yaw,
-			s.depthPerp, s.sizeF, s.bottomF, b, b, b, true, false, 0, 0) {
+			s.depthPerp, s.sizeF, s.bottomF, b, b, b, true, false, 0, float32(1-opacity)) {
 			return
 		}
 	}
@@ -4151,7 +4161,7 @@ func (r *Renderer) drawUnifiedEnvironmentSprite(screen *ebiten.Image, s UnifiedS
 		return
 	}
 
-	r.drawTintedSpriteF(screen, frame, s.screenXF-s.sizeF/2, s.bottomF-s.sizeF, s.sizeF, false, b, b, b, 1.0)
+	r.drawTintedSpriteF(screen, frame, s.screenXF-s.sizeF/2, s.bottomF-s.sizeF, s.sizeF, false, b, b, b, float32(opacity))
 }
 
 // prepareMonsterPick computes the pose once, before hover selection and draw.
