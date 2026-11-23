@@ -75,11 +75,11 @@ story_screen:
 
 # The Pursuers' captain (assets/watcher.yaml). Story-boss lines always play;
 # the rest are random remarks: chance per rest, chance per kill, at most
-# max_random_lines per run, min_days_between apart (3-4 a run on average).
+# max_random_lines per run, min_days_between apart.
 watcher:
   camp_chance: 0.2
   kill_chance: 0.35
-  max_random_lines: 5
+  max_random_lines: 15
   min_days_between: 2
   card_seconds: 6
 
