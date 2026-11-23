@@ -266,7 +266,7 @@ func TestMonsterDeathFlight(t *testing.T) {
 					if flying {
 						want = air + (ground-air)*part*part
 					}
-					if got := g.corpseBottom(c, g.viewFocal()*g.config.GetTileSize()/(2*(ground-g.viewHorizon())), ground, size); math.Abs(got-want) > 0.01 {
+					if got := g.corpseBottom(c, g.viewFocal()*g.config.GetTileSize()/(2*(ground-g.viewHorizon())), ground, size, float64(g.worldWidth())/2); math.Abs(got-want) > 0.01 {
 						t.Fatalf("fall part=%v bottom=%v want=%v", part, got, want)
 					}
 					if bag.hop.waiting(g.frameCount) != (flying && part < 1) {

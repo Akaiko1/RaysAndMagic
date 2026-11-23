@@ -470,7 +470,7 @@ func TestProjectilePresentationAnchors(t *testing.T) {
 			a := visualAnchorFor(m)
 			sx, ground, size, _ := g.renderHelper.CalculateMonsterSpriteMetricsF(m.X, m.Y, math.Hypot(m.X-g.camera.X, m.Y-g.camera.Y), a.sizeTiles)
 			depth := m.X - g.camera.X
-			want := a.bottom(g, depth, ground, size) - size/2
+			want := a.bottom(g, depth, ground, size, sx) - size/2
 			if math.Abs(float64(p.screenY)+float64(p.size)/2-want) > 2 || math.Abs(float64(p.screenX)-sx) > 1 {
 				t.Fatalf("wide=%v: projectile missed body at source/target", wide)
 			}
@@ -481,7 +481,8 @@ func TestProjectilePresentationAnchors(t *testing.T) {
 		to.X, to.Y = from.X+ts/4, from.Y
 		short := g.combat.continuationLaunch(from, to)
 		depth := to.X - g.camera.X
-		wantOffset := visualAnchorFor(to).centerOffset(g, depth)
+		toX, _, _ := g.renderHelper.projectToScreenXF(to.X, to.Y)
+		wantOffset := visualAnchorFor(to).centerOffset(g, depth, toX)
 		if math.Abs(short.eyeDrop(g, to.X, to.Y)*g.viewFocal()/depth-wantOffset) > 1e-6 {
 			t.Fatal("short continuation retained its departure anchor at the target")
 		}

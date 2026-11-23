@@ -3596,7 +3596,7 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 			continue
 		}
 		r.game.measureMonsterBody(mon)
-		bottomF = visualAnchorFor(mon).bottom(r.game, depthPerp, bottomF, sizeF)
+		bottomF = visualAnchorFor(mon).bottom(r.game, depthPerp, bottomF, sizeF, screenXf)
 
 		var sprite *ebiten.Image
 		var flip, artFacesLeft bool
@@ -5456,7 +5456,7 @@ func (r *Renderer) drawHitEffects(screen *ebiten.Image) {
 			if ok && depth >= 10 && depth <= r.game.camera.ViewDist {
 				scale := r.game.viewFocal() / (depth * r.game.camera.FOV)
 				radius := effect.BurstRadius * scale
-				r.drawImpactCloud(screen, float64(x), centerY+effect.Anchor.centerOffset(r.game, depth), radius, radius*.85, float64(effect.BurstAge)/float64(effect.BurstLife), effect.BurstColor, .85, int(anchor.X*31+anchor.Y*19), effect.BurstDust)
+				r.drawImpactCloud(screen, float64(x), centerY+effect.Anchor.centerOffset(r.game, depth, float64(x)), radius, radius*.85, float64(effect.BurstAge)/float64(effect.BurstLife), effect.BurstColor, .85, int(anchor.X*31+anchor.Y*19), effect.BurstDust)
 			}
 		}
 
@@ -5482,7 +5482,7 @@ func (r *Renderer) drawHitEffects(screen *ebiten.Image) {
 			// projectile sprite base sizes use a different unit convention.
 			scale := r.game.viewFocal() / (depth * fov)
 			screenX := float64(anchorX) + particle.OffsetX*scale
-			screenY := centerY + effect.Anchor.centerOffset(r.game, depth) + particle.OffsetY*scale
+			screenY := centerY + effect.Anchor.centerOffset(r.game, depth, float64(anchorX)) + particle.OffsetY*scale
 
 			if particle.DepthTest {
 				if depth < 10 || depth > r.game.camera.ViewDist || r.game.wallHides(int(screenX), depth, 2, screenY) {

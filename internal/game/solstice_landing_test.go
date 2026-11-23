@@ -49,7 +49,7 @@ func TestSolsticeFlyingLandings(t *testing.T) {
 						age := float64(g.frameCount) / float64(g.config.GetTPS())
 						progress := math.Min(1, age/settings.FallSeconds)
 						want := air + (ground-air)*progress*progress
-						if got := g.corpseBottom(c, g.viewFocal()*g.config.GetTileSize()/(2*(ground-g.viewHorizon())), ground, size); math.Abs(got-want) > 0.01 {
+						if got := g.corpseBottom(c, g.viewFocal()*g.config.GetTileSize()/(2*(ground-g.viewHorizon())), ground, size, float64(g.worldWidth())/2); math.Abs(got-want) > 0.01 {
 							t.Fatalf("phase %v: body bottom %v, want %v", phase, got, want)
 						}
 						if _, opacity := g.corpseFrameAndOpacity(c); opacity < 0.98 {

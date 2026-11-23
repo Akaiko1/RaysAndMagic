@@ -14,11 +14,11 @@ func monsterFlyingBottom(horizon, groundBottom, size float64) float64 {
 	return math.Min(horizon+size/2, (horizon+groundBottom)/2)
 }
 
-func (g *MMGame) corpseBottom(c *monsterCorpse, depth, groundBottom, size float64) float64 {
+func (g *MMGame) corpseBottom(c *monsterCorpse, depth, groundBottom, size, screenX float64) float64 {
 	age := float64(g.frameCount-c.started) / float64(g.config.GetTPS())
 	t := math.Max(0, math.Min(1, age/g.monsterDeathSettings().FallSeconds))
 	a := monsterVisualAnchor{sizeTiles: c.sizeTiles, heightTiles: c.arborealHeight, flying: c.flying}
-	return a.bottomDuringFall(g, depth, groundBottom, size, t)
+	return a.bottomDuringFall(g, depth, groundBottom, size, t, screenX)
 }
 
 func (r *Renderer) collectMonsterCorpses(sprites []UnifiedSpriteRenderData, camX, camY, dirX, dirY, viewDistSq float64) []UnifiedSpriteRenderData {
@@ -40,7 +40,7 @@ func (r *Renderer) collectMonsterCorpses(sprites []UnifiedSpriteRenderData, camX
 		if !visible {
 			continue
 		}
-		bottom = r.game.corpseBottom(c, depth, bottom, size)
+		bottom = r.game.corpseBottom(c, depth, bottom, size, sx)
 		sprites = append(sprites, UnifiedSpriteRenderData{spriteType: SpriteTypeMonsterCorpse,
 			screenX: int(sx), screenY: int(bottom - size), spriteSize: int(size), screenXF: sx, bottomF: bottom, sizeF: size,
 			depthPerp: depth, distance: distance, sprite: anim.Frames[min(frame, len(anim.Frames)-1)], corpse: c})

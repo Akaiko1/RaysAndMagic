@@ -31,13 +31,25 @@ func (g *MMGame) viewFOV() float64 {
 
 // Bound the correction by the HUD's covered height, then release it before a
 // creature reaches the camera. Never clamp a ground anchor to the HUD edge:
-// that would launch a growing sprite up the screen during a crossing.
-func (g *MMGame) monsterHUDLift(depth, bottom, size float64) float64 {
-	if g.combatPreferences.WideView || depth <= 0 {
+// that would launch a growing sprite up the screen during a crossing. Plain
+// Wide frames the floor above the HUD and needs none; Panini magnifies each
+// column about the horizon, so there the HUD edge sits higher in the
+// perspective frame by that column's magnification. screenX is the
+// creature's perspective column.
+func (g *MMGame) monsterHUDLift(depth, bottom, size, screenX float64) float64 {
+	if depth <= 0 {
 		return 0
 	}
-	viewport := float64(worldViewportBottom(g))
-	covered := float64(g.worldHeight()) - viewport
+	viewport, full := float64(worldViewportBottom(g)), float64(g.worldHeight())
+	if g.combatPreferences.WideView {
+		p := g.widePaniniProjection()
+		if p.distance == 0 {
+			return 0
+		}
+		s := p.columnMagnification(screenX)
+		viewport, full = p.horizon+(viewport-p.horizon)/s, p.horizon+(full-p.horizon)/s
+	}
+	covered := full - viewport
 	if covered <= 0 {
 		return 0
 	}
@@ -82,14 +94,14 @@ func (g *MMGame) measureMonsterBody(mon *monster.Monster3D) {
 	}
 }
 
-func (a monsterVisualAnchor) bottom(g *MMGame, depth, ground, size float64) float64 {
-	return a.bottomDuringFall(g, depth, ground, size, 0)
+func (a monsterVisualAnchor) bottom(g *MMGame, depth, ground, size, screenX float64) float64 {
+	return a.bottomDuringFall(g, depth, ground, size, 0, screenX)
 }
 
 // Live actors and corpses share both endpoints. An airborne actor starts at
 // its hover/perch anchor and lands where the same grounded body would stand.
-func (a monsterVisualAnchor) bottomDuringFall(g *MMGame, depth, ground, size, fall float64) float64 {
-	land := ground - g.monsterHUDLift(depth, ground, size)
+func (a monsterVisualAnchor) bottomDuringFall(g *MMGame, depth, ground, size, fall, screenX float64) float64 {
+	land := ground - g.monsterHUDLift(depth, ground, size, screenX)
 	air := ground
 	if a.flying {
 		air = monsterFlyingBottom(g.viewHorizon(), ground, size)
@@ -102,7 +114,7 @@ func (a monsterVisualAnchor) bottomDuringFall(g *MMGame, depth, ground, size, fa
 	return air + (land-air)*fall*fall
 }
 
-func (a monsterVisualAnchor) centerOffset(g *MMGame, depth float64) float64 {
+func (a monsterVisualAnchor) centerOffset(g *MMGame, depth, screenX float64) float64 {
 	if a.floor && depth > 0 {
 		return g.renderHelper.calculateFloorScreenYF(depth) - g.viewHorizon()
 	}
@@ -115,7 +127,7 @@ func (a monsterVisualAnchor) centerOffset(g *MMGame, depth float64) float64 {
 	if body <= 0 {
 		body = .5
 	}
-	return a.bottom(g, depth, ground, size) - size*(1-body) - g.viewHorizon()
+	return a.bottom(g, depth, ground, size, screenX) - size*(1-body) - g.viewHorizon()
 }
 
 // eyeHeightTiles is the camera's height above the floor; the floor projects
@@ -177,7 +189,11 @@ func (p projectileLaunch) eyeDrop(g *MMGame, x, y float64) float64 {
 		// tile out, instead of dropping to eye level.
 		b := g.cameraBasis()
 		depth := max(tile, (x-g.camera.X)*b.dirX+(y-g.camera.Y)*b.dirY)
-		return a.centerOffset(g, depth) * depth / g.viewFocal()
+		screenX, _, ok := g.renderHelper.projectToScreenXF(x, y)
+		if !ok {
+			screenX = float64(g.worldWidth()) / 2
+		}
+		return a.centerOffset(g, depth, screenX) * depth / g.viewFocal()
 	}
 	startDrop := drop(p.startAnchor, p.x+p.startX, p.y+p.startY)
 	// A target that moved or died after release keeps the body it was aimed at.
