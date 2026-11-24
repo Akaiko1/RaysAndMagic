@@ -818,7 +818,7 @@ graphics:
     # where a magenta rim shows on art that is not purple or pink; full despill
     # where magenta residue sits inside such art (specks in gaps and holes,
     # creases in dark fur, background trapped between tentacles). Redrawn art
-    # is re-checked against its class (last pass 2026-11-23): a family whose new
+    # is re-checked against its class (last pass 2026-11-25): a family whose new
     # art is purple leaves the lists, one that no longer changes a pixel too.
     enabled: true           # false: every sprite loads exactly as its PNG
     color: [255, 0, 255]    # key RGB (magenta); [0, 0, 0] or absent means magenta
@@ -929,6 +929,7 @@ graphics:
       - alien_enforcer
       - ancient_god_of_death
       - bandit
+      - bat
       - bear
       - bronze_gatekeeper
       - dark_elf_sorceress_attacking_r
@@ -939,6 +940,7 @@ graphics:
       - dragon_green
       - dragon_red
       - dust_slime
+      - elder_dragon
       - elder_dragon_gold
       - elder_dragon_red
       - elf_archer
@@ -946,6 +948,7 @@ graphics:
       - gale_novice
       - giant_spider
       - goblin
+      - gorilla_titan
       - grandfather_clock
       - hobbit_archer_attacking_r
       - isis
@@ -997,14 +1000,11 @@ graphics:
       # mobs
       - alarm_clock
       - ashigaru_firelock
-      - bat
       - deep_jungle_idol
-      - elder_dragon
       - elder_dragon_green
       - elf_swordsman
       - forest_orc
       - golden_thief_bug
-      - gorilla_titan
       - jellyfish
       - jungle_goblin
       - masked_huntress
