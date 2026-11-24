@@ -237,6 +237,28 @@ func TestBlinkLandsCenteredAndResetsPath(t *testing.T) {
 	}
 }
 
+// A blink never lands on the party's tile, as Phase Shift. In a 2x2 room the
+// party's tile is one of the three a blink may pick, so without the rule a
+// third of the blinks would land in the party.
+func TestBlinkNeverLandsOnThePartyTile(t *testing.T) {
+	g, _, ts := tbBehaviorGame(t, 2, 2)
+	placePlayerAtTile(g, 1, 1, ts)
+	m := spawnMonsterAtTile(g, "goblin", 0, 0, ts)
+	landed := 0
+	for range 100 {
+		if !g.combat.blinkMonsterRandom(m) {
+			continue
+		}
+		landed++
+		if TileIndex(m.X, ts) == 1 && TileIndex(m.Y, ts) == 1 {
+			t.Fatalf("blink %d landed on the party's tile", landed)
+		}
+	}
+	if landed == 0 {
+		t.Fatal("fixture: no blink found a free tile")
+	}
+}
+
 // TestGoldenThiefBugInfernoIsRangeBound covers the reported bug: in turn-based
 // the nova used to be rolled BEFORE any distance check, and with
 // aggro_whole_map: true the Golden Thief Bug burned the party from anywhere on

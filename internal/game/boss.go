@@ -349,8 +349,8 @@ func (cs *CombatSystem) tickEvasiveBossesTB() {
 }
 
 // blinkMonsterRandom teleports the monster to a random walkable tile of the
-// current map other than its own (re-registering collision). Returns false if
-// no spot was found.
+// current map other than its own and the party's, as Phase Shift lands
+// (re-registering collision). Returns false if no spot was found.
 func (cs *CombatSystem) blinkMonsterRandom(m *monsterPkg.Monster3D) bool {
 	w := cs.game.GetCurrentWorld()
 	if w == nil || w.Width <= 0 || w.Height <= 0 {
@@ -358,11 +358,15 @@ func (cs *CombatSystem) blinkMonsterRandom(m *monsterPkg.Monster3D) bool {
 	}
 	tile := float64(cs.game.config.GetTileSize())
 	fromX, fromY := m.X, m.Y
+	px, py := cs.logicalCameraXY()
 	for try := 0; try < 40; try++ {
 		tx := rand.Intn(w.Width)
 		ty := rand.Intn(w.Height)
 		if tx == TileIndex(fromX, tile) && ty == TileIndex(fromY, tile) {
 			continue // a blink always leaves its tile
+		}
+		if tx == TileIndex(px, tile) && ty == TileIndex(py, tile) {
+			continue
 		}
 		cx, cy := TileCenterFromTile(tx, ty, tile)
 		if cs.game.monsterHasAttackTarget(m) && cs.game.collisionSystem.IsMonsterAttackPostReserved(m.ID, cx, cy) {

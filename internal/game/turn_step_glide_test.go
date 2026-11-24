@@ -174,25 +174,56 @@ func TestTurnStepGlideFollowsTheRules(t *testing.T) {
 		t.Fatalf("slide ended at (%.2f,%.2f), second leg seen %v; want the monster's tile", x, y, reached)
 	}
 
-	// The evasive boss's random blink is a jump.
+	// The evasive boss's random blink is a jump: drawn at rest at once. The
+	// spot is random and may be a pulled front slot, so the rest point is
+	// whatever the following frames keep drawing.
 	if !g.combat.blinkMonsterRandom(m) {
 		t.Fatal("fixture: no blink spot")
 	}
 	tick()
-	if x, y := g.combat.monsterVisualPos(m); x != m.X || y != m.Y {
-		t.Fatalf("random blink slid: drawn at (%.1f,%.1f), monster at (%.1f,%.1f)", x, y, m.X, m.Y)
+	blinkX, blinkY := g.combat.monsterVisualPos(m)
+	for range frames {
+		tick()
+	}
+	if x, y := g.combat.monsterVisualPos(m); x != blinkX || y != blinkY {
+		t.Fatalf("random blink slid: drawn at (%.1f,%.1f) after the blink, at rest (%.1f,%.1f)", blinkX, blinkY, x, y)
 	}
 
-	// Killed mid-slide, the body lies on its tile.
-	gl.commitMonsterMoveTB(m, m.X+ts, m.Y)
+	// Killed mid-slide, the body lies where the monster rests on its tile.
+	// Learn that rest point from a finished slide onto a free neighbour, step
+	// back, then walk in again and kill it halfway.
+	fromX, fromY := m.X, m.Y
+	toX, toY := 0.0, 0.0
+	for _, d := range [][2]float64{{1, 0}, {-1, 0}, {0, 1}, {0, -1}} {
+		if gl.commitMonsterMoveTB(m, fromX+d[0]*ts, fromY+d[1]*ts) {
+			toX, toY = m.X, m.Y
+			break
+		}
+	}
+	if m.X == fromX && m.Y == fromY {
+		t.Fatal("fixture: no free tile next to the blink spot")
+	}
+	for range frames + 1 {
+		tick()
+	}
+	restX, restY := g.combat.monsterVisualPos(m)
+	if !gl.commitMonsterMoveTB(m, fromX, fromY) {
+		t.Fatal("fixture: the step back was refused")
+	}
+	for range frames + 1 {
+		tick()
+	}
+	if !gl.commitMonsterMoveTB(m, toX, toY) {
+		t.Fatal("fixture: the second step in was refused")
+	}
 	tick()
-	if x, _ := g.combat.monsterVisualPos(m); x == m.X {
+	if x, y := g.combat.monsterVisualPos(m); x == restX && y == restY {
 		t.Fatal("fixture: the monster is not sliding")
 	}
 	m.HitPoints = 0
 	g.combat.finishMonsterKill(m)
-	if m.DeathDrawX != m.X || m.DeathDrawY != m.Y {
-		t.Fatalf("body at (%.1f,%.1f), want the tile (%.1f,%.1f)", m.DeathDrawX, m.DeathDrawY, m.X, m.Y)
+	if m.DeathDrawX != restX || m.DeathDrawY != restY {
+		t.Fatalf("body at (%.1f,%.1f), want the rest point (%.1f,%.1f)", m.DeathDrawX, m.DeathDrawY, restX, restY)
 	}
 
 	// While the view slides, the rules still stand on the party's tile.
