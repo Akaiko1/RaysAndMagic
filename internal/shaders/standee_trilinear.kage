@@ -1,4 +1,5 @@
 //include standee_sampling.kageinc
+//include gold_reflection.kageinc
 
 // Surfaces by name: the standeeLayer* constants in render_standee.go;
 // TestShaderConstantsMatchGo keeps the values equal.
@@ -30,13 +31,13 @@ func Fragment(rawDstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
 	// (negative for vertical minification).
 	surface := floor(data.y + .5) // an exact id, safe from interpolation error
 	if surface == standeeLayerFarSticker {
-		return stickerAt(p, data.x) * color
+		return goldReflection(stickerAt(p, data.x), goldSide(dstPos.x-imageDstOrigin().x), standeeFrameUV(p).y) * color
 	}
 	if surface == standeeLayerCore {
 		return sampleLinear3(p) * color
 	}
 	footprint := vec2(max(data.w, 0.0), max(-data.w, 0.0))
-	return nearStickerAt(p, data.z > 0.0, data.x, footprint) * color
+	return goldReflection(nearStickerAt(p, data.z > 0.0, data.x, footprint), goldSide(dstPos.x-imageDstOrigin().x), standeeFrameUV(p).y) * color
 }
 
 //include panini.kageinc

@@ -2,6 +2,8 @@
 
 package main
 
+//include gold_reflection.kageinc
+
 // Surfaces by name: the standeeLayer* constants in render_standee.go;
 // TestShaderConstantsMatchGo keeps the values equal.
 const (
@@ -86,13 +88,13 @@ func Fragment(rawDstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
 	p := vec2(min(u*size0.x, size0.x-1.0)+0.5, v*(size0.y-1.0)+0.5)
 
 	if surface == standeeLayerFarSticker {
-		return sheetSticker(p, sticker, size, next, size0, mipBlend) * color
+		return goldReflection(sheetSticker(p, sticker, size, next, size0, mipBlend), goldSide(dstPos.x-imageDstOrigin().x), p.y/size0.y) * color
 	}
 	if surface == standeeLayerCore {
 		return sheetLinear(p, sticker+vec2(size.x, 0), size, size0) * color
 	}
 	footprint := vec2(max(custom.w, 0.0), max(-custom.w, 0.0))
-	return sheetNearSticker(p, sticker, size, next, size0, mipBlend, footprint) * color
+	return goldReflection(sheetNearSticker(p, sticker, size, next, size0, mipBlend, footprint), goldSide(dstPos.x-imageDstOrigin().x), p.y/size0.y) * color
 }
 
 //include panini.kageinc

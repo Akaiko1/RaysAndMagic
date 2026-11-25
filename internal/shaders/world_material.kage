@@ -22,6 +22,8 @@ const (
 	worldGlacier = 13
 	worldFrost = 14
 	worldSunPyre = 15
+	worldTorchFlame = 16
+	worldPaper = 17
 )
 
 var Time float
@@ -50,7 +52,9 @@ func campNoise(p vec3) float {
         campNoiseSlice(p.xy+(z+1.0)*vec2(2.31,3.73)),f)
 }
 
-func campFlame(entry, eye vec3, heat, clock, scale, depth, wallDepth, wallTop, screenY float) vec4 {
+// torch (0 or 1) swaps the camp fire's broad bed for a torch's teardrop: a
+// narrow root wrapped around the head, a belly above it and a long thin tip.
+func campFlame(entry, eye vec3, heat, clock, scale, depth, wallDepth, wallTop, screenY, torch float) vec4 {
     ray := normalize(entry-eye)
     accum := vec4(0)
     // Small fixed volume, deterministic sampling, no frame-random grain.
@@ -71,6 +75,8 @@ func campFlame(entry, eye vec3, heat, clock, scale, depth, wallDepth, wallTop, s
         // A broad hot root splits into narrow, curling tongues as it rises.
         radius := length(bent)
         profile := .245*(1.0-h)*(1.0-h*.22)*sqrt(heat)
+        teardrop := (.105+.125*smoothstep(0.0,.24,h))*pow(max(1.0-h,0.0),1.25)*sqrt(heat)
+        profile = mix(profile,teardrop,torch)
         field := profile-radius + turbulence*(.35+h*1.3)
         density := smoothstep(-.015,.060,field)*(1.0-smoothstep(.83,1.0,h))*heat
         a := 1.0-exp(-density*.30)
@@ -122,11 +128,17 @@ func Fragment(rawDst vec4, src vec2, color vec4, custom vec4) vec4 {
         rgb:=mix(vec3(1,.37,.015),vec3(1,.97,.78),clamp(core+ash,0,1))
         return vec4(rgb*a,a)
     }
-    if mat == worldFlame {
+    if mat == worldFlame || mat == worldTorchFlame {
         scale := color.a
         entry := vec3(p,custom.x/q)/scale
-        return campFlame(entry,color.rgb/scale,custom.y,Time+fract(custom.w)*13.0,
-            scale,1.0/q,wallDepth,wallTop,pixel.y)
+        torch := float(0)
+        clock := Time
+        if mat == worldTorchFlame {
+            // A small flame flickers faster than a camp fire.
+            torch, clock = 1.0, Time*1.5
+        }
+        return campFlame(entry,color.rgb/scale,custom.y,clock+fract(custom.w)*13.0,
+            scale,1.0/q,wallDepth,wallTop,pixel.y,torch)
     }
 	grain := fxNoise(p*230.0) * .08
 	shade, spec := custom.x, custom.y
@@ -183,6 +195,16 @@ func Fragment(rawDst vec4, src vec2, color vec4, custom vec4) vec4 {
         strata:=pow(max(0,sin(p.y*60.0+n*4.0)),22.0)
         rgb=color.rgb*(.42+shade*.64)+vec3(.28,.37,.43)*(spec*1.4+seam*.34+strata*.11)
         a*=.83+seam*.17
+    } else if mat == worldPaper {
+        // Paper lit by a flame inside: brightest low in the belly and where it
+        // faces the eye, dimmer toward the rim; the bamboo ribs ring it as thin
+        // darker bands. custom.x is how squarely the face looks at the eye;
+        // p.x runs round the lantern 0..1, p.y from its bottom 0 to its top 1.
+        inner:=exp(-(p.y-.4)*(p.y-.4)*6.0)
+        rim:=.5+.5*clamp(custom.x,0.0,1.0)
+        rib:=smoothstep(.72,.95,abs(fract(p.y*8.0)-.5)*2.0)
+        fibre:=fxNoise(vec2(p.x*90.0,p.y*40.0))*.06
+        rgb=color.rgb*((.45+.55*inner)*rim*(1.0-.35*rib)+fibre)
     } else if mat == worldFrost {
         // Frost crystallizes across a square tile; fine branches break the
         // surface without inventing a circular footprint over adjacent tiles.

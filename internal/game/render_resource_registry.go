@@ -204,7 +204,9 @@ func (r *Renderer) indexProcessedSource(key processedSpriteKey, img *ebiten.Imag
 }
 
 func (r *Renderer) forgetRenderSourceViews(img *ebiten.Image) {
+	r.forgetGoldSprite(img)
 	for _, frame := range r.animFrameCache[img] {
+		r.forgetGoldSprite(frame)
 		delete(r.animFrameOrigins, frame)
 	}
 	delete(r.animFrameCache, img)

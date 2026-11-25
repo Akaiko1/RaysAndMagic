@@ -67,6 +67,9 @@ func (ui *UISystem) profileIcon(screen *ebiten.Image, key, label string, x, y, s
 		if img == nil && ui.game.sprites.HasSprite(name) {
 			img = ui.game.sprites.GetSprite(name)
 		}
+		if gl := ui.game.gameLoop; gl != nil && gl.renderer != nil {
+			img = gl.renderer.goldSpriteFrame(img, gl.renderer.spriteGoldStrength(name), false)
+		}
 	} else if key != "" && ui.game.sprites.HasSprite(key) {
 		img = ui.game.sprites.GetSprite(key)
 	}

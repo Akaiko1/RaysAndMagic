@@ -167,6 +167,10 @@ type Renderer struct {
 	standeeSurfacesMore [maxCrossPlanes - 1][]standeeSurface
 	crossedGeometry     crossedFrameGeometry
 	hoverHalo           hoverHaloPass
+	goldSpriteShader    *ebiten.Shader
+	goldSprites         map[*ebiten.Image][]goldSprite // shaded copies per source frame
+	goldBySprite        map[string]float32             // spriteGoldStrength's table
+	goldBySpriteOf      *monster.MonsterYAMLConfig     // the catalog goldBySprite was built from
 	treeSpatial         renderSpatialIndex
 	propSpatial         renderSpatialIndex
 	loadDiagnostics     renderLoadDiagnostics
@@ -182,7 +186,8 @@ type Renderer struct {
 	statSpritesMs float64
 	// Wall-torch corners for the current map (flag wall_torches), rebuilt on
 	// world change alongside the other per-map caches.
-	wallTorches []wallTorchPoint
+	wallTorches     []wallTorchPoint
+	wallTorchModels wallTorchModelSet
 	// teleporterTiles caches every teleporter tile on the current map (+ its glow
 	// colour), collected during precomputeFloorColorCache's per-map tile scan so
 	// drawTeleporterTileFx doesn't rescan the world each frame.
@@ -782,7 +787,8 @@ func (r *Renderer) updateActiveLights() {
 	}
 
 	// Wall torches: flickering corner lights (map flag wall_torches).
-	torchRadius := wallTorchLightRadiusTiles * tile
+	torches := r.game.config.Graphics.WallTorches
+	torchRadius := torches.LightRadiusTiles * tile
 	for _, tp := range r.wallTorches {
 		dx := tp.X - camX
 		dy := tp.Y - camY
@@ -791,7 +797,7 @@ func (r *Renderer) updateActiveLights() {
 		}
 		r.activeLights = append(r.activeLights, LightSource{
 			X: tp.X, Y: tp.Y, Radius: torchRadius,
-			Intensity: wallTorchLightIntensity * wallTorchFlicker(tp.seed, r.game.worldSeconds()),
+			Intensity: torches.LightIntensity * wallTorchFlicker(tp.seed, r.game.worldSeconds()),
 		})
 	}
 
@@ -2937,6 +2943,16 @@ func (r *Renderer) getMonsterSprite(mon *monster.Monster3D) (*ebiten.Image, bool
 	return r.game.sprites.GetSprite(spriteName), false
 }
 
+// monsterStrikeProgress is how far a monster is through its attack animation,
+// 0 at rest.
+func (r *Renderer) monsterStrikeProgress(mon *monster.Monster3D) float64 {
+	if mon.AttackAnimFrames <= 0 {
+		return 0
+	}
+	total := max(1, r.game.monsterAttackAnimationDuration(mon))
+	return math.Max(0, 1-float64(mon.AttackAnimFrames)/float64(total))
+}
+
 // attackAnimFrameImage sweeps an attack animation ONCE across the strike window:
 // AttackAnimFrames counts down from MonsterAttackAnimFrames to 0, mapped to
 // frames 0..n-1. Like a TB walk cycle, the strike plays start to
@@ -3779,9 +3795,9 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 		})
 	}
 
-	// 6. Collect wall torches so their flames depth-sort against billboards
+	// 6. Collect wall torches so their glow depth-sorts against billboards
 	// and standees (the effects pass only tests the WALL depth buffer, which
-	// let flames shine through trees and tokens).
+	// let it shine through trees and tokens). The torch itself is a world mesh.
 	for ti := range r.wallTorches {
 		tp := &r.wallTorches[ti]
 		_, depthPerp, ok := cullAndProject(tp.X, tp.Y, camX, camY, camDirX, camDirY, 0, viewDistSq)
@@ -3864,7 +3880,7 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 			r.drawUnifiedNPCSprite(screen, s)
 		case SpriteTypeWallTorch:
 			if s.tileX >= 0 && s.tileX < len(r.wallTorches) {
-				r.drawWallTorchFlame(screen, r.wallTorches[s.tileX])
+				r.drawWallTorchGlow(screen, r.wallTorches[s.tileX])
 			}
 		case SpriteTypeGroundContainer:
 			r.drawUnifiedGroundContainerSprite(screen, s)
@@ -4023,7 +4039,7 @@ func (r *Renderer) drawUnifiedGroundContainerSprite(screen *ebiten.Image, s Unif
 		yaw := standeeStaticYaw + phase + containerSpinDegSec*math.Pi/180*r.game.worldSeconds()
 		key := makeStandeeCoreKey(r.prefixedStandeeKeyName("container", spriteName), s.sprite, false)
 		if r.drawStandeeSprite(screen, s.sprite, key, c.X+ox, c.Y+oy, yaw,
-			s.depthPerp, s.sizeF, s.bottomF, sb, sb, sb, true, false, 0, 0) {
+			s.depthPerp, s.sizeF, s.bottomF, sb, sb, sb, true, false, 0, 0, goldMaterial{}) {
 			return
 		}
 	}
@@ -4153,7 +4169,7 @@ func (r *Renderer) drawUnifiedEnvironmentSprite(screen *ebiten.Image, s UnifiedS
 		// (short grass tuft wearing the tall variant's silhouette).
 		key := makeStandeeCoreKey(r.prefixedStandeeKeyName("tile", name), frame, false)
 		if r.drawStandeeSprite(screen, frame, key, worldX, worldY, yaw,
-			s.depthPerp, s.sizeF, s.bottomF, b, b, b, true, false, 0, float32(1-opacity)) {
+			s.depthPerp, s.sizeF, s.bottomF, b, b, b, true, false, 0, float32(1-opacity), goldMaterial{}) {
 			return
 		}
 	}
@@ -4161,7 +4177,9 @@ func (r *Renderer) drawUnifiedEnvironmentSprite(screen *ebiten.Image, s UnifiedS
 		return
 	}
 
-	r.drawTintedSpriteF(screen, frame, s.screenXF-s.sizeF/2, s.bottomF-s.sizeF, s.sizeF, false, b, b, b, float32(opacity))
+	// ColorScale applies to premultiplied colour: a fade scales all four.
+	fade := float32(opacity)
+	r.drawTintedSpriteF(screen, frame, s.screenXF-s.sizeF/2, s.bottomF-s.sizeF, s.sizeF, false, b*fade, b*fade, b*fade, fade)
 }
 
 // prepareMonsterPick computes the pose once, before hover selection and draw.
@@ -4267,7 +4285,7 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 
 	frame := mobFrame{sprite: h.sprite, key: s.monster.Key, standee: h.standee,
 		x: h.p0x + h.dx/2, y: h.p0y + h.dy/2, yaw: s.monster.StandeeYaw, left: drawLeftF, top: screenYF,
-		mirror: h.flipped, rr: rr, gg: gg, bb: bb}
+		mirror: h.flipped, rr: rr, gg: gg, bb: bb, gleam: r.monsterGleam(s.monster, renderX, renderY)}
 	r.drawMob(screen, s, frame)
 	// The hover cue is a rim: the monster keeps its own colours.
 	if s.monster == r.hoveredMonster {
@@ -4286,6 +4304,7 @@ type mobFrame struct {
 	mirror     bool
 	rr, gg, bb float32
 	fade       float32 // 0 = opaque
+	gleam      float64 // gold gleam phase, in passes across the body
 }
 
 // drawMob paints a mob frame at s's depth and size: the token, or the flat
@@ -4295,12 +4314,13 @@ func (r *Renderer) drawMob(screen *ebiten.Image, s UnifiedSpriteRenderData, f mo
 	if f.standee {
 		key := makeStandeeCoreKey(r.prefixedStandeeKeyName("mob", f.key), f.sprite, true)
 		r.drawStandeeSprite(screen, f.sprite, key, f.x, f.y, f.yaw, s.depthPerp, s.sizeF, s.bottomF,
-			f.rr, f.gg, f.bb, false, f.mirror, 0, f.fade)
+			f.rr, f.gg, f.bb, false, f.mirror, 0, f.fade, r.mobGold(s, f))
 		return
 	}
 	// ColorScale applies to premultiplied colour: a fade scales all four.
 	alpha := 1 - f.fade
-	r.drawTintedSpriteF(screen, f.sprite, f.left, f.top, s.sizeF, f.mirror, f.rr*alpha, f.gg*alpha, f.bb*alpha, alpha)
+	sprite := r.goldSpriteFrame(f.sprite, monsterGoldStrength(f.key), f.mirror)
+	r.drawTintedSpriteF(screen, sprite, f.left, f.top, s.sizeF, f.mirror, f.rr*alpha, f.gg*alpha, f.bb*alpha, alpha)
 }
 
 // drawMonsterStatusFX overlays a monster's status indicators (stun stars,
@@ -4639,7 +4659,7 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 		}
 		key := makeStandeeCoreKey(npcKeyName, sprite, false)
 		if r.drawStandeeSprite(screen, sprite, key, s.npc.X, s.npc.Y, yaw,
-			s.depthPerp, s.sizeF, s.bottomF, sb, sb, sb, true, false, 0, 0) {
+			s.depthPerp, s.sizeF, s.bottomF, sb, sb, sb, true, false, 0, 0, goldMaterial{}) {
 			return
 		}
 	}

@@ -722,7 +722,8 @@ type standeeSlab struct {
 	firstSurface int     // draw from here (zero side opacity skips hidden layers)
 	sideFade     float32 // 0 = full thickness, 1 = only the front face
 	fade         float32 // opacity loss of the whole token; zero preserves the ordinary material
-	minX, maxX   int     // unclipped screen span
+	gold         goldMaterial
+	minX, maxX   int // unclipped screen span
 	// volumeComposite is set only for crosses: they and fading tokens use the
 	// one-pass volume compositor; other standees keep the general material
 	// path, including trilinear minification and wall mounts.
@@ -828,14 +829,16 @@ func (r *Renderer) crossedStandeeArms(worldX, worldY float64, layout crossLayout
 // worldLengthOverride (>0) forces the token's world footprint length instead of
 // deriving it from the billboard width. Crossed trees use it for their full-tile
 // footprint so their arms land on the tile edges. fade (0 = opaque) fades the
-// token out as one solid (canUseStandeeVolume).
-func (r *Renderer) drawStandeeSprite(screen *ebiten.Image, sprite *ebiten.Image, coreKey standeeCoreKey, entX, entY, yaw float64, centerDepth float64, centerSize float64, bottomY float64, rr, gg, bb float32, mirrorBySide, mirroredIn bool, worldLengthOverride float64, fade float32) bool {
+// token out as one solid (canUseStandeeVolume). gold shades the faces as gold
+// metal; the zero value keeps the paint.
+func (r *Renderer) drawStandeeSprite(screen *ebiten.Image, sprite *ebiten.Image, coreKey standeeCoreKey, entX, entY, yaw float64, centerDepth float64, centerSize float64, bottomY float64, rr, gg, bb float32, mirrorBySide, mirroredIn bool, worldLengthOverride float64, fade float32, gold goldMaterial) bool {
 	if sprite == nil || centerDepth <= 0 || centerSize <= 0 {
 		return false
 	}
 	slab, ok := r.prepareStandeeSlab(sprite, coreKey, entX, entY, yaw, centerDepth, centerSize, bottomY, rr, gg, bb, mirrorBySide, mirroredIn, worldLengthOverride, r.standeeSurfaces[:0], -1)
 	if ok {
 		slab.fade = fade
+		slab.gold = gold
 		r.drawStandeeSlabColumns(screen, slab, -1, -1)
 	}
 	r.standeeSurfaces = slab.surfaces[:0] // reclaim the backing array (cap grows to the max needed)
@@ -1274,6 +1277,7 @@ func (r *Renderer) drawStandeeSlabVolume(screen *ebiten.Image, slab standeeSlab,
 	}
 	opts.Uniforms["Horizon"].([]float32)[0] = float32(r.game.viewHorizon())
 	opts.Uniforms["Fade"].([]float32)[0] = slab.fade
+	setStandeeGold(opts, slab.gold)
 	opts.Blend = ebiten.BlendSourceOver
 	opts.Images[0] = stickerMips.levels[0]
 	opts.Images[1] = stickerMips.levels[mipLevel]
@@ -1429,6 +1433,7 @@ func (r *Renderer) drawStandeeSlabColumns(screen *ebiten.Image, slab standeeSlab
 		opts.Images[2] = stickerMips.levels[nextMipLevel]
 		opts.Images[3] = coreMips.levels[coreMipLevel]
 	}
+	setStandeeGold(opts, slab.gold)
 	opts.Blend = ebiten.BlendSourceOver
 
 	if filtered {
@@ -1589,21 +1594,24 @@ func (r *Renderer) crossedTileDrawsAsStandee(renderType string) bool {
 // follows the source aspect. Split and draw both use this, so arm columns can
 // never disagree with the drawn slab.
 func (r *Renderer) crossedProjectedWidth(s UnifiedSpriteRenderData) float64 {
-	if tileIsNaturalCross(s.tileType) {
-		return s.sizeF
+	return r.crossWidth(s.tileType, s.spriteName, s.sizeF)
+}
+
+// crossWidth is the drawn width of a crossed tile whose authored size is
+// size: a tree authors its width, a prop-class cross its height, with the
+// width following the art's aspect.
+func (r *Renderer) crossWidth(tileType world.TileType3D, spriteName string, size float64) float64 {
+	if tileIsNaturalCross(tileType) || r.game == nil || r.game.sprites == nil {
+		return size
 	}
-	name := s.spriteName
-	if name == "" {
-		name = treeStandeeSpriteName(s.tileType)
+	if spriteName == "" {
+		spriteName = treeStandeeSpriteName(tileType)
 	}
-	if r.game == nil || r.game.sprites == nil {
-		return s.sizeF
-	}
-	sprite := r.game.sprites.GetSprite(name)
+	sprite := r.game.sprites.GetSprite(spriteName)
 	if sprite == nil {
-		return s.sizeF
+		return size
 	}
-	return spriteWidthForHeight(s.sizeF, sprite.Bounds().Dx(), sprite.Bounds().Dy())
+	return spriteWidthForHeight(size, sprite.Bounds().Dx(), sprite.Bounds().Dy())
 }
 
 func treeStandeeSpriteName(tileType world.TileType3D) string {
@@ -1681,8 +1689,14 @@ func (r *Renderer) drawCrossedTreeStandees(screen *ebiten.Image, s UnifiedSprite
 	if spriteName == "" {
 		spriteName = treeStandeeSpriteName(s.tileType)
 	}
+	// An arm takes its pose and size from its tree's centre: its own depth can
+	// lie behind the camera while the arm still reaches into view.
+	centerDepth := s.depthPerp
+	if s.treeArmOnly {
+		centerDepth = s.treeCenterDepth
+	}
 	sprite := r.game.sprites.GetSprite(spriteName)
-	if sprite == nil || s.sizeF <= 0 || s.depthPerp <= 0 {
+	if sprite == nil || s.sizeF <= 0 || centerDepth <= 0 {
 		return
 	}
 	tileSize := float64(r.game.config.GetTileSize())
@@ -1723,10 +1737,6 @@ func (r *Renderer) drawCrossedTreeStandees(screen *ebiten.Image, s UnifiedSprite
 	bottomF := s.bottomF
 	key := makeStandeeCoreKey(r.prefixedStandeeKeyName("tree", spriteName), sprite, true)
 
-	centerDepth := s.depthPerp
-	if s.treeArmOnly {
-		centerDepth = s.treeCenterDepth
-	}
 	// Footprint = the art's OWN projected width, like landmark monuments - a
 	// tile-diagonal footprint squeezed the art horizontally (square oak drew
 	// ~30% too thin once the square-projection FOV removed the old horizontal
@@ -1864,7 +1874,7 @@ func (r *Renderer) drawWallStandee(screen *ebiten.Image, sprite *ebiten.Image, k
 		r.standeeWallOcclusion.backingYaw = wyaw
 		r.standeeWallOcclusion.hasBackingWall = true
 	}
-	drew := r.drawStandeeSprite(screen, sprite, key, wx, wy, wyaw, depthPerp, spriteSize, bottomY, br, br, br, true, false, worldLength, 0)
+	drew := r.drawStandeeSprite(screen, sprite, key, wx, wy, wyaw, depthPerp, spriteSize, bottomY, br, br, br, true, false, worldLength, 0, goldMaterial{})
 	r.standeeWallOcclusion = standeeWallOcclusion{}
 	return drew
 }

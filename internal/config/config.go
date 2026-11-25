@@ -1204,6 +1204,149 @@ type GraphicsConfig struct {
 
 	// WalkablePropFade fades scenery the party walks through as it closes in.
 	WalkablePropFade WalkablePropFadeConfig `yaml:"walkable_prop_fade"`
+
+	// WallTorches styles the corner torches of maps with wall_torches.
+	WallTorches WallTorchRenderConfig `yaml:"wall_torches"`
+
+	// GoldReflection paces the gleam on monsters with gold_reflection.
+	GoldReflection GoldReflectionRenderConfig `yaml:"gold_reflection"`
+}
+
+// WallTorchRenderConfig: the light a corner torch throws, how far its model
+// keeps its detail, and its colours. The model's shape stays in code.
+type WallTorchRenderConfig struct {
+	LightRadiusTiles float64 `yaml:"light_radius_tiles"` // reach of the torch's point light
+	LightIntensity   float64 `yaml:"light_intensity"`    // the light's peak brightness contribution, 0-1
+	SelfLight        float64 `yaml:"self_light"`         // how brightly the flame lights its own torch, 0-1
+	DetailTiles      float64 `yaml:"detail_tiles"`       // the full model with its bracket is drawn within this distance
+	BodyTiles        float64 `yaml:"body_tiles"`         // a simpler body within this one; past it only the flame or the paper
+	Wood             [3]int  `yaml:"wood"`               // handle, RGB 0-255
+	Iron             [3]int  `yaml:"iron"`               // plate, arms, bands and cup
+	Coals            [3]int  `yaml:"coals"`              // the glowing bed in the cup
+	LanternFrame     [3]int  `yaml:"lantern_frame"`      // paper lantern: lacquered caps, cord and bracket
+	LanternPaper     [3]int  `yaml:"lantern_paper"`      // paper lantern: the paper lit from inside
+	// The soft glow in the air around each light, and a torch's sparks.
+	TorchHalo   WallTorchHaloConfig `yaml:"torch_halo"`
+	LanternHalo WallTorchHaloConfig `yaml:"lantern_halo"`
+	Spark       [3]int              `yaml:"spark"`
+}
+
+// WallTorchHaloConfig is the glow around a corner light.
+type WallTorchHaloConfig struct {
+	Color   [3]int  `yaml:"color"`   // RGB 0-255
+	Size    float64 `yaml:"size"`    // diameter, in tenths of the wall's half height
+	Opacity float64 `yaml:"opacity"` // 0-1 at the centre; 0 hides the halo
+}
+
+// WallTorchMaxHaloSize keeps a halo within its own corner.
+const WallTorchMaxHaloSize = 12
+
+// Wall light styles (wall_torch_style in map_configs.yaml).
+const (
+	WallTorchStyleTorch        = "torch"
+	WallTorchStylePaperLantern = "paper_lantern"
+)
+
+var wallTorchStyles = [...]string{WallTorchStyleTorch, WallTorchStylePaperLantern}
+
+// WallTorchModel is the light the map hangs at its corners.
+func (m MapConfig) WallTorchModel() string {
+	if m.WallTorchStyle == "" {
+		return WallTorchStyleTorch
+	}
+	return m.WallTorchStyle
+}
+
+// ValidateWallTorches rejects an unknown wall_torch_style and a style on a
+// map without wall_torches.
+func (c MapConfigs) ValidateWallTorches() error {
+	for name, m := range c.Maps {
+		if m.WallTorchStyle == "" {
+			continue
+		}
+		if !m.WallTorches {
+			return fmt.Errorf("map %q: wall_torch_style %q needs wall_torches: true", name, m.WallTorchStyle)
+		}
+		if !slices.Contains(wallTorchStyles[:], m.WallTorchStyle) {
+			return fmt.Errorf("map %q: wall_torch_style %q is not one of %v", name, m.WallTorchStyle, wallTorchStyles)
+		}
+	}
+	return nil
+}
+
+// WallTorchMaxLightRadiusTiles keeps a torch's light within a room's reach.
+const WallTorchMaxLightRadiusTiles = 8
+
+func DefaultWallTorchRenderConfig() WallTorchRenderConfig {
+	return WallTorchRenderConfig{
+		LightRadiusTiles: 2, LightIntensity: .7, SelfLight: .85, DetailTiles: 5, BodyTiles: 12,
+		Wood: [3]int{138, 90, 48}, Iron: [3]int{96, 98, 108}, Coals: [3]int{255, 122, 34},
+		LanternFrame: [3]int{52, 34, 30}, LanternPaper: [3]int{255, 186, 112},
+		TorchHalo:   WallTorchHaloConfig{Color: [3]int{255, 170, 60}, Size: 3.6, Opacity: .38},
+		LanternHalo: WallTorchHaloConfig{Color: [3]int{255, 176, 96}, Size: 4.6, Opacity: .26},
+		Spark:       [3]int{255, 200, 110},
+	}
+}
+
+func (c WallTorchRenderConfig) Validate() error {
+	if !(c.LightRadiusTiles > 0 && c.LightRadiusTiles <= WallTorchMaxLightRadiusTiles) {
+		return fmt.Errorf("graphics.wall_torches.light_radius_tiles: %v is outside (0, %d]", c.LightRadiusTiles, WallTorchMaxLightRadiusTiles)
+	}
+	for _, v := range []struct {
+		key   string
+		value float64
+	}{{"light_intensity", c.LightIntensity}, {"self_light", c.SelfLight}} {
+		if !(v.value >= 0 && v.value <= 1) {
+			return fmt.Errorf("graphics.wall_torches.%s: %v is outside 0-1", v.key, v.value)
+		}
+	}
+	if !(c.BodyTiles > 0) {
+		return fmt.Errorf("graphics.wall_torches.body_tiles: %v must be above 0", c.BodyTiles)
+	}
+	if !(c.DetailTiles > 0 && c.DetailTiles <= c.BodyTiles) {
+		return fmt.Errorf("graphics.wall_torches.detail_tiles: %v must be above 0 and at most body_tiles (%v)", c.DetailTiles, c.BodyTiles)
+	}
+	for _, v := range []struct {
+		key  string
+		halo WallTorchHaloConfig
+	}{{"torch_halo", c.TorchHalo}, {"lantern_halo", c.LanternHalo}} {
+		if !(v.halo.Size > 0 && v.halo.Size <= WallTorchMaxHaloSize) {
+			return fmt.Errorf("graphics.wall_torches.%s.size: %v is outside (0, %d]", v.key, v.halo.Size, WallTorchMaxHaloSize)
+		}
+		if !(v.halo.Opacity >= 0 && v.halo.Opacity <= 1) {
+			return fmt.Errorf("graphics.wall_torches.%s.opacity: %v is outside 0-1", v.key, v.halo.Opacity)
+		}
+	}
+	for _, v := range []struct {
+		key string
+		rgb [3]int
+	}{{"wood", c.Wood}, {"iron", c.Iron}, {"coals", c.Coals}, {"lantern_frame", c.LanternFrame}, {"lantern_paper", c.LanternPaper},
+		{"torch_halo.color", c.TorchHalo.Color}, {"lantern_halo.color", c.LanternHalo.Color}, {"spark", c.Spark}} {
+		for _, channel := range v.rgb {
+			if channel < 0 || channel > 255 {
+				return fmt.Errorf("graphics.wall_torches.%s: %v is not RGB in 0-255", v.key, v.rgb)
+			}
+		}
+	}
+	return nil
+}
+
+// GoldReflectionRenderConfig: the gleam on a gold monster crosses its body
+// once per strike, once per half turn around it, and once per TilesPerPass
+// tiles it walks.
+type GoldReflectionRenderConfig struct {
+	TilesPerPass float64 `yaml:"tiles_per_pass"`
+}
+
+func DefaultGoldReflectionRenderConfig() GoldReflectionRenderConfig {
+	return GoldReflectionRenderConfig{TilesPerPass: 1.5}
+}
+
+func (c GoldReflectionRenderConfig) Validate() error {
+	if !(c.TilesPerPass > 0) {
+		return fmt.Errorf("graphics.gold_reflection.tiles_per_pass: %v must be above 0", c.TilesPerPass)
+	}
+	return nil
 }
 
 // WalkablePropFadeConfig: walkable scenery (grass, ferns, walk-through benches)
@@ -1704,10 +1847,13 @@ type MapConfig struct {
 	// CanopyShade locally lowers ambient light where crossed standees are dense.
 	// It keeps open areas at normal map ambient while making forests feel shaded.
 	CanopyShade *MapCanopyShadeConfig `yaml:"canopy_shade,omitempty"`
-	// WallTorches places a flickering torch (particle flame + point light) at
-	// every inner wall corner of the map - the classic dungeon/temple dressing
-	// for dark maps.
+	// WallTorches hangs a light (a burning torch by default, plus a
+	// flickering point light) at every inner wall corner of the map - the
+	// classic dungeon/temple dressing for dark maps.
 	WallTorches bool `yaml:"wall_torches,omitempty"`
+	// WallTorchStyle picks the light hung there: torch (the default) or
+	// paper_lantern. It needs wall_torches.
+	WallTorchStyle string `yaml:"wall_torch_style,omitempty"`
 	// RespawnDays > 0 makes the map a FARMING zone: on arrival, if at least this
 	// many calendar days have passed since the roster was last spawned,
 	// the authored monsters respawn in full (the clock tower winds new horrors).
@@ -2148,6 +2294,8 @@ func LoadConfig(filename string) (*Config, error) {
 	config.Graphics.Monster.Death = DefaultMonsterDeathRenderConfig()
 	config.Graphics.Monster.HoverHalo = DefaultHoverHaloConfig()
 	config.Graphics.WalkablePropFade = DefaultWalkablePropFadeConfig()
+	config.Graphics.WallTorches = DefaultWallTorchRenderConfig()
+	config.Graphics.GoldReflection = DefaultGoldReflectionRenderConfig()
 	config.Graphics.Monster.WalkFrameSeconds = DefaultMonsterWalkFrameSeconds
 	config.Graphics.View.TurnStepSeconds = DefaultTurnStepSeconds
 	// Defaults applied before unmarshal so an absent key keeps the default while a
@@ -2359,6 +2507,12 @@ func LoadConfig(filename string) (*Config, error) {
 	}
 	if err := config.Graphics.WalkablePropFade.Validate(); err != nil {
 		return nil, err
+	}
+	if err := config.Graphics.WallTorches.Validate(); err != nil {
+		return nil, fmt.Errorf("%s: %w", filename, err)
+	}
+	if err := config.Graphics.GoldReflection.Validate(); err != nil {
+		return nil, fmt.Errorf("%s: %w", filename, err)
 	}
 	if err := validateNightMoteRenderConfig(config.Graphics.NightMotes); err != nil {
 		return nil, err

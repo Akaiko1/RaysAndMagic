@@ -1653,6 +1653,7 @@ monsters:
     boss_cooldown_seconds: 1
     aggro_whole_map: true  # UNIQUE: once the valves are opened it hunts the party from anywhere
     sprite: "golden_thief_bug"
+    gold_reflection: 1  # 0..1: the painted body renders as gold metal (eyes keep their paint)
     letter: "y"
     # Collision box must be < tile size (64): a 64px box centered on a tile spans a
     # 2x2 tile footprint (half-open bounds) and can't fit the maze's 1-wide

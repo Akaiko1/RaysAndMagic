@@ -1,4 +1,5 @@
 //include standee_sampling.kageinc
+//include gold_reflection.kageinc
 
 var Horizon float
 // Fade fades the resolved solid once (a fading token); 0, the default, is opaque.
@@ -61,7 +62,7 @@ func Fragment(rawDstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
 
 	if nearDepth < wallDepth || dstY < wallTop {
 		if p, ok := sourcePosition(dstY, nearDepth, nearU, projection.x, projection.y); ok {
-			acc = addFront(acc, tinted(nearStickerAt(p, filtered, mipBlend, footprint), color.r, 1.0))
+			acc = addFront(acc, tinted(goldReflection(nearStickerAt(p, filtered, mipBlend, footprint), goldSide(dstPos.x-imageDstOrigin().x), standeeFrameUV(p).y), color.r, 1.0))
 		}
 	}
 	if acc.a >= 0.999 {
@@ -87,7 +88,7 @@ func Fragment(rawDstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
 
 	if farDepth < wallDepth || dstY < wallTop {
 		if p, ok := sourcePosition(dstY, farDepth, farU, projection.x, projection.y); ok {
-			acc = addFront(acc, tinted(stickerAt(p, mipBlend), color.r, 0.75))
+			acc = addFront(acc, tinted(goldReflection(stickerAt(p, mipBlend), goldSide(dstPos.x-imageDstOrigin().x), standeeFrameUV(p).y), color.r, 0.75))
 		}
 	}
 	return acc * (1.0 - Fade)

@@ -1,0 +1,16 @@
+//kage:unit pixels
+package main
+
+//include gold_reflection.kageinc
+
+// LitSide is 1 for a frame drawn as it is and -1 for one the caller mirrors:
+// either way the light ends up on the left of the picture.
+var LitSide float
+
+// The flat mob path shades the source once and uses its regular mipmapped
+// DrawImage path afterwards: the frame itself stands for the body, lit from
+// its left.
+func Fragment(dst vec4, src vec2, color vec4) vec4 {
+	uv := (src - imageSrc0Origin()) / imageSrc0Size()
+	return goldReflection(imageSrc0At(src), (uv.x-0.5)*LitSide, uv.y) * color
+}

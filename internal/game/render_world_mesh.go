@@ -48,19 +48,21 @@ const (
 	worldIron  = iota // metal; iron, brass and steel shade alike (scratched,
 	worldBrass        // specular) and differ only in their authored colour
 	worldSteel
-	worldGlass   // transparent cyan glass
-	worldSand    // flowing hourglass sand and lit seams
-	worldGlow    // slowly shimmering glow
-	worldEmber   // coal bed
-	worldPlume   // world-oriented flame plume planes
-	worldWood    // grain, knots and plank joints
-	worldStone   // stone grain
-	worldFlame   // the camp flame volume
-	worldPlaster // dry plaster infill
-	worldWindow  // warm light behind window leadwork
-	worldGlacier // dense blue ice
-	worldFrost   // frost crystallizing across a tile
-	worldSunPyre // Destroy Undead's solar lightning
+	worldGlass      // transparent cyan glass
+	worldSand       // flowing hourglass sand and lit seams
+	worldGlow       // slowly shimmering glow
+	worldEmber      // coal bed
+	worldPlume      // world-oriented flame plume planes
+	worldWood       // grain, knots and plank joints
+	worldStone      // stone grain
+	worldFlame      // the camp flame volume
+	worldPlaster    // dry plaster infill
+	worldWindow     // warm light behind window leadwork
+	worldGlacier    // dense blue ice
+	worldFrost      // frost crystallizing across a tile
+	worldSunPyre    // Destroy Undead's solar lightning
+	worldTorchFlame // the camp flame volume with a torch's teardrop profile
+	worldPaper      // lantern paper lit from inside
 )
 
 // worldTwoSided reports the materials drawn from both sides; every other
@@ -241,6 +243,7 @@ func (r *Renderer) collectWorldModels() {
 	m.order, m.nextFace = m.order[:0], 0
 	r.collectTrapModels()
 	r.collectPropModels()
+	r.collectWallTorchModels()
 	r.collectGlacierModels()
 	r.collectSunPyres()
 	r.collectSolarFlares()
@@ -406,10 +409,13 @@ func (b *worldModelBuilder) projectTriangle(face *worldModelTriangle) {
 			if face.material == worldSunPyre {
 				vertex.Custom0 = float32(b.progress)
 			}
-			if face.material == worldFlame {
+			if face.material == worldPaper {
+				vertex.Custom0 = float32(math.Max(0, facing/eyeLength)) // how squarely the paper faces the eye
+			}
+			if face.material == worldFlame || face.material == worldTorchFlame {
 				vertex.Custom0 = float32((p.height/b.ts - b.fireBase) * q)
 				vertex.Custom1 = float32(face.alpha)
-				vertex.Custom3 = float32(worldFlame) + .125 + float32(b.fireSeed)*.75
+				vertex.Custom3 = float32(face.material) + .125 + float32(b.fireSeed)*.75
 				vertex.ColorR = float32((cam.X - b.x) / b.ts)
 				vertex.ColorG = float32((cam.Y - b.y) / b.ts)
 				vertex.ColorB = float32(.5 - b.fireBase)

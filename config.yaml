@@ -675,6 +675,31 @@ graphics:
     from_tiles: 2.0  # fully drawn from this far out (at most 6)
     to_tiles: 1.0    # gone at this distance and closer (above 0, below from_tiles)
 
+  # Corner lights of maps with wall_torches: true (map_configs.yaml); the map's
+  # wall_torch_style picks a torch or a paper lantern.
+  wall_torches:
+    light_radius_tiles: 2.0  # reach of each torch's flickering light (at most 8)
+    light_intensity: 0.7     # the light's peak brightness contribution (0-1)
+    self_light: 0.85         # how brightly the flame lights its own torch (0-1)
+    detail_tiles: 5          # full model with its bracket within this distance (at most body_tiles)
+    body_tiles: 12           # a simpler body within this one; past it only the flame or the paper
+    wood: [138, 90, 48]      # handle colour, RGB
+    iron: [96, 98, 108]      # plate, arms, bands and fire cup
+    coals: [255, 122, 34]    # glowing bed in the cup
+    lantern_frame: [52, 34, 30]     # paper lantern (wall_torch_style: paper_lantern): lacquered caps, cord, bracket
+    lantern_paper: [255, 186, 112]  # paper lantern: the paper lit from inside
+    # The soft glow in the air around each light: colour, diameter in tenths of
+    # the wall's half height (at most 12), and opacity at its centre (0-1).
+    torch_halo: {color: [255, 170, 60], size: 3.6, opacity: 0.38}
+    lantern_halo: {color: [255, 176, 96], size: 4.6, opacity: 0.26}
+    spark: [255, 200, 110]          # sparks a torch sheds
+
+  # The gleam on monsters with gold_reflection (monsters.yaml) crosses the body
+  # once per strike, once per half turn around it, and once per this many tiles
+  # it walks.
+  gold_reflection:
+    tiles_per_pass: 1.5  # above 0
+
   # Distance effects
   brightness_min: 0.3
 

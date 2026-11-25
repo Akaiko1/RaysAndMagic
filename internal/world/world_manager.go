@@ -75,6 +75,10 @@ func (wm *WorldManager) LoadMapConfigs(filename string) error {
 		return err
 	}
 
+	if err := mapConfigs.ValidateWallTorches(); err != nil {
+		return fmt.Errorf("%s: %w", filename, err)
+	}
+
 	// Store map configs
 	wm.MapConfigs = make(map[string]*config.MapConfig)
 	for key, mapConfig := range mapConfigs.Maps {

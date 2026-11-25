@@ -113,6 +113,7 @@ func (ui *UISystem) drawIdentifyMonster(screen *ebiten.Image) {
 	drawFilledRect(screen, portrait.x, portrait.y, portrait.w, portrait.h, beaconInk.card)
 	if g.gameLoop != nil && g.gameLoop.renderer != nil {
 		if sprite, _ := g.gameLoop.renderer.getMonsterSprite(m); sprite != nil {
+			sprite = g.gameLoop.renderer.goldSpriteFrame(sprite, monsterGoldStrength(m.Key), false)
 			b := sprite.Bounds()
 			scale := min(float64(portrait.w-24)/float64(b.Dx()), float64(portrait.h-24)/float64(b.Dy()))
 			w, h := int(float64(b.Dx())*scale), int(float64(b.Dy())*scale)

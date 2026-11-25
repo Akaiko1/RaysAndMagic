@@ -15,6 +15,11 @@ func standeeSourcePosition(u float, v float) vec2 {
 	return imageSrc0Origin() + vec2(min(u*size.x, size.x-1.0)+0.5, v*(size.y-1.0)+0.5)
 }
 
+// standeeFrameUV is a full-size source position as 0..1 across the frame.
+func standeeFrameUV(p vec2) vec2 {
+	return (p - imageSrc0Origin()) / imageSrc0Size()
+}
+
 func sampleLinear1(p vec2) vec4 {
 	origin0 := imageSrc0Origin()
 	size0 := imageSrc0Size()

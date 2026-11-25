@@ -82,3 +82,37 @@ func TestCulvertsWallTorchesRequireTwoWallFaces(t *testing.T) {
 		t.Fatalf("torch cache changed under Walk on Water: got %d points, want %d", len(r.wallTorches), len(walking))
 	}
 }
+
+// Corner lights follow the map each corner belongs to, not the region the
+// party stands in when the world cache is built: on the unified world only
+// regions whose map enables wall_torches get them, in that map's style, and
+// the same set comes out from anywhere.
+func TestOpenWorldWallLightsFollowTheirRegion(t *testing.T) {
+	t.Chdir("../..")
+	g, wm, cfg := bootOpenWorldGame(t, true)
+	r := g.gameLoop.renderer
+	tileSize := float64(cfg.GetTileSize())
+	var first []wallTorchPoint
+	for _, here := range []string{"forest", "japanese_castle"} {
+		wm.CurrentMapKey = here
+		r.buildWallTorches()
+		if len(r.wallTorches) == 0 {
+			t.Fatalf("from %s: no corner lights on the unified world", here)
+		}
+		for _, tp := range r.wallTorches {
+			key := wm.MapKeyAt(g.world, int(tp.X/tileSize), int(tp.Y/tileSize))
+			mc := wm.MapConfigs[key]
+			if mc == nil || !mc.WallTorches {
+				t.Fatalf("from %s: a corner light in %q, whose map has no wall_torches", here, key)
+			}
+			if tp.style != mc.WallTorchModel() {
+				t.Fatalf("from %s: a %q light in %q, whose map hangs %q", here, tp.style, key, mc.WallTorchModel())
+			}
+		}
+		if first == nil {
+			first = append(first, r.wallTorches...)
+		} else if !reflect.DeepEqual(r.wallTorches, first) {
+			t.Fatalf("from %s: %d corner lights, from forest %d", here, len(r.wallTorches), len(first))
+		}
+	}
+}

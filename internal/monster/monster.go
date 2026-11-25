@@ -369,6 +369,10 @@ type Monster3D struct {
 	StandeeMirror    bool    // Render-only: art flip so the walk faces the heading (held while heading is camera-aligned)
 	FaceAccX         float64 // Render-only: accumulated per-tick WALK displacement since the last facing commit (band snaps / teleports excluded)
 	FaceAccY         float64
+	GleamTravel      float64          // Render-only: distance the drawn body has walked (gold_reflection gleam)
+	GleamX, GleamY   float64          // Render-only: where the body was last drawn
+	GleamSeen        bool             // Render-only: GleamX, GleamY hold a drawn position
+	GleamPhase       float64          // Render-only: the gleam phase last drawn, kept by the corpse
 	StunDRStacks     int              // Shared stun/fear DR chain length (0=fresh; caps -> immune)
 	Stun             status.DualClock // skips the monster's turns
 	StunDRMemory     status.DualClock // stun/fear-free time left before the DR chain resets

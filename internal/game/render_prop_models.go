@@ -68,6 +68,33 @@ func cachedPropModel(spec character.NPCPropModel) *propModel {
 }
 
 func (b *worldModelBuilder) cylinder(a, c worldModelPoint, radius float64, col [3]int, mat int, sides int) {
+	b.prism(a, c, radius, col, mat, sides, true)
+}
+
+// lathe revolves a profile of (radius, z) points, bottom to top, about the
+// vertical axis through (x, y): a closed solid with flat ends. A convex
+// profile makes a convex solid.
+func (b *worldModelBuilder) lathe(x, y float64, profile [][2]float64, col [3]int, mat int, sides int) {
+	point := func(rz [2]float64, angle float64) worldModelPoint {
+		return worldModelPoint{x + rz[0]*math.Cos(angle), y + rz[0]*math.Sin(angle), rz[1]}
+	}
+	first, last := profile[0], profile[len(profile)-1]
+	for i := 0; i < sides; i++ {
+		t, u := float64(i)*2*math.Pi/float64(sides), float64(i+1)*2*math.Pi/float64(sides)
+		for k := 0; k+1 < len(profile); k++ {
+			b.quad(point(profile[k], t), point(profile[k], u), point(profile[k+1], u), point(profile[k+1], t), col, mat, 1)
+		}
+		b.triangle(worldModelPoint{x, y, first[1]}, point(first, u), point(first, t), col, mat, 1)
+		b.triangle(worldModelPoint{x, y, last[1]}, point(last, t), point(last, u), col, mat, 1)
+	}
+}
+
+// tube is a cylinder's side wall alone: a band around a part that fills it.
+func (b *worldModelBuilder) tube(a, c worldModelPoint, radius float64, col [3]int, mat int, sides int) {
+	b.prism(a, c, radius, col, mat, sides, false)
+}
+
+func (b *worldModelBuilder) prism(a, c worldModelPoint, radius float64, col [3]int, mat int, sides int, caps bool) {
 	dx, dy, dz := c.x-a.x, c.y-a.y, c.z-a.z
 	length := math.Sqrt(dx*dx + dy*dy + dz*dz)
 	dx, dy, dz = dx/length, dy/length, dz/length
@@ -86,8 +113,10 @@ func (b *worldModelBuilder) cylinder(a, c worldModelPoint, radius float64, col [
 		t, u := float64(i)*2*math.Pi/float64(sides), float64(i+1)*2*math.Pi/float64(sides)
 		p, q, r, s := point(a, t), point(a, u), point(c, u), point(c, t)
 		b.quad(p, q, r, s, col, mat, 1)
-		b.triangle(a, q, p, col, mat, 1)
-		b.triangle(c, s, r, col, mat, 1)
+		if caps {
+			b.triangle(a, q, p, col, mat, 1)
+			b.triangle(c, s, r, col, mat, 1)
+		}
 	}
 }
 

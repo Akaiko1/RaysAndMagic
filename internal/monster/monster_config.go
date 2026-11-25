@@ -53,6 +53,9 @@ type MonsterDefinition struct {
 	// chroma-weighted art average; silhouette_edge uses the mean colour of the
 	// silhouette border, for art whose small saturated accents tint the side.
 	StandeeCore string `yaml:"standee_core,omitempty"`
+	// GoldReflection turns the painted body into gold metal (the eyes keep
+	// their paint). Zero leaves the art as painted; one is solid gold.
+	GoldReflection float32 `yaml:"gold_reflection,omitempty"`
 	// Champion, when set, names a champions.yaml build (a real character on the
 	// monster AI). game.mirrorChampionStats mirrors that character's weapon
 	// damage, attack cadence, HP and armor onto this monster at spawn. Its melee
@@ -152,6 +155,9 @@ func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 		}
 		if monster.AttackCooldownMult < 0 {
 			conflicts = append(conflicts, fmt.Sprintf("monster %q: attack_cooldown_multiplier must be positive (or omitted for the default speed)", key))
+		}
+		if reflection := monster.GoldReflection; !(0 <= reflection && reflection <= 1) {
+			conflicts = append(conflicts, fmt.Sprintf("monster %q: gold_reflection must be between 0 and 1", key))
 		}
 		if monster.Arboreal != nil {
 			if err := monster.Arboreal.validate(); err != nil {

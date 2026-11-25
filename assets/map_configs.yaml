@@ -868,7 +868,8 @@ maps:
     sky_color: [18, 22, 40]              # moonlit night
     sky_texture: "japanese_castle_panorama"
     default_floor_color: [70, 64, 56]
-    wall_torches: true   # paper lanterns flicker at inner wall corners; day/night clock sets brightness
+    wall_torches: true   # paper lanterns glow at inner wall corners; day/night clock sets brightness
+    wall_torch_style: paper_lantern
     water_bodies:
       - {at: [0, 45], kind: sea}      # the dock where the ship moors
 

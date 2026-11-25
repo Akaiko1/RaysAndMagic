@@ -21,6 +21,7 @@ type monsterCorpse struct {
 	arborealHeight             float64
 	started                    int64
 	frameCount                 int
+	gleam                      float64 // gold gleam phase the live body was last drawn with
 }
 
 type lootHop struct {
@@ -99,6 +100,7 @@ func (g *MMGame) beginMonsterDeath(m *monster.Monster3D) {
 		mirror: mirror, flying: m.Flying,
 		arborealHeight: m.VisualHeightTiles(),
 		started:        g.frameCount, frameCount: frames,
+		gleam: m.GleamPhase,
 	})
 }
 

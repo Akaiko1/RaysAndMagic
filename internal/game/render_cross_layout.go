@@ -141,7 +141,7 @@ func (r *Renderer) crossLayoutOf(s UnifiedSpriteRenderData, artFootprint float64
 }
 
 // crossReachWorld is how far a crossed tile's arms reach from its centre: half
-// a panel's longest plane, or half the frame width a cross authors.
+// a panel's longest plane, or half the width a cross draws (crossWidth).
 func (r *Renderer) crossReachWorld(td *TransparentSpriteData) float64 {
 	tileSize := float64(r.game.config.GetTileSize())
 	if td.panelArms != 0 {
@@ -152,7 +152,7 @@ func (r *Renderer) crossReachWorld(td *TransparentSpriteData) float64 {
 		}
 		return reach
 	}
-	return tileSize * r.game.renderHelper.envHeightMultiplier(td.tileType, 1.0) / 2
+	return r.crossWidth(td.tileType, td.spriteName, tileSize*r.game.renderHelper.envHeightMultiplier(td.tileType, 1.0)) / 2
 }
 
 // linkPanels aims every linked-panel tile of the crossed-tile cache at its

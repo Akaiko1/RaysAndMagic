@@ -57,5 +57,5 @@ func (r *Renderer) drawMonsterCorpse(screen *ebiten.Image, s UnifiedSpriteRender
 	b := float32(r.calculateBrightnessWithTorchLight(c.x, c.y, s.distance))
 	r.drawMob(screen, s, mobFrame{sprite: s.sprite, key: c.key, standee: r.game.config.Graphics.Standee.Enabled,
 		x: c.x, y: c.y, yaw: c.yaw, left: s.screenXF - s.sizeF/2, top: s.bottomF - s.sizeF,
-		mirror: c.mirror, rr: b, gg: b, bb: b, fade: 1 - alpha})
+		mirror: c.mirror, rr: b, gg: b, bb: b, fade: 1 - alpha, gleam: c.gleam})
 }

@@ -1,0 +1,67 @@
+// GoldReflection is authored per monster (gold_reflection in monsters.yaml).
+// x: strength, 0 keeps the painted colours and 1 is solid gold.
+// y: phase, 0..1: how far the gleam has run across the body. It advances as
+// the body travels, strikes or is seen from another side.
+// z, w: the body's centre column on the destination and 1 / its width there.
+var GoldReflection vec4
+
+// A metal has no colour of its own: it shows what it reflects, tinted by the
+// metal. The painted light says how bright the reflected surroundings are at
+// each point, and the ramp gives gold's colour for that brightness: red-brown
+// where the body reflects itself, orange in the shade, saturated yellow in the
+// light. The ramp ends in yellow, never white: gold keeps its colour in its
+// highlights. Stops are display-space colours at ramp positions 0..1.
+const goldStopFold = 0.22
+const goldStopShade = 0.44
+const goldStopBody = 0.66
+const goldStopLit = 0.85
+const goldPaintBlack = 0.10 // painted luma that maps to the ramp's ends
+const goldPaintWhite = 0.92
+const goldContrast = 0.6 // share of the S-curve: metal has few mid-tones
+
+// A light stands to the party's left: the body's left side is the lit one and
+// the gleam runs across the body from that side.
+const goldSideLight = 0.10 // how far the light moves the mid-tones: up on the left, down on the right
+const goldBandAcross = 0.9 // gleams across the body's width
+const goldBandTilt = 0.5 // lean of a gleam down the body
+const goldBandBend = 0.55 // periods the painted light bends a gleam by: it follows the forms
+const goldBandSwing = 0.16 // how far a gleam moves the mid-tones along the ramp
+const goldGlint = 0.10 // extra lift at a gleam's crest, on lit forms only
+
+func goldRamp(t float) vec3 {
+	c := mix(vec3(0.07, 0.022, 0.006), vec3(0.32, 0.12, 0.015), clamp(t/goldStopFold, 0.0, 1.0))
+	c = mix(c, vec3(0.66, 0.34, 0.03), clamp((t-goldStopFold)/(goldStopShade-goldStopFold), 0.0, 1.0))
+	c = mix(c, vec3(0.90, 0.58, 0.07), clamp((t-goldStopShade)/(goldStopBody-goldStopShade), 0.0, 1.0))
+	c = mix(c, vec3(1.00, 0.76, 0.14), clamp((t-goldStopBody)/(goldStopLit-goldStopBody), 0.0, 1.0))
+	return mix(c, vec3(1.00, 0.86, 0.30), clamp((t-goldStopLit)/(1.0-goldStopLit), 0.0, 1.0))
+}
+
+// goldSide is a destination column as a position across the body: -0.5 at
+// its left edge, the light's side, to 0.5 at its right.
+func goldSide(dstX float) float {
+	return (dstX - GoldReflection.z) * GoldReflection.w
+}
+
+// goldReflection takes and returns a premultiplied colour. side is goldSide
+// of the pixel and v its height in the sprite frame, 0..1.
+func goldReflection(c vec4, side, v float) vec4 {
+	if GoldReflection.x <= 0.0 || c.a <= 0.0 {
+		return c
+	}
+	rgb := c.rgb / c.a
+	luma := dot(rgb, vec3(0.2126, 0.7152, 0.0722))
+	t := clamp((luma-goldPaintBlack)/(goldPaintWhite-goldPaintBlack), 0.0, 1.0)
+	t = mix(t, smoothstep(0.0, 1.0, t), goldContrast)
+	// The gleam brightens and darkens the mid-tones as it passes and sparks a
+	// glint on lit forms; the darkest folds stay where the paint put them.
+	across := clamp(side, -0.5, 0.5)
+	near := 0.75 - 0.5*across // the gleam weakens away from the light
+	band := 0.5 + 0.5*cos(6.2831853*(side*goldBandAcross+v*goldBandTilt+luma*goldBandBend-GoldReflection.y))
+	crest := band * band
+	crest = crest * crest * crest * crest * band * band // band^10
+	mid := 4.0 * t * (1.0 - t)
+	t = clamp(t+mid*(goldBandSwing*(2.0*band-1.0)*near-goldSideLight*2.0*across)+goldGlint*crest*near*smoothstep(0.45, 0.8, t), 0.0, 1.0)
+	// Red paint (the eyes) is not metal.
+	metal := GoldReflection.x * smoothstep(0.40, 0.52, rgb.g/max(rgb.r, 0.01))
+	return vec4(mix(rgb, goldRamp(t), metal)*c.a, c.a)
+}
