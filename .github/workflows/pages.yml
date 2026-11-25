@@ -19,11 +19,11 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  deploy:
+  # Upload and deploy are separate jobs, as actions/deploy-pages documents: in
+  # one job the deploy listed the run's artifacts before the fresh upload
+  # showed up, and a re-run of that job left two github-pages artifacts.
+  build:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       # Render with the newest release's generator, whatever triggered the run:
       # an older tag's one rejects archives added after it (fail-fast on
@@ -72,5 +72,12 @@ jobs:
         with:
           path: site
 
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
       - id: deployment
         uses: actions/deploy-pages@v5
