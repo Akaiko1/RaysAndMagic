@@ -1366,11 +1366,11 @@ func DefaultWalkablePropFadeConfig() WalkablePropFadeConfig {
 }
 
 func (c WalkablePropFadeConfig) Validate() error {
+	if !(c.FromTiles > 0 && c.FromTiles <= WalkablePropFadeMaxTiles) {
+		return fmt.Errorf("graphics.walkable_prop_fade.from_tiles: %v is outside (0, %d]", c.FromTiles, WalkablePropFadeMaxTiles)
+	}
 	if !(c.ToTiles > 0 && c.ToTiles < c.FromTiles) {
 		return fmt.Errorf("graphics.walkable_prop_fade.to_tiles: %v must be above 0 and below from_tiles (%v)", c.ToTiles, c.FromTiles)
-	}
-	if !(c.FromTiles <= WalkablePropFadeMaxTiles) {
-		return fmt.Errorf("graphics.walkable_prop_fade.from_tiles: %v is above %d", c.FromTiles, WalkablePropFadeMaxTiles)
 	}
 	return nil
 }
@@ -1736,7 +1736,8 @@ type TileData struct {
 	// a panel runs from the tile centre to each one beside it (edge to edge)
 	// or diagonal to it (corner to corner), so a row reads as one screen and a
 	// corner folds. One neighbour gives a whole straight panel; none, a whole
-	// panel along a side of the tile picked at random with the world's layout.
+	// panel standing out from the wall beside the tile, or with walls on both
+	// axes or neither, lengthwise or crosswise by the world's layout seed.
 	LinkedPanels bool `yaml:"linked_panels,omitempty"`
 	// ImpassableAura forces the rising "impassable" bubble glow on a FLOOR tile
 	// (render_type floor) that blocks movement but reads like walkable

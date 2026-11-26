@@ -32,6 +32,8 @@ func TestWalkablePropFadeSettings(t *testing.T) {
 		{"to_tiles", func(c *WalkablePropFadeConfig) { c.ToTiles = c.FromTiles }},
 		{"to_tiles", func(c *WalkablePropFadeConfig) { c.ToTiles = math.NaN() }},
 		{"from_tiles", func(c *WalkablePropFadeConfig) { c.FromTiles = WalkablePropFadeMaxTiles + 1 }},
+		{"from_tiles", func(c *WalkablePropFadeConfig) { c.FromTiles = 0 }},
+		{"from_tiles", func(c *WalkablePropFadeConfig) { c.FromTiles = math.NaN() }},
 	}
 	for _, tt := range tests {
 		c := valid

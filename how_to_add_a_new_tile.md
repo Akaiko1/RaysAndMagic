@@ -30,9 +30,10 @@ Choose collision, standing permission, ray continuation, and drawing explicitly.
 instead of the cross - screens, fences, railings. Each tile raises half a panel
 toward every linked-panel tile beside it or diagonal to it, so a row is one
 straight wall and a corner folds. A tile with one such neighbour is a whole
-straight panel; a tile with none stands along a side of its square, picked at
-random with the world's layout (the seed that picks sprite variants). Collision
-is still the whole tile.
+straight panel. A tile with none is a whole panel standing out from the wall
+beside it, so it screens what lies along that wall; with walls on both axes or
+on neither, the world's layout (the seed that picks sprite variants) turns it
+lengthwise or crosswise. Collision is still the whole tile.
 
 ## Step 1: Add the tile
 Add a new entry under `tiles:` in `assets/tiles.yaml`.

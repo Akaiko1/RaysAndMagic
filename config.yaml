@@ -672,7 +672,7 @@ graphics:
   # out on the way in instead of vanishing at once. Solid and wall-mounted
   # props stay drawn.
   walkable_prop_fade:
-    from_tiles: 2.0  # fully drawn from this far out (at most 6)
+    from_tiles: 2.0  # fully drawn from this far out (above 0, at most 6)
     to_tiles: 1.0    # gone at this distance and closer (above 0, below from_tiles)
 
   # Corner lights of maps with wall_torches: true (map_configs.yaml); the map's
