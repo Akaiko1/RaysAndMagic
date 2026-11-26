@@ -3,7 +3,10 @@ package game
 import (
 	"maps"
 	"os"
+	"path/filepath"
+	"runtime"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,13 +17,29 @@ import (
 	"ugataima/internal/collision"
 	"ugataima/internal/config"
 	"ugataima/internal/monster"
-	"ugataima/internal/testutil"
 	"ugataima/internal/world"
 )
 
+// testTileSizeClasses is the game's own visual size table, read from the
+// shipped config.yaml: every test world draws its props at game size. A
+// uniform table once made the city fountain half its height in scratch
+// captures, which hid a real occlusion bug. Each caller gets its own copy.
 func testTileSizeClasses() map[string]float64 {
-	return testutil.UniformVisualSizeClasses(1)
+	return maps.Clone(shippedTileSizeClasses())
 }
+
+var shippedTileSizeClasses = sync.OnceValue(func() map[string]float64 {
+	_, file, _, _ := runtime.Caller(0)
+	// The loader publishes what it loads as the global config: put the
+	// caller's back.
+	previous := config.GlobalConfig
+	cfg, err := config.LoadConfig(filepath.Join(filepath.Dir(file), "..", "..", "config.yaml"))
+	config.GlobalConfig = previous
+	if err != nil {
+		panic(err)
+	}
+	return cfg.Graphics.SizeClasses
+})
 
 // Shared fixtures for internal/game tests. Keep scenario-specific setup next to
 // its test; only reusable game, world, party, and champion setup belongs here.

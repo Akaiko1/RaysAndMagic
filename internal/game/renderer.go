@@ -1846,6 +1846,11 @@ type treeHitData struct {
 func (r *Renderer) writeWallColumns(screenX, width int, distance float64, tileType world.TileType3D) {
 	height, bottom := r.game.renderHelper.CalculateWallDimensionsWithHeightF(distance, world.GetTileHeight(tileType))
 	wallTop := bottom - height
+	if !r.game.dayNightOutdoor {
+		// Under a roof a wall hides everything behind it; only under the open
+		// sky does something taller show above it. Wall top 0 is "occlude fully".
+		wallTop = 0
+	}
 	for dx := 0; dx < width; dx++ {
 		x := screenX + dx
 		if x >= 0 && x < len(r.game.depthBuffer) {
@@ -3932,13 +3937,55 @@ func (r *Renderer) stampActorDepth(s UnifiedSpriteRenderData) {
 }
 
 // spriteDepthBufferVisible returns true if the sprite's screen-X span has at
-// least one pixel where the sprite is in front of the wall depth buffer.
-// Shared by all the floor-anchored sprite drawers (env / loot bag / chest).
+// least one column where the sprite is in front of the wall depth buffer.
+// For sprites drawn whole (flat billboards, effects): they cannot be clipped
+// at a wall's top, so a wall in every column hides them.
 func (r *Renderer) spriteDepthBufferVisible(s UnifiedSpriteRenderData) bool {
+	return r.spriteShowsPastWalls(s, math.Inf(1))
+}
+
+// standeeShowsPastWalls reports whether walls leave any of a standee to draw.
+// A wall hides only what stands behind it and below its top: a standee is
+// clipped per pixel (standeeClipSample), so it also shows in a column where
+// it rises above the wall - a fountain behind a house.
+func (r *Renderer) standeeShowsPastWalls(s UnifiedSpriteRenderData) bool {
+	return r.spriteShowsPastWalls(s, standeeTop(s))
+}
+
+// tokenShowsPastWalls is the wall test for anything drawn as a standee token
+// when standees are on and as a whole flat sprite otherwise.
+func (r *Renderer) tokenShowsPastWalls(s UnifiedSpriteRenderData) bool {
+	if r.game.config.Graphics.Standee.Enabled {
+		return r.standeeShowsPastWalls(s)
+	}
+	return r.spriteDepthBufferVisible(s)
+}
+
+// standeeTop is the screen row no pixel of the standee rises above: its frame
+// top, or for art taller than wide the top of a monument drawn at the art's
+// own height (drawLandmarkStandee).
+func standeeTop(s UnifiedSpriteRenderData) float64 {
+	if s.sizeF <= 0 {
+		return float64(s.screenY)
+	}
+	height := s.sizeF
+	if s.sprite != nil {
+		if b := s.sprite.Bounds(); b.Dy() > b.Dx() {
+			height = standeeHeightForWidth(s.sizeF, b.Dx(), b.Dy())
+		}
+	}
+	return s.bottomF - height
+}
+
+// spriteShowsPastWalls: some column of the sprite's span has it in front of
+// the wall, or has its top row above that wall's top.
+func (r *Renderer) spriteShowsPastWalls(s UnifiedSpriteRenderData, top float64) bool {
 	screenXF, sizeF := s.screenXF, s.sizeF
 	if sizeF <= 0 {
 		screenXF, sizeF = float64(s.screenX), float64(s.spriteSize)
 	}
+	wallTops := r.game.wallTopBuffer
+	top = math.Max(top, 0) // a wall top of 0 hides everything, a sprite reaching past the screen top too
 	left := int(math.Floor(screenXF - sizeF/2))
 	right := int(math.Ceil(screenXF + sizeF/2))
 	if left < 0 {
@@ -3948,7 +3995,7 @@ func (r *Renderer) spriteDepthBufferVisible(s UnifiedSpriteRenderData) bool {
 		right = len(r.game.depthBuffer) - 1
 	}
 	for x := left; x <= right; x++ {
-		if s.depthPerp < r.game.depthBuffer[x] {
+		if s.depthPerp < r.game.depthBuffer[x] || x < len(wallTops) && top < wallTops[x] {
 			return true
 		}
 	}
@@ -4003,7 +4050,7 @@ const standeeHoverBoost = 1.4
 // runtime recolor); a gold-only bag shows the plain gold pile, chests their
 // chest art.
 func (r *Renderer) drawUnifiedGroundContainerSprite(screen *ebiten.Image, s UnifiedSpriteRenderData) {
-	if !r.spriteDepthBufferVisible(s) || s.groundContainer == nil {
+	if !r.tokenShowsPastWalls(s) || s.groundContainer == nil {
 		return
 	}
 	c := s.groundContainer
@@ -4084,6 +4131,9 @@ func (r *Renderer) drawUnifiedEnvironmentSprite(screen *ebiten.Image, s UnifiedS
 	opacity := 1.0
 	if walkablePropFades(s.tileType) {
 		opacity = r.game.config.Graphics.WalkablePropFade.Opacity(distance / tileSize)
+		if opacity <= 0 {
+			return // faded out: the near cull keeps tiles exactly to_tiles away
+		}
 	}
 	if isFireflySwarmTile(s.tileType) {
 		if !r.spriteDepthBufferVisible(s) {
@@ -4129,7 +4179,7 @@ func (r *Renderer) drawUnifiedEnvironmentSprite(screen *ebiten.Image, s UnifiedS
 		// bypass it just like wall-mounted NPCs: their anchor is coplanar with
 		// the backing wall, so only drawWallStandee's per-column test can
 		// distinguish that wall from a true foreground occluder.
-		if !r.spriteDepthBufferVisible(s) {
+		if !r.standeeShowsPastWalls(s) {
 			return
 		}
 		yaw := standeeStaticYaw
@@ -4185,7 +4235,7 @@ func (r *Renderer) drawUnifiedEnvironmentSprite(screen *ebiten.Image, s UnifiedS
 // prepareMonsterPick computes the pose once, before hover selection and draw.
 // Input keeps the completed frame; hover uses this frame's camera and geometry.
 func (r *Renderer) prepareMonsterPick(s UnifiedSpriteRenderData) (monsterPickHit, bool) {
-	if !r.spriteDepthBufferVisible(s) || s.sprite == nil {
+	if !r.tokenShowsPastWalls(s) || s.sprite == nil {
 		return monsterPickHit{}, false
 	}
 	// drawAllSpritesSorted always stamps the visual position (true or pulled).
@@ -4474,7 +4524,7 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 	cat := npcRenderCatOf(s.npc)
 	npcName := r.game.activityNPCSprite(s.npc)
 	npcKeyName := r.prefixedStandeeKeyName("npc", npcName)
-	visibleInRayDepth := r.spriteDepthBufferVisible(s)
+	visibleInRayDepth := r.tokenShowsPastWalls(s)
 	if cat == catNPC && visibleInRayDepth {
 		r.stampActorDepth(s)
 	}

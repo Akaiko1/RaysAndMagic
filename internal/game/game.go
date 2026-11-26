@@ -624,6 +624,7 @@ type MMGame struct {
 	// wallTopBuffer is the screen-Y of the nearest solid wall's TOP per column
 	// (parallel to depthBuffer). Preserve the wall geometry's fractional edge
 	// so tall sprites above it neither leave a sky gap nor overdraw the wall.
+	// Indoors (no open sky) it is 0: a wall there hides everything behind it.
 	wallTopBuffer []float64
 
 	// Systems

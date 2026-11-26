@@ -1827,9 +1827,11 @@ func (r *Renderer) drawCrossedSlabs(screen, sprite *ebiten.Image, key standeeCor
 	arms, count, allOK := r.crossedStandeeArms(worldX, worldY, layout)
 	if !allOK {
 		// Camera atop the tile: center/corners fall behind the view plane and the
-		// arm spans are meaningless. Best-effort whole-plane far->near.
+		// arm spans are meaningless. Best-effort whole-plane far->near. A plane
+		// with one arm raised (a linked panel's corner or end) cannot be cut to
+		// that arm here, and drawn whole it would show a half it never raised.
 		for i := 0; i < layout.count; i++ {
-			if slabOK[i] {
+			if slabOK[i] && layout.planes[i].arms == [2]bool{true, true} {
 				r.drawStandeeSlabColumns(screen, slabs[i], -1, -1)
 			}
 		}

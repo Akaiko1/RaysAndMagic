@@ -63,6 +63,8 @@ func TestWallTorchAndGoldSettings(t *testing.T) {
 	for _, tt := range []struct{ good, bad, key string }{
 		{"body_tiles: 12", "body_tiles: 0", "graphics.wall_torches.body_tiles"},
 		{"tiles_per_pass: 1.5", "tiles_per_pass: 0", "graphics.gold_reflection.tiles_per_pass"},
+		{"width_px: 5", "width_px: 0", "graphics.monster.hover_halo.width_px"},
+		{"from_tiles: 2.0", "from_tiles: 9.0", "graphics.walkable_prop_fade.from_tiles"},
 	} {
 		if !strings.Contains(string(shipped), tt.good) {
 			t.Fatalf("config.yaml no longer has %q", tt.good)

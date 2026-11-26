@@ -6,7 +6,7 @@ import (
 )
 
 // Each row is a 3x3 neighbourhood around the tile under test (the centre).
-// 'H' is a linked panel, anything else is not.
+// 'H' is a linked panel, '#' a wall, anything else open floor.
 func TestLinkedPanelArmsFollowNeighbours(t *testing.T) {
 	const (
 		rowEW = panelArmE | panelArmW
@@ -20,7 +20,14 @@ func TestLinkedPanelArmsFollowNeighbours(t *testing.T) {
 	}{
 		{name: "alone stands along one side", grid: [3]string{"...", ".H.", "..."}, want: rowEW},
 		{name: "alone stands along the other side", grid: [3]string{"...", ".H.", "..."}, coin: true, want: rowNS},
+		{name: "alone by a north wall stands out from it", grid: [3]string{".#.", ".H.", "..."}, want: rowNS},
+		{name: "alone by a south wall, whatever the coin", grid: [3]string{"...", ".H.", ".#."}, coin: false, want: rowNS},
+		{name: "alone by a west wall stands out from it", grid: [3]string{"...", "#H.", "..."}, coin: true, want: rowEW},
+		{name: "alone in a doorway spans it", grid: [3]string{"...", "#H#", "..."}, coin: true, want: rowEW},
+		{name: "alone in a wall corner falls back to the coin", grid: [3]string{".#.", "#H.", "..."}, coin: true, want: rowNS},
+		{name: "a diagonal wall does not count", grid: [3]string{"#..", ".H.", "..."}, want: rowEW},
 		{name: "one neighbour makes a whole panel", grid: [3]string{"...", ".HH", "..."}, coin: true, want: rowEW},
+		{name: "a panel neighbour outranks a wall", grid: [3]string{".#.", ".HH", "..."}, want: rowEW},
 		{name: "end of a column", grid: [3]string{".H.", ".H.", "..."}, want: rowNS},
 		{name: "middle of a row", grid: [3]string{"...", "HHH", "..."}, coin: true, want: rowEW},
 		{name: "corner folds", grid: [3]string{"...", ".HH", ".H."}, want: panelArmE | panelArmS},
@@ -33,7 +40,10 @@ func TestLinkedPanelArmsFollowNeighbours(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := linkedPanelArms(func(dx, dy int) bool { return tt.grid[1+dy][1+dx] == 'H' }, tt.coin)
+			at := func(tile byte) func(dx, dy int) bool {
+				return func(dx, dy int) bool { return tt.grid[1+dy][1+dx] == tile }
+			}
+			got := linkedPanelArms(at('H'), at('#'), tt.coin)
 			if got != tt.want {
 				t.Fatalf("arms %08b, want %08b", got, tt.want)
 			}

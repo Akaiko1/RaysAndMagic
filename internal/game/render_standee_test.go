@@ -705,3 +705,62 @@ func TestRetainedSpriteCPUAvoidsReadbackForStandeeBuilds(t *testing.T) {
 		})
 	}
 }
+
+// A wall hides what stands behind it and below its top. Under the open sky a
+// standee taller than the wall shows above it, even when every one of its
+// columns is behind that wall; under a roof the wall hides it whole. A flat
+// sprite is drawn whole, so a wall in every column hides it either way.
+func TestWallHidesOnlyWhatItCoversUnderOpenSky(t *testing.T) {
+	cfg := setupPreviewSandboxTest(t)
+	game := newTestGame(cfg, newTestWorldSized(cfg, 20, 20))
+	game.camera.FOV = squareProjectionFOV(cfg.GetScreenWidth(), cfg.GetScreenHeight())
+	game.camera.ViewDist = cfg.GetViewDistance()
+	game.renderHelper = NewRenderingHelper(game)
+	r := &Renderer{game: game}
+	ts := float64(cfg.GetTileSize())
+	wall, ok := world.GlobalTileManager.GetTileTypeFromKey("city_house_4")
+	if !ok {
+		t.Fatal("no city_house_4 wall tile")
+	}
+	const wallTiles, behindTiles = 6.0, 10.0
+	// A standee behind the wall, heightTiles tall, centred on column x.
+	standee := func(heightTiles float64, x int) UnifiedSpriteRenderData {
+		depth := behindTiles * ts
+		height, bottom := game.renderHelper.CalculateWallDimensionsWithHeightF(depth, heightTiles)
+		return UnifiedSpriteRenderData{screenXF: float64(x), sizeF: height, bottomF: bottom, depthPerp: depth}
+	}
+	width := game.worldWidth()
+	game.depthBuffer, game.wallTopBuffer = make([]float64, width), make([]float64, width)
+	for _, tt := range []struct {
+		name        string
+		outdoor     bool
+		heightTiles float64
+		want        bool
+	}{
+		{"open sky, taller than the wall", true, 2, true},
+		{"open sky, as tall as the wall", true, 1, false},
+		{"under a roof, taller than the wall", false, 2, false},
+	} {
+		game.dayNightOutdoor = tt.outdoor
+		for x := range game.depthBuffer {
+			game.depthBuffer[x], game.wallTopBuffer[x] = game.camera.ViewDist, 0
+		}
+		r.writeWallColumns(0, width, wallTiles*ts, wall) // the wall fills the view
+		s := standee(tt.heightTiles, width/2)
+		if got := r.standeeShowsPastWalls(s); got != tt.want {
+			t.Errorf("%s: standee shows = %v, want %v", tt.name, got, tt.want)
+		}
+		if r.spriteDepthBufferVisible(s) {
+			t.Errorf("%s: a flat sprite with a wall in every column must stay hidden", tt.name)
+		}
+	}
+	// Positive control: where the wall ends, a standee behind it shows under a roof too.
+	game.dayNightOutdoor = false
+	for x := range game.depthBuffer {
+		game.depthBuffer[x], game.wallTopBuffer[x] = game.camera.ViewDist, 0
+	}
+	r.writeWallColumns(0, width/2, wallTiles*ts, wall)
+	if s := standee(1, width*3/4); !r.standeeShowsPastWalls(s) || !r.spriteDepthBufferVisible(s) {
+		t.Error("a sprite beside the wall must show")
+	}
+}

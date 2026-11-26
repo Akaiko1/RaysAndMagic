@@ -127,6 +127,7 @@ func (r *Renderer) drawElementalAttackFX(screen *ebiten.Image) {
 		}
 		if fx.MonsterTarget != nil && fx.MonsterTarget.IsAlive() {
 			for _, sprite := range r.unifiedSprites {
+				// The glyph is drawn whole on the body: a wall in every column hides it.
 				if sprite.monster != fx.MonsterTarget || !r.spriteDepthBufferVisible(sprite) {
 					continue
 				}

@@ -4,6 +4,7 @@ import (
 	"math"
 	"math/bits"
 
+	"ugataima/internal/config"
 	"ugataima/internal/world"
 )
 
@@ -74,11 +75,13 @@ var panelPlanes = [maxCrossPlanes]struct {
 }
 
 // linkedPanelArms picks the arms of one linked-panel tile. isPanel reports a
-// linked panel at an offset from the tile. A diagonal neighbour counts only
-// when the tiles do not already join through a shared side. A tile with one
-// link stands as a whole straight panel on that line; a tile with none stands
-// whole along a side of the tile, lengthwise or crosswise by the coin.
-func linkedPanelArms(isPanel func(dx, dy int) bool, coin bool) panelArms {
+// linked panel at an offset from the tile, isWall a wall. A diagonal
+// neighbour counts only when the tiles do not already join through a shared
+// side. A tile with one link stands as a whole straight panel on that line. A
+// tile with none stands whole along a side of the tile: out from the wall it
+// touches, so it screens what is beside it; with walls on both axes or on
+// neither, lengthwise or crosswise by the coin.
+func linkedPanelArms(isPanel, isWall func(dx, dy int) bool, coin bool) panelArms {
 	var arms panelArms
 	for _, plane := range panelPlanes {
 		for side, arm := range [2]panelArms{plane.positive, plane.negative} {
@@ -97,9 +100,12 @@ func linkedPanelArms(isPanel func(dx, dy int) bool, coin bool) panelArms {
 	}
 	switch bits.OnesCount8(uint8(arms)) {
 	case 0:
-		plane := panelPlanes[0]
-		if coin {
-			plane = panelPlanes[1]
+		eastWest, northSouth := panelPlanes[0], panelPlanes[1]
+		wallEW := isWall(1, 0) || isWall(-1, 0)
+		wallNS := isWall(0, 1) || isWall(0, -1)
+		plane := eastWest
+		if wallNS && !wallEW || wallNS == wallEW && coin {
+			plane = northSouth
 		}
 		return plane.positive | plane.negative
 	case 1:
@@ -157,8 +163,8 @@ func (r *Renderer) crossReachWorld(td *TransparentSpriteData) float64 {
 
 // linkPanels aims every linked-panel tile of the crossed-tile cache at its
 // neighbours in the current world. Called whenever that cache is built or
-// loses tiles. A lone panel takes its side from the world's layout seed, like
-// a sprite variant: it holds while that layout stands.
+// loses tiles. A lone panel stands out from the wall beside it; one in the
+// open takes its side from the world's layout seed, like a sprite variant.
 func (r *Renderer) linkPanels(cache []TransparentSpriteData) {
 	current := r.game.GetCurrentWorld()
 	tiles := world.GlobalTileManager
@@ -173,6 +179,8 @@ func (r *Renderer) linkPanels(cache []TransparentSpriteData) {
 		}
 		tile.panelArms = linkedPanelArms(func(dx, dy int) bool {
 			return tiles.IsLinkedPanel(current.GetTileAtGrid(tile.tileX+dx, tile.tileY+dy))
+		}, func(dx, dy int) bool {
+			return tiles.GetRenderType(current.GetTileAtGrid(tile.tileX+dx, tile.tileY+dy)) == config.TileRenderWall
 		}, current.EnvironmentCoin(tile.tileX, tile.tileY))
 	}
 }

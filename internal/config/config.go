@@ -2503,10 +2503,10 @@ func LoadConfig(filename string) (*Config, error) {
 		return nil, err
 	}
 	if err := config.Graphics.Monster.HoverHalo.Validate(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %w", filename, err)
 	}
 	if err := config.Graphics.WalkablePropFade.Validate(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %w", filename, err)
 	}
 	if err := config.Graphics.WallTorches.Validate(); err != nil {
 		return nil, fmt.Errorf("%s: %w", filename, err)

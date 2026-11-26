@@ -49,7 +49,7 @@ func (r *Renderer) collectMonsterCorpses(sprites []UnifiedSpriteRenderData, camX
 }
 
 func (r *Renderer) drawMonsterCorpse(screen *ebiten.Image, s UnifiedSpriteRenderData) {
-	if s.corpse == nil || s.sprite == nil || !r.spriteDepthBufferVisible(s) {
+	if s.corpse == nil || s.sprite == nil || !r.tokenShowsPastWalls(s) {
 		return
 	}
 	c := s.corpse
