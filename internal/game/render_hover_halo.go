@@ -53,6 +53,16 @@ func (p *hoverHaloPass) targets(bounds image.Rectangle) (mask, blur *ebiten.Imag
 	return p.mask, p.blur
 }
 
+// release frees the mask and blur targets.
+func (p *hoverHaloPass) release() {
+	for _, img := range []*ebiten.Image{p.mask, p.blur} {
+		if img != nil {
+			img.Deallocate()
+		}
+	}
+	p.mask, p.blur = nil, nil
+}
+
 // mobScreenRect bounds a mob's drawn frame in unprojected view pixels.
 func (r *Renderer) mobScreenRect(s UnifiedSpriteRenderData, h monsterPickHit) (left, top, right, bottom float64, ok bool) {
 	left, top, right, bottom = h.left, h.top, h.left+h.size, h.bottom

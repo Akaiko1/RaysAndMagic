@@ -154,20 +154,37 @@ func (g *MMGame) monsterPickHitVisible(f *monsterPickFrame, h monsterPickHit) bo
 	}
 	for x := x0; x < x1; x++ {
 		depth, top, bottom, _, ok := f.column(h, x)
+		if !ok {
+			continue
+		}
+		// Behind a wall only the slice above its top shows.
+		if x < len(g.depthBuffer) && standeeColumnOccluded(depth, g.depthBuffer[x], 0) {
+			bottom = min(bottom, g.wallTopAt(x))
+			if bottom <= top {
+				continue
+			}
+		}
 		if g.gameLoop != nil {
 			p := g.gameLoop.worldProjection
 			top = p.presentedY(float64(x)+0.5, top)
 			bottom = p.presentedY(float64(x)+0.5, bottom)
 		}
-		if !ok || bottom <= 0 || top >= float64(f.height) {
-			continue
-		}
-		if x < len(g.depthBuffer) && standeeColumnOccluded(depth, g.depthBuffer[x], 0) {
+		if bottom <= 0 || top >= float64(f.height) {
 			continue
 		}
 		return true
 	}
 	return false
+}
+
+// wallTopAt is the top of the wall drawn in column x: a token behind it shows
+// only above that row, as the renderer clips it. 0, a wall that hides all
+// (indoors, or no wall data), is the default.
+func (g *MMGame) wallTopAt(x int) float64 {
+	if x >= 0 && x < len(g.wallTopBuffer) {
+		return g.wallTopBuffer[x]
+	}
+	return 0
 }
 
 // pickMonsterAtScreen tests the point (UI units) against the displayed frame.
@@ -192,7 +209,7 @@ func (g *MMGame) pickMonsterAtScreen(x, y int) (*monsterPickHit, float64) {
 		if float64(y) < top || float64(y) >= bottom || depth >= nearest {
 			continue
 		}
-		if x < len(g.depthBuffer) && standeeColumnOccluded(depth, g.depthBuffer[x], 0) {
+		if x < len(g.depthBuffer) && standeeColumnOccluded(depth, g.depthBuffer[x], 0) && float64(y) >= g.wallTopAt(x) {
 			continue
 		}
 		if h.sprite != nil && g.sprites != nil {

@@ -2126,7 +2126,11 @@ func (g *MMGame) uiPixelScale() float64 {
 func (g *MMGame) Shutdown() {
 	g.cancelCampPresentation()
 	if g.gameLoop != nil && g.gameLoop.renderer != nil {
-		g.gameLoop.renderer.releaseEquipmentLayers()
+		r := g.gameLoop.renderer
+		r.releaseEquipmentLayers()
+		r.releaseStandeeLayers()
+		r.hoverHalo.release()
+		r.releaseGoldSprites()
 	}
 	if g.gameLoop != nil && g.gameLoop.ui != nil && g.gameLoop.ui.profileViewport != nil {
 		uiReleaseLayer(g.gameLoop.ui.profileViewport)

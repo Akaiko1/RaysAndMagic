@@ -348,7 +348,18 @@ func TestMonsterPointerDisplayedGeometry(t *testing.T) {
 		if g.monsterAtScreen(310, 220) != nil || g.monsterAtScreen(330, 220) != m {
 			t.Fatal("partial wall coverage not respected")
 		}
-		g.depthBuffer = nil
+		// Behind a low wall the body shows, and is picked, above its top only;
+		// a wall top of 0 hides it all.
+		g.wallTopBuffer = make([]float64, 640)
+		g.wallTopBuffer[310] = 200
+		if g.monsterAtScreen(310, 180) != m || g.monsterAtScreen(310, 220) != nil {
+			t.Fatalf("standee=%v: a low wall must hide only what it covers", standee)
+		}
+		g.wallTopBuffer[310] = 0
+		if g.monsterAtScreen(310, 180) != nil {
+			t.Fatal("a wall that hides all let the body through")
+		}
+		g.depthBuffer, g.wallTopBuffer = nil, nil
 		back := *m
 		g.world.Monsters = append(g.world.Monsters, &back)
 		r.monsterPick.hits = append(r.monsterPick.hits, monsterPickHit{monster: &back, left: 250, top: 150, size: 140, depth: 2 * ts})
@@ -729,7 +740,7 @@ func TestMouseSmartAttackSpellAndSharedInput(t *testing.T) {
 }
 
 func TestMonsterHoverUsesPointerAttackGates(t *testing.T) {
-	for _, state := range []string{"visible", "bound", "leave", "dead", "removed", "charmed", "card summon", "druid summon", "spell summon", "wall", "modal", "HUD", "drag", "world", "editor preview"} {
+	for _, state := range []string{"visible", "bound", "leave", "dead", "removed", "charmed", "card summon", "druid summon", "spell summon", "wall", "low wall", "modal", "HUD", "drag", "world", "editor preview"} {
 		t.Run(state, func(t *testing.T) {
 			g, _, fp, m, _ := mouseCombatHarness(t, false)
 			switch state {
@@ -745,10 +756,19 @@ func TestMonsterHoverUsesPointerAttackGates(t *testing.T) {
 				m.Pacified = true
 			case "card summon", "druid summon", "spell summon":
 				markPartySummonKind(g, m, state)
-			case "wall":
+			case "wall", "low wall":
 				g.depthBuffer = make([]float64, 640)
 				for i := range g.depthBuffer {
 					g.depthBuffer[i] = 1
+				}
+				// A wall top of 0 hides all; a low wall hides the body below
+				// row 200 and leaves the pointer's row above it.
+				g.wallTopBuffer = make([]float64, 640)
+				if state == "low wall" {
+					for i := range g.wallTopBuffer {
+						g.wallTopBuffer[i] = 200
+					}
+					fp.moveTo(320, 180)
 				}
 			case "modal":
 				g.menuOpen = true
@@ -765,7 +785,7 @@ func TestMonsterHoverUsesPointerAttackGates(t *testing.T) {
 			r := g.gameLoop.renderer
 			r.hoveredMonster = m // A previous frame's selection must clear too.
 			r.selectMonsterHover()
-			if (r.hoveredMonster == m) != (state == "visible" || state == "bound") {
+			if (r.hoveredMonster == m) != (state == "visible" || state == "bound" || state == "low wall") {
 				t.Fatal("hover disagrees with attack targeting")
 			}
 		})
@@ -946,7 +966,7 @@ func TestEnsureTBActorUsesActionCapability(t *testing.T) {
 func TestMouseSmartAttackHeldTargetPausesOutsideViewport(t *testing.T) {
 	for _, tb := range []bool{false, true} {
 		for _, standee := range []bool{false, true} {
-			for _, pose := range []string{"above", "below", "side", "wall", "partly visible", "panini clipped"} {
+			for _, pose := range []string{"above", "below", "side", "wall", "low wall", "partly visible", "panini clipped"} {
 				t.Run(fmt.Sprintf("TB=%v/standee=%v/%s", tb, standee, pose), func(t *testing.T) {
 					g, ih, fp, m, tick := mouseCombatHarness(t, tb)
 					g.camera.Angle = 0
@@ -991,6 +1011,13 @@ func TestMouseSmartAttackHeldTargetPausesOutsideViewport(t *testing.T) {
 						for x := range g.depthBuffer {
 							g.depthBuffer[x] = 1
 						}
+					case "low wall":
+						// Behind a wall whose top leaves the body's upper part
+						// in view, as outdoors under the open sky.
+						g.wallTopBuffer = make([]float64, 640)
+						for x := range g.depthBuffer {
+							g.depthBuffer[x], g.wallTopBuffer[x] = 1, 200
+						}
 					case "partly visible", "panini clipped":
 						moved.top, moved.bottom = -120, 20
 					}
@@ -1017,14 +1044,14 @@ func TestMouseSmartAttackHeldTargetPausesOutsideViewport(t *testing.T) {
 						tick()
 					}
 					r.selectMonsterHover()
-					visible := pose == "partly visible"
+					visible := pose == "partly visible" || pose == "low wall"
 					if ih.mouseAttackTarget != m || (m.HitPoints < hp) != visible || (r.hoveredMonster == m) != visible {
 						t.Fatalf("target kept=%v damaged=%v highlighted=%v, visible=%v", ih.mouseAttackTarget == m, m.HitPoints < hp, r.hoveredMonster == m, visible)
 					}
 					// Turning back resumes focus and attacks without a new press,
 					// even if the cursor is now over empty world pixels.
 					r.monsterPick.hits = []monsterPickHit{hit}
-					g.depthBuffer = nil
+					g.depthBuffer, g.wallTopBuffer = nil, nil
 					fp.moveTo(50, 50)
 					hp = m.HitPoints
 					for range 120 {

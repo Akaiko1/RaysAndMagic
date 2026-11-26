@@ -120,6 +120,16 @@ func (r *Renderer) goldSpriteFrame(src *ebiten.Image, strength float32, mirrored
 	return frame
 }
 
+// releaseGoldSprites frees every gold copy still cached.
+func (r *Renderer) releaseGoldSprites() {
+	for src, golds := range r.goldSprites {
+		for _, gold := range golds {
+			gold.image.Deallocate()
+		}
+		delete(r.goldSprites, src)
+	}
+}
+
 func (r *Renderer) forgetGoldSprite(src *ebiten.Image) {
 	for _, gold := range r.goldSprites[src] {
 		r.queueRenderRelease(gold.image)
