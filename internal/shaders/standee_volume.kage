@@ -4,6 +4,17 @@
 var Horizon float
 // Fade fades the resolved solid once (a fading token); 0, the default, is opaque.
 var Fade float
+
+// The half of the slab drawn, in art U: render_standee.go's constants, which
+// TestShaderConstantsMatchGo keeps equal.
+const (
+	standeeVolumeWhole = 0
+	standeeVolumeUpperHalf = 1
+	standeeVolumeLowerHalf = 2
+)
+
+const standeeVolumeHalfStride = 32
+
 // The standee volume shader composites the exact shell stack in one
 // fragment invocation. It receives all per-slab data through vertices so
 // successive trees with the same texture remain batchable:
@@ -11,13 +22,19 @@ var Fade float
 //	custom.xy  far/near reciprocal perpendicular depth
 //	custom.zw  far/near source U divided by depth
 //	srcPos.xy  height/bottom projection invariants
-//	color      brightness, reciprocal wall depth, wall top, shell count
+//	color      brightness, reciprocal wall depth, wall top, and the shell
+//	           count plus standeeVolumeHalfStride times the half drawn, with
+//	           the filter data as its fraction
 //
 // Geometry covers the projected union of both outer faces. Every virtual
 // layer reconstructs the same perspective height, source coordinate, wall
 // clipping, shade, and front-to-back alpha blend as the physical shell path.
-func sourcePosition(dstY float, depth float, u float, heightScale float, bottomScale float) (vec2, bool) {
+func sourcePosition(dstY float, depth float, u float, half float, heightScale float, bottomScale float) (vec2, bool) {
 	if depth <= 0.0 || u < 0.0 || u > 1.0 {
+		return vec2(0), false
+	}
+	// An arm draws its own half; the halves meet at 0.5 without overlap.
+	if half == standeeVolumeUpperHalf && u < 0.5 || half == standeeVolumeLowerHalf && u >= 0.5 {
 		return vec2(0), false
 	}
 	height := heightScale / depth
@@ -48,21 +65,27 @@ func Fragment(rawDstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
 	wallDepth := 1.0/color.g
 	wallTop := color.b
 	packed := color.a
-	shellCount := floor(packed)
+	whole := floor(packed)
+	half := floor(whole / standeeVolumeHalfStride)
+	shellCount := whole - standeeVolumeHalfStride*half
 	filterData := fract(packed)
 	filtered := filterData >= 0.125
 	mipBlend := clamp((filterData-0.25)/0.5, 0.0, 1.0)
 	acc := vec4(0)
-	// Evaluate the derivative before any coverage-dependent branch.
-	footprint := vec2(abs(dfdx(nearU))*imageSrc0Size().x, 0)
+	// Evaluate the derivatives before any coverage-dependent branch. scale is
+	// the near face's texels per screen pixel along each axis, the rows'
+	// measured on screen so that a Panini view's magnification counts.
+	nearRow := (dstY - Horizon) * nearDepth / projection.x * imageSrc0Size().y
+	scale := vec2(abs(dfdx(nearU))*imageSrc0Size().x, length(vec2(dfdx(nearRow), dfdy(nearRow))))
+	footprint := vec2(scale.x, 0)
 	vertical := nearDepth / projection.x * imageSrc0Size().y
 	if vertical > footprint.x {
 		footprint = vec2(0, vertical)
 	}
 
 	if nearDepth < wallDepth || dstY < wallTop {
-		if p, ok := sourcePosition(dstY, nearDepth, nearU, projection.x, projection.y); ok {
-			acc = addFront(acc, tinted(goldReflection(nearStickerAt(p, filtered, mipBlend, footprint), goldSide(dstPos.x-imageDstOrigin().x), standeeFrameUV(p).y), color.r, 1.0))
+		if p, ok := sourcePosition(dstY, nearDepth, nearU, half, projection.x, projection.y); ok {
+			acc = addFront(acc, tinted(goldReflection(nearStickerAt(p, filtered, mipBlend, footprint, scale), goldSide(dstPos.x-imageDstOrigin().x), standeeFrameUV(p).y), color.r, 1.0))
 		}
 	}
 	if acc.a >= 0.999 {
@@ -75,7 +98,7 @@ func Fragment(rawDstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
 			depth := mix(farDepth, nearDepth, f)
 			u := mix(farU, nearU, f)
 			if depth < wallDepth || dstY < wallTop {
-				if p, ok := sourcePosition(dstY, depth, u, projection.x, projection.y); ok {
+				if p, ok := sourcePosition(dstY, depth, u, half, projection.x, projection.y); ok {
 					shade := 0.75 + (0.92-0.75)*f
 					acc = addFront(acc, tinted(sampleLinear3(p), color.r, shade))
 				}
@@ -87,7 +110,7 @@ func Fragment(rawDstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
 	}
 
 	if farDepth < wallDepth || dstY < wallTop {
-		if p, ok := sourcePosition(dstY, farDepth, farU, projection.x, projection.y); ok {
+		if p, ok := sourcePosition(dstY, farDepth, farU, half, projection.x, projection.y); ok {
 			acc = addFront(acc, tinted(goldReflection(stickerAt(p, mipBlend), goldSide(dstPos.x-imageDstOrigin().x), standeeFrameUV(p).y), color.r, 0.75))
 		}
 	}

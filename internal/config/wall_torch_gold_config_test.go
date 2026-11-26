@@ -44,6 +44,12 @@ func TestWallTorchAndGoldSettings(t *testing.T) {
 			t.Fatalf("%+v: error %v, want one naming %s", c, err, tt.key)
 		}
 	}
+	for _, deg := range []float64{-1, StandeeCrossFlipBlendMaxDeg + 1, math.NaN()} {
+		c := StandeeConfig{CrossFlipBlendDeg: deg}
+		if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "graphics.standee.cross_flip_blend_deg") {
+			t.Fatalf("cross_flip_blend_deg %v: error %v", deg, err)
+		}
+	}
 	for _, passes := range []float64{0, -1, math.NaN()} {
 		c := GoldReflectionRenderConfig{TilesPerPass: passes}
 		if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "graphics.gold_reflection.tiles_per_pass") {
@@ -65,6 +71,7 @@ func TestWallTorchAndGoldSettings(t *testing.T) {
 		{"tiles_per_pass: 1.5", "tiles_per_pass: 0", "graphics.gold_reflection.tiles_per_pass"},
 		{"width_px: 5", "width_px: 0", "graphics.monster.hover_halo.width_px"},
 		{"from_tiles: 2.0", "from_tiles: 9.0", "graphics.walkable_prop_fade.from_tiles"},
+		{"cross_flip_blend_deg: 3", "cross_flip_blend_deg: 31", "graphics.standee.cross_flip_blend_deg"},
 	} {
 		if !strings.Contains(string(shipped), tt.good) {
 			t.Fatalf("config.yaml no longer has %q", tt.good)
@@ -76,6 +83,34 @@ func TestWallTorchAndGoldSettings(t *testing.T) {
 		if _, err := LoadConfig(path); err == nil || !strings.Contains(err.Error(), path) || !strings.Contains(err.Error(), tt.key) {
 			t.Fatalf("%s: error %v, want the file and %s", tt.bad, err, tt.key)
 		}
+	}
+}
+
+// Without cross_flip_blend_deg, config.yaml keeps the default blend.
+func TestStandeeCrossFlipBlendDefault(t *testing.T) {
+	shipped, err := os.ReadFile("../../config.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var kept []string
+	for _, line := range strings.Split(string(shipped), "\n") {
+		if !strings.Contains(line, "cross_flip_blend_deg:") {
+			kept = append(kept, line)
+		}
+	}
+	if len(kept) == len(strings.Split(string(shipped), "\n")) {
+		t.Fatal("config.yaml no longer sets cross_flip_blend_deg")
+	}
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(strings.Join(kept, "\n")), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Graphics.Standee.CrossFlipBlendDeg; got != DefaultStandeeCrossFlipBlendDeg {
+		t.Fatalf("cross_flip_blend_deg without the key = %v, want %v", got, DefaultStandeeCrossFlipBlendDeg)
 	}
 }
 

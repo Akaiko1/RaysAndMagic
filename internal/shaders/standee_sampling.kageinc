@@ -91,17 +91,55 @@ func stickerAt(p vec2, mipBlend float) vec4 {
 	return mix(lo, sampleLinear2(p), mipBlend)
 }
 
-func nearStickerAt(p vec2, filtered bool, mipBlend float, footprint vec2) vec4 {
+// sharpTexelAt samples magnified level-0 art. Texels keep their hard look,
+// but the step between two of them takes one screen pixel instead of none: an
+// edge crossing a screen pixel as the token turns fades across it rather than
+// jumping, which shimmered on every spinning token. texelsPerPixel is the
+// art's scale along each axis, at most 1.
+func sharpTexelAt(p vec2, texelsPerPixel vec2) vec4 {
+	origin := imageSrc0Origin()
+	size := imageSrc0Size()
+	q := clamp(p-origin, vec2(0.5), size-vec2(0.5)) - 0.5
+	base := floor(q)
+	rate := clamp((q-base-0.5)/clamp(texelsPerPixel, vec2(1.0/64.0), vec2(1.0))+0.5, vec2(0), vec2(1))
+	p0 := base + 0.5 + origin
+	p1 := min(p0+1.0, origin+size-0.5)
+	c0 := imageSrc0UnsafeAt(p0)
+	c1 := imageSrc0UnsafeAt(vec2(p1.x, p0.y))
+	c2 := imageSrc0UnsafeAt(vec2(p0.x, p1.y))
+	c3 := imageSrc0UnsafeAt(p1)
+	return mix(mix(c0, c1, rate.x), mix(c2, c3, rate.x), rate.y)
+}
+
+// nearTapAt is stickerAt for the near face: at level 0 a magnified axis stays
+// sharp even while the other is minified, so a turned token does not pop as
+// that axis crosses one texel per pixel. A minified axis samples linearly,
+// sharpTexelAt at a scale of 1 being bilinear. Level 0 is image 1 being
+// image 0: the same atlas region.
+func nearTapAt(p vec2, mipBlend float, texelsPerPixel vec2) vec4 {
+	if imageSrc1Origin() != imageSrc0Origin() || imageSrc1Size() != imageSrc0Size() {
+		return stickerAt(p, mipBlend)
+	}
+	lo := sharpTexelAt(p, texelsPerPixel)
+	if mipBlend <= 0.0 {
+		return lo
+	}
+	return mix(lo, sampleLinear2(p), mipBlend)
+}
+
+// footprint is the minified art's major-axis footprint, the other axis zero;
+// texelsPerPixel, the art's scale along each axis.
+func nearStickerAt(p vec2, filtered bool, mipBlend float, footprint vec2, texelsPerPixel vec2) vec4 {
 	if !filtered {
-		return imageSrc0UnsafeAt(p)
+		return sharpTexelAt(p, texelsPerPixel)
 	}
 	// Four taps extend the isotropic mip along only the compressed axis.
 	// Grow the kernel continuously so entering anisotropic sampling cannot pop.
 	texel := mix(imageSrc0Size()/imageSrc1Size(), imageSrc0Size()/imageSrc2Size(), mipBlend)
 	span := max(footprint-1.5*texel, vec2(0))
 	if span.x <= 0.0 && span.y <= 0.0 {
-		return stickerAt(p, mipBlend)
+		return nearTapAt(p, mipBlend, texelsPerPixel)
 	}
-	return (stickerAt(p-span*0.375, mipBlend) + stickerAt(p-span*0.125, mipBlend) +
-		stickerAt(p+span*0.125, mipBlend) + stickerAt(p+span*0.375, mipBlend)) * 0.25
+	return (nearTapAt(p-span*0.375, mipBlend, texelsPerPixel) + nearTapAt(p-span*0.125, mipBlend, texelsPerPixel) +
+		nearTapAt(p+span*0.125, mipBlend, texelsPerPixel) + nearTapAt(p+span*0.375, mipBlend, texelsPerPixel)) * 0.25
 }

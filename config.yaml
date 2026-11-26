@@ -756,6 +756,7 @@ graphics:
     npc_spin_deg_per_sec: 12    # showcase spin of non-person NPC props (0 = off); terrain sprites use env_face instead
     env_face_deg_per_sec: 20    # scenery tokens slowly turn to face the camera (0 = fixed diagonal)
     min_view_angle_deg: 22      # monster tokens never come closer than this to edge-on (0 = off)
+    cross_flip_blend_deg: 3     # crossed planes turn their art to the viewer's side over this many degrees either side of edge-on (0 = at once, at most 30)
 
   # Monster rendering is uncapped so sprites do not sink at close range.
   monster:

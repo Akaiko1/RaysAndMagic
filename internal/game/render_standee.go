@@ -1,9 +1,11 @@
 package game
 
 import (
+	"cmp"
 	"image"
 	"image/draw"
 	"math"
+	"slices"
 
 	"ugataima/internal/config"
 	"ugataima/internal/monster"
@@ -66,7 +68,19 @@ const (
 	standeeLayerNearSticker = iota
 	standeeLayerCore
 	standeeLayerFarSticker
+	standeeLayerEndWall // the core colour with its grain (standee_end_wall.kageinc)
 )
+
+// The half of a slab standee_volume.kage draws (standeeSlab.half, in its art
+// U), packed above the shell count in steps of standeeVolumeHalfStride; the
+// shader repeats these values.
+const (
+	standeeVolumeWhole     = 0
+	standeeVolumeUpperHalf = 1 // art U from 0.5 up
+	standeeVolumeLowerHalf = 2 // art U below 0.5
+)
+
+const standeeVolumeHalfStride = 32 // above config.MaxStandeeCoreLayers
 
 func makeStandeeCoreKey(name string, img *ebiten.Image, stableImage bool) standeeCoreKey {
 	if img == nil {
@@ -288,7 +302,7 @@ func (r *Renderer) standeeCoreFromEdge(name string) bool {
 func standeeCoreTone(sticker *image.RGBA, tint float64, silhouetteEdge bool) [3]float64 {
 	buf, w, h := sticker.Pix, sticker.Bounds().Dx(), sticker.Bounds().Dy()
 	opaque := func(x, y int) bool {
-		return x >= 0 && y >= 0 && x < w && y < h && buf[(y*w+x)*4+3] >= 24
+		return x >= 0 && y >= 0 && x < w && y < h && buf[(y*w+x)*4+3] >= standeeCoreMinAlpha
 	}
 	var sumR, sumG, sumB, sumW float64
 	for y := 0; y < h; y++ {
@@ -364,7 +378,7 @@ func prepareStandeePixels(cpu *image.RGBA, tint float64, boundSource, silhouette
 		for x := 0; x < w; x++ {
 			i := (y*w + x) * 4
 			a := buf[i+3]
-			if a < 24 {
+			if a < standeeCoreMinAlpha {
 				continue
 			}
 			o := y*out.Stride + x*4
@@ -381,6 +395,9 @@ func prepareStandeePixels(cpu *image.RGBA, tint float64, boundSource, silhouette
 		coreMips:    prepareStandeeMipPixels(out),
 	}
 	prepared.rows = standeeArtRows(prepared.stickerMips)
+	if len(prepared.rows) > 0 {
+		prepared.rows[0].endTone = [4]float32{float32(tone[0]), float32(tone[1]), float32(tone[2]), 1}
+	}
 	return prepared
 }
 
@@ -606,6 +623,11 @@ func (r *Renderer) ensureStandeeTrilinearShader() (*ebiten.Shader, error) {
 	return r.standeeTrilinearShader, err
 }
 
+func (r *Renderer) ensureStandeeFlipBlendShader() (*ebiten.Shader, error) {
+	err := compileShader(&r.standeeFlipBlendShader, "standee_flip_blend.kage")
+	return r.standeeFlipBlendShader, err
+}
+
 func (r *Renderer) ensureStandeeVolumeShader() (*ebiten.Shader, error) {
 	err := compileShader(&r.standeeVolumeShader, "standee_volume.kage")
 	return r.standeeVolumeShader, err
@@ -656,6 +678,194 @@ type standeeSurface struct {
 	mipKey           standeeMipKey
 	mirrored         bool    // sample 1-u instead of u
 	shade            float32 // multiplied into the color scale
+}
+
+// standeeEndWallSurface is the strip of thickness across a slab at art U u,
+// between its outer faces: the end wall of rows whose art ends there. Its
+// colour comes from the vertices and the shader, never from a texture.
+func standeeEndWallSurface(slab standeeSlab, u float64) standeeSurface {
+	far, near := slab.surfaces[0], slab.surfaces[len(slab.surfaces)-1]
+	if near.mirrored {
+		u = 1 - u // faces sample mirrored art from the far side
+	}
+	x0, y0 := far.p0x+far.dx*u, far.p0y+far.dy*u
+	x1, y1 := near.p0x+near.dx*u, near.p0y+near.dy*u
+	return standeeSurface{p0x: x0, p0y: y0, dx: x1 - x0, dy: y1 - y0, shade: standeeCoreShade}
+}
+
+// visibleStandeeEndWalls lists the end walls (standeeLevelRows.endWalls) that
+// face the camera, farthest first, in a buffer reused by the next call. A wall
+// faces away from its rows' art: the camera sees it from beyond that end.
+// Neighbouring walls join while they are less than a screen pixel tall,
+// at the outermost of their ends.
+func (r *Renderer) visibleStandeeEndWalls(slab standeeSlab, rows *standeeLevelRows, camX, camY float64) []standeeEndWall {
+	near := slab.surfaces[len(slab.surfaces)-1]
+	lengthSq := near.dx*near.dx + near.dy*near.dy
+	if lengthSq <= 0 {
+		return nil
+	}
+	camU := ((camX-near.p0x)*near.dx + (camY-near.p0y)*near.dy) / lengthSq
+	if near.mirrored {
+		camU = 1 - camU
+	}
+	minSpan := float32(1 / max(slab.centerSize, 1))
+	walls := r.standeeEndWallScratch[:0]
+	for end, list := range rows.endWalls {
+		first := len(walls)
+		for _, w := range list {
+			if end == 0 && camU >= float64(w.u) || end == 1 && camU <= float64(w.u) {
+				continue
+			}
+			if u := float64(w.u); near.mirrored && !slab.showsU(1-u) || !near.mirrored && !slab.showsU(u) {
+				continue
+			}
+			if n := len(walls); n > first && walls[n-1].v1 == w.v0 && walls[n-1].v1-walls[n-1].v0 < minSpan {
+				prev := &walls[n-1]
+				prev.v1 = w.v1
+				if end == 0 {
+					prev.u = min(prev.u, w.u)
+				} else {
+					prev.u = max(prev.u, w.u)
+				}
+				continue
+			}
+			walls = append(walls, w)
+		}
+	}
+	slices.SortFunc(walls, func(a, b standeeEndWall) int {
+		return cmp.Compare(math.Abs(camU-float64(b.u)), math.Abs(camU-float64(a.u)))
+	})
+	r.standeeEndWallScratch = walls
+	return walls
+}
+
+// Renderer.standeeLayers slots. The fade layer has its own, so a pass drawing
+// into one layer never also reads it.
+const (
+	standeeFlipMainLayerSlot = iota
+	standeeFlipOtherLayerSlot
+	standeeFadeLayerSlot
+	standeeLayerSlots
+)
+
+// standeeLayer returns *slot shaped like bounds, made on first use or a size
+// change. These targets alternate between writes and reads: dedicated backing
+// keeps them out of the shared atlases.
+func standeeLayer(slot **ebiten.Image, bounds image.Rectangle) *ebiten.Image {
+	if *slot == nil || (*slot).Bounds() != bounds {
+		if *slot != nil {
+			(*slot).Deallocate()
+		}
+		*slot = ebiten.NewImageWithOptions(bounds, &ebiten.NewImageOptions{Unmanaged: true})
+	}
+	return *slot
+}
+
+// drawStandeeIntoLayer clears the band of layer, a target shaped like screen,
+// that slab over columns minX..maxX can cover, draws the slab there and
+// returns the band. A Panini view draws the layer through its own rasterizer
+// of the same projection.
+func (r *Renderer) drawStandeeIntoLayer(layer, screen *ebiten.Image, slab standeeSlab, minX, maxX int) image.Rectangle {
+	bounds := screen.Bounds()
+	x0, x1 := float64(minX), float64(maxX+1)
+	if p := worldRaster(screen); p != nil {
+		x0, _ = p.presentedPoint(x0, p.projection.horizon)
+		x1, _ = p.presentedPoint(x1, p.projection.horizon)
+		r.standeeLayerRaster.configure(layer, p.projection)
+		previous := activeWorldRaster
+		activeWorldRaster = &r.standeeLayerRaster
+		defer func() { activeWorldRaster = previous; r.standeeLayerRaster.target = nil }()
+	}
+	band := image.Rect(int(math.Floor(min(x0, x1)))-2, bounds.Min.Y, int(math.Ceil(max(x0, x1)))+2, bounds.Max.Y).Intersect(bounds)
+	if band.Empty() {
+		return band
+	}
+	layer.SubImage(band).(*ebiten.Image).Clear()
+	r.drawStandeeSlabColumns(layer, slab, minX, maxX)
+	return band
+}
+
+// drawStandeeFadeLayer draws a fading slab opaque into a layer, then fades
+// that band onto screen once.
+func (r *Renderer) drawStandeeFadeLayer(screen *ebiten.Image, slab standeeSlab, minX, maxX int) {
+	opaque := slab
+	opaque.fade = 0
+	layer := standeeLayer(&r.standeeLayers[standeeFadeLayerSlot], screen.Bounds())
+	band := r.drawStandeeIntoLayer(layer, screen, opaque, minX, maxX)
+	if band.Empty() {
+		return
+	}
+	a := 1 - slab.fade
+	var op ebiten.DrawImageOptions
+	op.GeoM.Translate(float64(band.Min.X), float64(band.Min.Y))
+	op.ColorScale.Scale(a, a, a, a) // premultiplied colour fades in all four
+	screen.DrawImage(layer.SubImage(band).(*ebiten.Image), &op)
+}
+
+// drawStandeeFlipBlend draws a crossed plane near edge-on as both readings of
+// its art, mixed by flipBlend: each into its own layer, then one exact mix
+// onto screen. Where both readings are solid the background never shows;
+// where only one is, it fades as that reading's share does.
+func (r *Renderer) drawStandeeFlipBlend(screen *ebiten.Image, slab standeeSlab, minX, maxX int) {
+	main := slab
+	main.flipBlend = 0
+	shader, err := r.ensureStandeeFlipBlendShader()
+	if err != nil {
+		r.drawStandeeSlabColumns(screen, main, minX, maxX)
+		return
+	}
+	// The other reading mirrors every surface; the prepared slab may be shared
+	// with the plane's other arm, so it is copied.
+	other := main
+	other.surfaces = append(r.standeeFlipSurfaces[:0], slab.surfaces...)
+	for i := range other.surfaces {
+		other.surfaces[i].mirrored = !other.surfaces[i].mirrored
+	}
+	r.standeeFlipSurfaces = other.surfaces[:0]
+	bounds := screen.Bounds()
+	mainLayer := standeeLayer(&r.standeeLayers[standeeFlipMainLayerSlot], bounds)
+	otherLayer := standeeLayer(&r.standeeLayers[standeeFlipOtherLayerSlot], bounds)
+	band := r.drawStandeeIntoLayer(mainLayer, screen, main, minX, maxX)
+	if band.Empty() {
+		return
+	}
+	r.drawStandeeIntoLayer(otherLayer, screen, other, minX, maxX)
+	opts := &r.standeeFlipBlendOpts
+	if opts.Uniforms == nil {
+		// Boxed once: storing a float32 would allocate on every draw.
+		opts.Uniforms = map[string]any{"Weight": make([]float32, 1)}
+	}
+	opts.Uniforms["Weight"].([]float32)[0] = slab.flipBlend
+	opts.Images[0] = mainLayer.SubImage(band).(*ebiten.Image)
+	opts.Images[1] = otherLayer.SubImage(band).(*ebiten.Image)
+	opts.GeoM.Reset()
+	opts.GeoM.Translate(float64(band.Min.X), float64(band.Min.Y))
+	screen.DrawRectShader(band.Dx(), band.Dy(), shader, opts)
+}
+
+// releaseStandeeLayers frees the fade and flip-blend targets.
+func (r *Renderer) releaseStandeeLayers() {
+	for i, layer := range r.standeeLayers {
+		if layer != nil {
+			layer.Deallocate()
+			r.standeeLayers[i] = nil
+		}
+	}
+}
+
+// standeeRaisedColumns narrows lo..hi to the columns whose pixel-centre rays
+// meet the raised part of surface sf; false when none can.
+func (r *Renderer) standeeRaisedColumns(slab standeeSlab, sf standeeSurface, lo, hi int) (int, int, bool) {
+	if slab.half == 0 {
+		return lo, hi, true
+	}
+	a, b := slab.raisedSpan()
+	xa, xb, ok := r.game.renderHelper.projectSegmentSpanXF(sf.p0x+sf.dx*a, sf.p0y+sf.dy*a, sf.p0x+sf.dx*b, sf.p0y+sf.dy*b)
+	if !ok {
+		return 0, -1, false
+	}
+	lo, hi = max(lo, int(math.Ceil(xa-0.5))), min(hi, int(math.Floor(xb-0.5)))
+	return lo, hi, lo <= hi
 }
 
 // standeeWallOcclusion describes the exceptional wall relationship for the
@@ -724,6 +934,17 @@ type standeeSlab struct {
 	fade         float32 // opacity loss of the whole token; zero preserves the ordinary material
 	gold         goldMaterial
 	minX, maxX   int // unclipped screen span
+	// faceWidth is the outer faces' wider projected width in pixels and
+	// thicknessWidth the wider of its ends' thickness on screen. An end behind
+	// the camera means the slab runs past it, never along the view: +Inf and 0.
+	faceWidth, thicknessWidth float64
+	// half is 0 for the whole plane, +1 or -1 for only its +yaw or -yaw half:
+	// a linked panel's lone half is cut at the tile centre in the world, since
+	// cutting it by screen columns shows the other half end-on.
+	half int8
+	// flipBlend is the share of the other side's art reading in a crossed
+	// plane seen near edge-on (prepareCrossPlane): 0 outside the window.
+	flipBlend float32
 	// volumeComposite is set only for crosses: they and fading tokens use the
 	// one-pass volume compositor; other standees keep the general material
 	// path, including trilinear minification and wall mounts.
@@ -745,6 +966,7 @@ type treeArm struct {
 	slabIdx int
 	lo, hi  int
 	depth   float64
+	side    int8 // +1 the plane's +yaw half, -1 its -yaw half (standeeSlab.half)
 }
 
 // crossedStandeeArms projects the disjoint centre-to-end arms a crossed
@@ -771,6 +993,7 @@ func (r *Renderer) crossedStandeeArms(worldX, worldY float64, layout crossLayout
 
 	cam := r.game.camera
 	camDirX, camDirY := math.Cos(cam.Angle), math.Sin(cam.Angle)
+	halfThickness := r.game.config.Graphics.Standee.ThicknessTiles * float64(r.game.config.GetTileSize()) / 2
 	anyVisible := false
 	armIndex := 0
 	for slabIdx, plane := range layout.planes[:layout.count] {
@@ -788,11 +1011,25 @@ func (r *Renderer) crossedStandeeArms(worldX, worldY float64, layout crossLayout
 			// abort the whole split, dropping the draw to the two-whole-slabs
 			// fallback - the "back arm on top of the front arm" artifact.
 			lo, hi, visible := r.game.renderHelper.projectSegmentSpanX(worldX, worldY, cornerX, cornerY)
+			// The arm is as thick as the slab: seen along the plane, its faces
+			// and end walls lie beside the centre line's projection. Its draw is
+			// cut to its own half in the world, so a wider span only costs
+			// columns, never repaints the other half.
+			for _, offset := range [2]float64{-halfThickness, halfThickness} {
+				ox, oy := -dy*offset, dx*offset
+				if a, b, ok := r.game.renderHelper.projectSegmentSpanXF(worldX+ox, worldY+oy, cornerX+ox, cornerY+oy); ok {
+					if !visible {
+						lo, hi, visible = int(math.Floor(a)), int(math.Ceil(b)), true
+					}
+					lo, hi = min(lo, int(math.Floor(a))), max(hi, int(math.Ceil(b)))
+				}
+			}
 			midX := worldX + dx*side*footprint/4
 			midY := worldY + dy*side*footprint/4
 			arm := treeArm{
 				slabIdx: slabIdx,
 				depth:   (midX-cam.X)*camDirX + (midY-cam.Y)*camDirY,
+				side:    int8(side),
 			}
 			arm.lo, arm.hi = 1, 0 // empty span: behind the camera or beside the view
 			if visible {
@@ -829,7 +1066,8 @@ func (r *Renderer) crossedStandeeArms(worldX, worldY float64, layout crossLayout
 // worldLengthOverride (>0) forces the token's world footprint length instead of
 // deriving it from the billboard width. Crossed trees use it for their full-tile
 // footprint so their arms land on the tile edges. fade (0 = opaque) fades the
-// token out as one solid (canUseStandeeVolume). gold shades the faces as gold
+// token out as one solid (canUseStandeeVolume, or drawStandeeFadeLayer once
+// its end walls show). gold shades the faces as gold
 // metal; the zero value keeps the paint.
 func (r *Renderer) drawStandeeSprite(screen *ebiten.Image, sprite *ebiten.Image, coreKey standeeCoreKey, entX, entY, yaw float64, centerDepth float64, centerSize float64, bottomY float64, rr, gg, bb float32, mirrorBySide, mirroredIn bool, worldLengthOverride float64, fade float32, gold goldMaterial) bool {
 	if sprite == nil || centerDepth <= 0 || centerSize <= 0 {
@@ -853,11 +1091,7 @@ func (r *Renderer) drawStandeeSprite(screen *ebiten.Image, sprite *ebiten.Image,
 // texture (see debug_standee_cost_sim_test.go).
 func standeeShellCount(halfThicknessWorld float64, screenW int, halfFovTan, centerDepth float64) int {
 	thicknessPx := 2 * halfThicknessWorld * float64(screenW) / (2 * halfFovTan * centerDepth)
-	spacing := standeeShellSpacingPx
-	if screenW > standeeShellRefWidth {
-		spacing *= float64(screenW) / standeeShellRefWidth
-	}
-	shells := int(thicknessPx/spacing) + 1
+	shells := int(thicknessPx/standeeShellSpacing(screenW)) + 1
 	if shells < 2 {
 		shells = 2
 	}
@@ -865,6 +1099,25 @@ func standeeShellCount(halfThicknessWorld float64, screenW int, halfFovTan, cent
 		shells = standeeMaxShells
 	}
 	return shells
+}
+
+// standeeShellSpacing is the screen distance between neighbouring shells.
+func standeeShellSpacing(screenW int) float64 {
+	if screenW > standeeShellRefWidth {
+		return standeeShellSpacingPx * float64(screenW) / standeeShellRefWidth
+	}
+	return standeeShellSpacingPx
+}
+
+// standeeEndWallOpacity keeps the end walls where the shells cannot stand in
+// for them: seen nearly along its plane, a slab's faces are narrower on screen
+// than its thickness, and they and the shells are lines with gaps between them.
+// The walls are whole while the faces are no wider than the thickness (or two
+// shell spacings, for a slab too far away to show either) and gone once they
+// are twice as wide.
+func standeeEndWallOpacity(faceWidth, thicknessWidth float64, screenW int) float32 {
+	reach := max(thicknessWidth, 2*standeeShellSpacing(screenW))
+	return float32(1 - max(0, min(1, (faceWidth-reach)/reach)))
 }
 
 // prepareStandeeSlab builds a token slab for one yaw into dst (a reused
@@ -990,23 +1243,51 @@ func (r *Renderer) prepareStandeeSlab(sprite *ebiten.Image, coreKey standeeCoreK
 	// moves even when the actual parallax changes smoothly. Mip alpha makes
 	// hidden layers affect the crown, so fade them instead of dropping them.
 	sideFade := float32(0)
+	faceWidth, parallax := math.Inf(1), 0.0
 	if fok0 && fok1 && nok0 && nok1 {
-		parallax := math.Max(math.Abs(fx0f-nx0f), math.Abs(fx1f-nx1f))
+		parallax = math.Max(math.Abs(fx0f-nx0f), math.Abs(fx1f-nx1f))
 		sideFade = standeeSideFade(parallax)
+		faceWidth = math.Max(math.Abs(fx1f-fx0f), math.Abs(nx1f-nx0f))
 	}
 	slab := standeeSlab{
-		surfaces:    surfaces,
-		minX:        minX,
-		maxX:        maxX,
-		centerSize:  centerSize,
-		centerDepth: centerDepth,
-		bottomY:     bottomY,
-		rr:          rr,
-		gg:          gg,
-		bb:          bb,
+		surfaces:       surfaces,
+		minX:           minX,
+		maxX:           maxX,
+		faceWidth:      faceWidth,
+		thicknessWidth: parallax,
+		centerSize:     centerSize,
+		centerDepth:    centerDepth,
+		bottomY:        bottomY,
+		rr:             rr,
+		gg:             gg,
+		bb:             bb,
 	}
 	slab.thin(sideFade)
 	return slab, true
+}
+
+// showsU reports whether the slab shows the point u (0 to 1 along its
+// surfaces from their start); the halves meet at 0.5 without overlap.
+func (s standeeSlab) showsU(u float64) bool {
+	switch s.half {
+	case 1:
+		return u >= 0.5
+	case -1:
+		return u < 0.5
+	}
+	return true
+}
+
+// raisedSpan is the part of its surfaces the slab shows, 0 to 1 along them
+// from their start.
+func (s standeeSlab) raisedSpan() (float64, float64) {
+	switch s.half {
+	case 1:
+		return 0.5, 1
+	case -1:
+		return 0, 0.5
+	}
+	return 0, 1
 }
 
 // thin hides the side layers by amount (0 = full thickness, 1 = only the
@@ -1144,7 +1425,15 @@ func (r *Renderer) drawStandeeSlabVolume(screen *ebiten.Image, slab standeeSlab,
 	if filtered {
 		filterData = 0.25 + 0.5*mipBlend
 	}
-	packedShells := float32(len(slab.surfaces)-2) + filterData
+	// The half drawn rides above the shell count, in the shader's art U.
+	half := standeeVolumeWhole
+	if slab.half != 0 {
+		half = standeeVolumeLowerHalf
+		if slab.half > 0 != near.mirrored {
+			half = standeeVolumeUpperHalf
+		}
+	}
+	packedShells := float32(len(slab.surfaces)-2) + float32(standeeVolumeHalfStride*half) + filterData
 	depthBuffer := r.game.depthBuffer
 	wallTopBuffer := r.game.wallTopBuffer
 	sourceOrigin := stickerMips.levels[0].Bounds().Min
@@ -1308,6 +1597,10 @@ func (r *Renderer) drawStandeeSlabColumns(screen *ebiten.Image, slab standeeSlab
 	if maxX < minX {
 		return
 	}
+	if slab.flipBlend > 0 && slab.fade == 0 {
+		r.drawStandeeFlipBlend(screen, slab, minX, maxX)
+		return
+	}
 
 	screenW := r.game.worldWidth()
 	projection := slab.projection(r.game.viewHorizon())
@@ -1379,11 +1672,11 @@ func (r *Renderer) drawStandeeSlabColumns(screen *ebiten.Image, slab standeeSlab
 	if coreMipLevel >= len(coreMips.levels) {
 		coreMipLevel = len(coreMips.levels) - 1
 	}
+	// The vertices carry the horizontal scale; the shader takes the vertical
+	// one from the pixel rows, picks the major axis and keeps every magnified
+	// axis sharp.
 	footprintX, footprintY := standeeAxisFootprints(projectedWidth, projectedHeight, texW, texH)
-	majorFootprint := float32(footprintX)
-	if footprintY > footprintX {
-		majorFootprint = -float32(footprintY)
-	}
+	horizontalFootprint := float32(footprintX)
 	filteredFlag := float32(0)
 	if filtered {
 		filteredFlag = 1
@@ -1391,8 +1684,31 @@ func (r *Renderer) drawStandeeSlabColumns(screen *ebiten.Image, slab standeeSlab
 	// Very thin faces retain per-surface material coverage. That path chooses
 	// spans or individual columns independently from this projected-width gate.
 	trim := newStandeeTrim(stickerMips, coreMips, mipLevel, nextMipLevel, coreMipLevel, filtered)
-	if projectedWidth >= 2 && canUseStandeeVolume(slab) &&
-		r.drawStandeeSlabVolume(screen, slab, minX, maxX, stickerMips, coreMips, mipLevel, nextMipLevel, coreMipLevel, mipBlend, filtered, trim) {
+	// Every token shows its ends when seen along its plane. Decided before a
+	// fade thins the slab, so a fading token keeps its thickness to the end.
+	// The walls are part of the thickness: a slab built as its outer faces
+	// alone (a crossed_standee_layers band of 0) has none.
+	var endWalls []standeeEndWall
+	endWallOpacity := (1 - slab.sideFade) * (1 - slab.fade) * standeeEndWallOpacity(slab.faceWidth, slab.thicknessWidth, screenW)
+	var endRows *standeeLevelRows
+	if len(stickerMips.rows) > 0 {
+		endRows = &stickerMips.rows[0]
+	}
+	if endWallOpacity > 0 && endRows != nil && endRows.endTone[3] > 0 && len(slab.surfaces) > 2 {
+		endWalls = r.visibleStandeeEndWalls(slab, endRows, cam.X, cam.Y)
+	}
+	// A fading token's faces and end walls overlap, and fading each would
+	// stack their alpha: draw it opaque into a layer and fade that once.
+	if slab.fade > 0 && len(endWalls) > 0 {
+		r.drawStandeeFadeLayer(screen, slab, minX, maxX)
+		return
+	}
+	// End walls go between the shells and the near sticker, which the
+	// one-pass compositor cannot interleave: a slab showing them takes the
+	// material path. They show only near edge-on, over a few columns.
+	drewVolume := len(endWalls) == 0 && projectedWidth >= 2 && canUseStandeeVolume(slab) &&
+		r.drawStandeeSlabVolume(screen, slab, minX, maxX, stickerMips, coreMips, mipLevel, nextMipLevel, coreMipLevel, mipBlend, filtered, trim)
+	if drewVolume {
 		return
 	}
 	if slab.fade > 0 {
@@ -1437,7 +1753,7 @@ func (r *Renderer) drawStandeeSlabColumns(screen *ebiten.Image, slab standeeSlab
 	opts.Blend = ebiten.BlendSourceOver
 
 	if filtered {
-		trim = trim.reaching(majorFootprint, stickerBounds.Size(), stickerMips.levels[mipLevel].Bounds().Size())
+		trim = trim.reaching(footprintX, footprintY, stickerBounds.Size(), stickerMips.levels[mipLevel].Bounds().Size())
 	}
 	verts := r.standeeVerts[:0]
 	idx := r.standeeMaterialIdx[:0]
@@ -1448,27 +1764,15 @@ func (r *Renderer) drawStandeeSlabColumns(screen *ebiten.Image, slab standeeSlab
 		return projection.atInverseDepth(1 / t)
 	}
 
-	for surfaceIndex := slab.firstSurface; surfaceIndex < len(slab.surfaces); surfaceIndex++ {
-		sf := slab.surfaces[surfaceIndex]
-		if sf.img == nil {
-			continue
-		}
-		opacity := float32(1)
-		if surfaceIndex != len(slab.surfaces)-1 {
-			opacity -= slab.sideFade
-		}
-		opacity *= 1 - slab.fade
-		cr := slab.rr * sf.shade * opacity
-		cg := slab.gg * sf.shade * opacity
-		cb := slab.bb * sf.shade * opacity
-		layerMode := float32(standeeLayerNearSticker)
-		if sf.mipKey.layer == standeeMipCore {
-			layerMode = standeeLayerCore
-		} else if surfaceIndex != len(slab.surfaces)-1 {
-			layerMode = standeeLayerFarSticker
-		}
+	// drawSurface adds one surface over columns lo..hi. tone scales its colour;
+	// wall, when set, limits it to the rows of that end wall and to the columns
+	// it projects to.
+	drawSurface := func(sf standeeSurface, opacity, layerMode float32, tone [3]float32, wall *standeeEndWall, lo, hi int) {
+		cr := slab.rr * sf.shade * opacity * tone[0]
+		cg := slab.gg * sf.shade * opacity * tone[1]
+		cb := slab.bb * sf.shade * opacity * tone[2]
 		material := ebiten.Vertex{ColorR: cr, ColorG: cg, ColorB: cb, ColorA: opacity,
-			Custom0: mipBlend, Custom1: layerMode, Custom2: filteredFlag, Custom3: majorFootprint}
+			Custom0: mipBlend, Custom1: layerMode, Custom2: filteredFlag, Custom3: horizontalFootprint}
 		if sheet != nil {
 			// standee_sheet.kage layout: the block origin carries the surface
 			// and the blend in its fractions, away from the integer boundaries.
@@ -1477,18 +1781,66 @@ func (r *Renderer) drawStandeeSlabColumns(screen *ebiten.Image, slab standeeSlab
 			material.SrcY = float32(block.Y) + 0.125 + 0.75*mipBlend
 			material.Custom2 = float32(projection.bottomScale / projection.heightScale)
 		}
-		var spanned bool
-		verts, idx, spanned = r.appendStandeeSurfaceSpans(verts, idx, slab, sf, minX, maxX, material, stickerMips.levels[0].Bounds().Min, sheet != nil, trim)
-		if spanned {
-			continue
+		v0, v1 := float32(0), float32(1)
+		if wall != nil {
+			v0, v1 = wall.v0, wall.v1
+			xa, ta, okA := r.game.renderHelper.projectToScreenXF(sf.p0x, sf.p0y)
+			xb, tb, okB := r.game.renderHelper.projectToScreenXF(sf.p0x+sf.dx, sf.p0y+sf.dy)
+			if okA && okB {
+				left, right := int(math.Floor(min(xa, xb))), int(math.Ceil(max(xa, xb)))
+				// A wall is planar and a few pixels wide: one quad between its
+				// two edges, unless it leaves the draw's columns (a cross arm)
+				// or a world wall may clip one of them.
+				whole := left >= lo && right <= hi+1
+				lo, hi = max(lo, left-1), min(hi, right)
+				for x := max(lo, 0); whole && x <= hi && x < len(depthBuf); x++ {
+					whole = !standeeColumnOccluded(max(ta, tb), depthBuf[x], occlusion.depthAllowance)
+				}
+				if whole {
+					base := uint32(len(verts))
+					for _, edge := range [2]struct{ x, t float64 }{{xa, ta}, {xb, tb}} {
+						top, bottom, height := geometryAt(edge.t)
+						runBottom := top + v1*height
+						if v1 >= 1 {
+							runBottom = bottom
+						}
+						// The sheet shader finds the row from the height; the
+						// material shader reads it from SrcY. U is unused.
+						corner := material
+						corner.DstX = float32(edge.x)
+						if sheet != nil {
+							corner.Custom0, corner.Custom1 = height, 0
+							corner.DstY = top + v0*height
+							verts = append(verts, corner)
+							corner.DstY = runBottom
+							verts = append(verts, corner)
+							continue
+						}
+						corner.SrcX = 0.5
+						corner.DstY, corner.SrcY = top+v0*height, 0.5+(float32(texH)-1)*v0
+						verts = append(verts, corner)
+						corner.DstY, corner.SrcY = runBottom, 0.5+(float32(texH)-1)*v1
+						verts = append(verts, corner)
+					}
+					idx = append(idx, base, base+2, base+1, base+2, base+3, base+1)
+					return
+				}
+			}
+		} else {
+			var spanned bool
+			verts, idx, spanned = r.appendStandeeSurfaceSpans(verts, idx, slab, sf, lo, hi, material, stickerMips.levels[0].Bounds().Min, sheet != nil, trim)
+			if spanned {
+				return
+			}
 		}
 		textureX := func(u float64) float32 {
 			return float32(math.Min(standeeSourceU(u, sf.mirrored)*texW, texW-1)) + 0.5
 		}
-		for x := minX; x <= maxX; x++ {
+		for x := lo; x <= hi; x++ {
 			rcx, rcy := rayAt(float64(x) + 0.5)
 			t, u, ok := standeeColumnHit(cam.X, cam.Y, rcx, rcy, sf.p0x, sf.p0y, sf.dx, sf.dy)
-			if !ok {
+			// A wall's u runs across the thickness; its rows are cut already.
+			if !ok || wall == nil && !slab.showsU(u) {
 				continue
 			}
 
@@ -1502,7 +1854,7 @@ func (r *Renderer) drawStandeeSlabColumns(screen *ebiten.Image, slab standeeSlab
 			// keeps vertical filtering stable at the texture's top/bottom edges.
 			srcY0 := float32(0.5)
 			srcY1 := float32(texH) - 0.5
-			drawBottom, srcYbot := bottom, srcY1
+			clipBottom := bottom
 			occluded := x < len(depthBuf) && standeeColumnOccluded(t, depthBuf[x], occlusion.depthAllowance)
 			if occluded && occlusion.matchesBackingWall(cam.X, cam.Y, rcx, rcy, depthBuf[x]) {
 				occluded = false
@@ -1516,34 +1868,77 @@ func (r *Renderer) drawStandeeSlabColumns(screen *ebiten.Image, slab standeeSlab
 				if wt <= top {
 					continue // wall covers this entire slice
 				}
-				if wt < bottom {
-					drawBottom = wt
-					srcYbot = srcY0 + (srcY1-srcY0)*((wt-top)/height)
-				}
+				clipBottom = min(bottom, wt)
 			}
 			x0, x1 := float32(x), float32(x+1)
+			srcX := textureX(u)
+			runTop, runBottom := top+v0*height, top+v1*height
+			if v1 >= 1 {
+				runBottom = bottom
+			}
+			drawBottom := min(runBottom, clipBottom)
+			if drawBottom <= runTop {
+				continue
+			}
+			srcYtop := srcY0 + (srcY1-srcY0)*v0
+			srcYbot := srcY0 + (srcY1-srcY0)*v1
+			if drawBottom < runBottom {
+				srcYbot = srcY0 + (srcY1-srcY0)*((drawBottom-top)/height)
+			}
 			if sheet != nil {
 				// One column of the span layout: constant height and U.
 				column := material
 				column.Custom0 = height
 				column.Custom1 = float32(projection.heightScale * standeeSourceU(u, sf.mirrored) / t)
 				base := uint32(len(verts))
-				for _, corner := range [4][2]float32{{x0, top}, {x1, top}, {x0, drawBottom}, {x1, drawBottom}} {
+				for _, corner := range [4][2]float32{{x0, runTop}, {x1, runTop}, {x0, drawBottom}, {x1, drawBottom}} {
 					column.DstX, column.DstY = corner[0], corner[1]
 					verts = append(verts, column)
 				}
 				idx = append(idx, base, base+1, base+2, base+1, base+3, base+2)
 				continue
 			}
-			srcX := textureX(u)
 			base := uint32(len(verts))
 			verts = append(verts,
-				ebiten.Vertex{DstX: x0, DstY: top, SrcX: srcX, SrcY: srcY0, ColorR: cr, ColorG: cg, ColorB: cb, ColorA: opacity, Custom0: mipBlend, Custom1: layerMode, Custom2: filteredFlag, Custom3: majorFootprint},
-				ebiten.Vertex{DstX: x1, DstY: top, SrcX: srcX, SrcY: srcY0, ColorR: cr, ColorG: cg, ColorB: cb, ColorA: opacity, Custom0: mipBlend, Custom1: layerMode, Custom2: filteredFlag, Custom3: majorFootprint},
-				ebiten.Vertex{DstX: x0, DstY: drawBottom, SrcX: srcX, SrcY: srcYbot, ColorR: cr, ColorG: cg, ColorB: cb, ColorA: opacity, Custom0: mipBlend, Custom1: layerMode, Custom2: filteredFlag, Custom3: majorFootprint},
-				ebiten.Vertex{DstX: x1, DstY: drawBottom, SrcX: srcX, SrcY: srcYbot, ColorR: cr, ColorG: cg, ColorB: cb, ColorA: opacity, Custom0: mipBlend, Custom1: layerMode, Custom2: filteredFlag, Custom3: majorFootprint},
+				ebiten.Vertex{DstX: x0, DstY: runTop, SrcX: srcX, SrcY: srcYtop, ColorR: cr, ColorG: cg, ColorB: cb, ColorA: opacity, Custom0: mipBlend, Custom1: layerMode, Custom2: filteredFlag, Custom3: horizontalFootprint},
+				ebiten.Vertex{DstX: x1, DstY: runTop, SrcX: srcX, SrcY: srcYtop, ColorR: cr, ColorG: cg, ColorB: cb, ColorA: opacity, Custom0: mipBlend, Custom1: layerMode, Custom2: filteredFlag, Custom3: horizontalFootprint},
+				ebiten.Vertex{DstX: x0, DstY: drawBottom, SrcX: srcX, SrcY: srcYbot, ColorR: cr, ColorG: cg, ColorB: cb, ColorA: opacity, Custom0: mipBlend, Custom1: layerMode, Custom2: filteredFlag, Custom3: horizontalFootprint},
+				ebiten.Vertex{DstX: x1, DstY: drawBottom, SrcX: srcX, SrcY: srcYbot, ColorR: cr, ColorG: cg, ColorB: cb, ColorA: opacity, Custom0: mipBlend, Custom1: layerMode, Custom2: filteredFlag, Custom3: horizontalFootprint},
 			)
 			idx = append(idx, base, base+1, base+2, base+1, base+3, base+2)
+		}
+	}
+	// The end walls, farthest first, go right before the near sticker: every
+	// ray to a wall crosses the near face first, so its art covers the walls,
+	// while the far face lies behind them. Each covers only the columns it
+	// projects to.
+	drawEndWalls := func() {
+		for i := range endWalls {
+			wall := &endWalls[i]
+			tone := [3]float32{endRows.endTone[0], endRows.endTone[1], endRows.endTone[2]}
+			drawSurface(standeeEndWallSurface(slab, float64(wall.u)), endWallOpacity, standeeLayerEndWall, tone, wall, minX, maxX)
+		}
+	}
+	for surfaceIndex := slab.firstSurface; surfaceIndex < len(slab.surfaces); surfaceIndex++ {
+		if surfaceIndex == len(slab.surfaces)-1 {
+			drawEndWalls()
+		}
+		sf := slab.surfaces[surfaceIndex]
+		if sf.img == nil {
+			continue
+		}
+		opacity := float32(1)
+		if surfaceIndex != len(slab.surfaces)-1 {
+			opacity -= slab.sideFade
+		}
+		layerMode := float32(standeeLayerNearSticker)
+		if sf.mipKey.layer == standeeMipCore {
+			layerMode = standeeLayerCore
+		} else if surfaceIndex != len(slab.surfaces)-1 {
+			layerMode = standeeLayerFarSticker
+		}
+		if lo, hi, ok := r.standeeRaisedColumns(slab, sf, minX, maxX); ok {
+			drawSurface(sf, opacity*(1-slab.fade), layerMode, [3]float32{1, 1, 1}, nil, lo, hi)
 		}
 	}
 	if len(idx) > 0 {
@@ -1765,10 +2160,7 @@ func (r *Renderer) drawCrossedTreeStandees(screen *ebiten.Image, s UnifiedSprite
 		if cacheable {
 			surfaces = cache.buffer()
 		}
-		slab, ok := r.prepareStandeeSlab(
-			sprite, key, worldX, worldY, plane.yaw, centerDepth, heightF, bottomF,
-			b, b, b, true, false, plane.footprint, surfaces, coreLayers,
-		)
+		slab, ok := r.prepareCrossPlane(sprite, key, worldX, worldY, plane, centerDepth, heightF, bottomF, b, surfaces, coreLayers)
 		slab.volumeComposite = volume
 		if cacheable {
 			cache.store(s, slab, ok)
@@ -1785,13 +2177,46 @@ func (r *Renderer) drawCrossedTreeStandees(screen *ebiten.Image, s UnifiedSprite
 	r.drawCrossedSlabs(screen, sprite, key, worldX, worldY, layout, s.depthPerp, heightF, bottomF, b, volume, coreLayers)
 }
 
-// drawCrossArm draws one arm of a split cross: the columns of its plane's slab
-// that belong to the arm. A linked panel is given the door's seam allowance,
-// since its ends meet the flanking walls the same way.
+// prepareCrossPlane prepares one plane of a crossed layout. Its art reads
+// unmirrored from either side; within cross_flip_blend_deg of edge-on the
+// other side's reading mixes in (standeeSlab.flipBlend), since flipping at
+// once swaps which end of an uneven silhouette is nearest and the cross would
+// jump as the party walks across its plane. Like the end walls, the blend is
+// part of the thickness: a plane built as its outer faces alone (a
+// crossed_standee_layers band of 0, far or beside the view) flips at once.
+// The caller sets the half an arm draws (standeeSlab.half).
+func (r *Renderer) prepareCrossPlane(sprite *ebiten.Image, key standeeCoreKey, worldX, worldY float64, plane crossPlane, depthPerp, heightF, bottomF float64, b float32, dst []standeeSurface, coreLayers int) (standeeSlab, bool) {
+	slab, ok := r.prepareStandeeSlab(sprite, key, worldX, worldY, plane.yaw, depthPerp, heightF, bottomF, b, b, b, true, false, plane.footprint, dst, coreLayers)
+	if len(slab.surfaces) > 2 {
+		slab.flipBlend = r.crossFlipBlend(worldX, worldY, plane.yaw)
+	}
+	return slab, ok
+}
+
+// crossFlipBlend is the share of the far side's reading in a plane through
+// (x, y) at yaw: from 0 at cross_flip_blend_deg off edge-on to one half on it.
+func (r *Renderer) crossFlipBlend(x, y, yaw float64) float32 {
+	window := r.game.config.Graphics.Standee.CrossFlipBlendDeg * math.Pi / 180
+	cam := r.game.camera
+	vx, vy := cam.X-x, cam.Y-y
+	dist := math.Hypot(vx, vy)
+	if window <= 0 || dist <= 0 {
+		return 0
+	}
+	off := math.Asin(max(-1, min(1, (-math.Sin(yaw)*vx+math.Cos(yaw)*vy)/dist)))
+	t := max(0, min(1, (off/window+1)/2))
+	near := t * t * (3 - 2*t) // the + side reading's share
+	return float32(min(near, 1-near))
+}
+
+// drawCrossArm draws one arm of a split cross: its half of its plane's slab,
+// over the columns the arm spans. A linked panel is given the door's seam
+// allowance, since its ends meet the flanking walls the same way.
 func (r *Renderer) drawCrossArm(screen *ebiten.Image, slab standeeSlab, s UnifiedSpriteRenderData) {
 	if s.panelArms != 0 {
 		r.standeeWallOcclusion = standeeWallOcclusion{depthAllowance: doorDepthAllowanceWorld(float64(r.game.config.GetTileSize()))}
 	}
+	slab.half = s.treeArmSide
 	r.drawStandeeSlabColumns(screen, slab, s.treeArmLo, s.treeArmHi)
 	r.standeeWallOcclusion = standeeWallOcclusion{}
 }
@@ -1801,15 +2226,14 @@ func (r *Renderer) drawCrossArm(screen *ebiten.Image, slab standeeSlab, s Unifie
 // occlusion. Shared by static crossed trees (diagonal yaws), spinning landmark
 // monuments (rotating yaws) and linked panels (the arms toward neighbours).
 //
-// The arms are disjoint in 3D (they meet only on the central axis), so any two
-// project to screen segments that share only the center column - they can't swap
-// depth order across the columns they overlap in. A far->near painter's order over
-// the four arms is therefore exact: a nearer arm's opaque pixels occlude a farther
-// arm and its transparent pixels reveal it, with no slab interpenetration even
-// when one plane is edge-on. (Ordering the two whole planes can't: near the axis
-// the slabs interleave and whichever draws last wins - the see-through artifact.)
-// Each arm draws the WHOLE slab clipped to its columns, so the texture stays
-// continuous and batched. Both arms of a plane share one slab, so each yaw's slab
+// The arms are disjoint in 3D (they meet only on the central axis), so a
+// far->near painter's order over them is exact: a nearer arm's opaque pixels
+// occlude a farther arm and its transparent pixels reveal it, with no slab
+// interpenetration even when one plane is edge-on. (Ordering the two whole
+// planes can't: near the axis the slabs interleave and whichever draws last
+// wins - the see-through artifact.) Each arm draws its own half of the slab,
+// cut in the world (standeeSlab.half): its thickness spreads it over columns of
+// the other half seen along the plane. Both arms of a plane share one slab, so each yaw's slab
 // is prepared ONCE and reused; the two slabs stay live together for the
 // interleaved draw, hence one reused buffer per plane.
 func (r *Renderer) drawCrossedSlabs(screen, sprite *ebiten.Image, key standeeCoreKey, worldX, worldY float64, layout crossLayout, depthPerp float64, heightF, bottomF float64, b float32, volumeComposite bool, coreLayers int) {
@@ -1820,20 +2244,27 @@ func (r *Renderer) drawCrossedSlabs(screen, sprite *ebiten.Image, key standeeCor
 		if i > 0 {
 			buffer = r.standeeSurfacesMore[i-1][:0]
 		}
-		slabs[i], slabOK[i] = r.prepareStandeeSlab(sprite, key, worldX, worldY, plane.yaw, depthPerp, heightF, bottomF, b, b, b, true, false, plane.footprint, buffer, coreLayers)
+		slabs[i], slabOK[i] = r.prepareCrossPlane(sprite, key, worldX, worldY, plane, depthPerp, heightF, bottomF, b, buffer, coreLayers)
 		slabs[i].volumeComposite = volumeComposite
 	}
 
 	arms, count, allOK := r.crossedStandeeArms(worldX, worldY, layout)
 	if !allOK {
-		// Camera atop the tile: center/corners fall behind the view plane and the
-		// arm spans are meaningless. Best-effort whole-plane far->near. A plane
-		// with one arm raised (a linked panel's corner or end) cannot be cut to
-		// that arm here, and drawn whole it would show a half it never raised.
+		// No arm is in front of the camera, so the arm spans are meaningless:
+		// best-effort whole planes, far->near. A plane with one arm raised (a
+		// linked panel's corner or end) draws only that half.
 		for i := 0; i < layout.count; i++ {
-			if slabOK[i] && layout.planes[i].arms == [2]bool{true, true} {
-				r.drawStandeeSlabColumns(screen, slabs[i], -1, -1)
+			if !slabOK[i] {
+				continue
 			}
+			slab := slabs[i]
+			switch layout.planes[i].arms {
+			case [2]bool{true, false}:
+				slab.half = 1
+			case [2]bool{false, true}:
+				slab.half = -1
+			}
+			r.drawStandeeSlabColumns(screen, slab, -1, -1)
 		}
 	} else {
 		// A handful of arms: an inline insertion sort avoids sort.Slice's
@@ -1845,7 +2276,9 @@ func (r *Renderer) drawCrossedSlabs(screen, sprite *ebiten.Image, key standeeCor
 		}
 		for _, a := range arms[:count] {
 			if slabOK[a.slabIdx] {
-				r.drawStandeeSlabColumns(screen, slabs[a.slabIdx], a.lo, a.hi)
+				slab := slabs[a.slabIdx]
+				slab.half = a.side
+				r.drawStandeeSlabColumns(screen, slab, a.lo, a.hi)
 			}
 		}
 	}

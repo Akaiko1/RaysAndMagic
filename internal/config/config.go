@@ -1464,6 +1464,25 @@ type StandeeConfig struct {
 	// camera's sight line, so a monster crossing the view never degenerates
 	// into an invisible edge-on sliver. 0 disables the clamp.
 	MinViewAngleDeg float64 `yaml:"min_view_angle_deg"`
+	// CrossFlipBlendDeg is how many degrees either side of edge-on a crossed
+	// plane takes to turn its art to the viewer's side, so the art never reads
+	// mirrored and an uneven silhouette does not jump; 0 flips at once.
+	CrossFlipBlendDeg float64 `yaml:"cross_flip_blend_deg"`
+}
+
+// StandeeCrossFlipBlendMaxDeg caps cross_flip_blend_deg: wider, a plane would
+// show both readings over much of its turn.
+const StandeeCrossFlipBlendMaxDeg = 30
+
+// DefaultStandeeCrossFlipBlendDeg is cross_flip_blend_deg when config.yaml
+// leaves it out.
+const DefaultStandeeCrossFlipBlendDeg = 3
+
+func (c StandeeConfig) Validate() error {
+	if !(c.CrossFlipBlendDeg >= 0 && c.CrossFlipBlendDeg <= StandeeCrossFlipBlendMaxDeg) {
+		return fmt.Errorf("graphics.standee.cross_flip_blend_deg: %v is outside [0, %d]", c.CrossFlipBlendDeg, StandeeCrossFlipBlendMaxDeg)
+	}
+	return nil
 }
 
 // ColorKeyConfig makes a key color (default magenta) transparent at sprite load,
@@ -2304,6 +2323,7 @@ func LoadConfig(filename string) (*Config, error) {
 	config.Graphics.TreesAsBillboards = true // crossed-standee trees on by default
 	config.Graphics.Props3D = true
 	config.Graphics.Standee.CoreTint = 1.0 // sprite-average standee core by default
+	config.Graphics.Standee.CrossFlipBlendDeg = DefaultStandeeCrossFlipBlendDeg
 	config.Graphics.NightMotes = NightMoteRenderConfig{
 		EmissionRadiusTiles:     10,
 		EmissionIntervalSeconds: 2,
@@ -2517,6 +2537,9 @@ func LoadConfig(filename string) (*Config, error) {
 	}
 	if err := validateNightMoteRenderConfig(config.Graphics.NightMotes); err != nil {
 		return nil, err
+	}
+	if err := config.Graphics.Standee.Validate(); err != nil {
+		return nil, fmt.Errorf("%s: %w", filename, err)
 	}
 	if err := config.Graphics.Standee.CrossedStandeeLayers.Validate(); err != nil {
 		return nil, err

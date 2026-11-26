@@ -3,6 +3,7 @@
 package main
 
 //include gold_reflection.kageinc
+//include standee_end_wall.kageinc
 
 // Surfaces by name: the standeeLayer* constants in render_standee.go;
 // TestShaderConstantsMatchGo keeps the values equal.
@@ -10,6 +11,7 @@ const (
 	standeeLayerNearSticker = 0
 	standeeLayerCore = 1
 	standeeLayerFarSticker = 2
+	standeeLayerEndWall = 3
 )
 
 var Horizon float
@@ -24,7 +26,8 @@ var Horizon float
 //	custom.x   projected height at this column (height invariant over depth)
 //	custom.y   source U times that height
 //	custom.z   bottom below the horizon, in projected heights
-//	custom.w   major-axis footprint, negative for vertical minification
+//	custom.w   horizontal footprint, texels per pixel; the rows give the
+//	           vertical one, and the larger is the major axis
 //	color      premultiplied tint
 //
 // A block is a header row (full size, level size) above the level's sticker
@@ -86,6 +89,8 @@ func Fragment(rawDstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
 	top := Horizon + (custom.z-1.0)*height
 	v := (dstPos.y - imageDstOrigin().y - top) / height
 	p := vec2(min(u*size0.x, size0.x-1.0)+0.5, v*(size0.y-1.0)+0.5)
+	// Art rows per screen pixel, taken before the surface branches return.
+	rowsPerPixel := length(vec2(dfdx(p.y), dfdy(p.y)))
 
 	if surface == standeeLayerFarSticker {
 		return goldReflection(sheetSticker(p, sticker, size, next, size0, mipBlend), goldSide(dstPos.x-imageDstOrigin().x), p.y/size0.y) * color
@@ -93,7 +98,15 @@ func Fragment(rawDstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
 	if surface == standeeLayerCore {
 		return sheetLinear(p, sticker+vec2(size.x, 0), size, size0) * color
 	}
-	footprint := vec2(max(custom.w, 0.0), max(-custom.w, 0.0))
+	if surface == standeeLayerEndWall {
+		// The vertices carry the core tone; the geometry, the wall's rows.
+		g := standeeEndWallGrain(p.y, rowsPerPixel)
+		return vec4(g, g, g, 1) * color
+	}
+	footprint := vec2(custom.w, 0)
+	if rowsPerPixel > custom.w {
+		footprint = vec2(0, rowsPerPixel)
+	}
 	return goldReflection(sheetNearSticker(p, sticker, size, next, size0, mipBlend, footprint), goldSide(dstPos.x-imageDstOrigin().x), p.y/size0.y) * color
 }
 

@@ -168,6 +168,12 @@ func (rh *RenderingHelper) cameraSpaceXY(entityX, entityY float64) (tx, ty float
 // ok=false only when the whole segment is behind the camera or the projection
 // degenerates.
 func (rh *RenderingHelper) projectSegmentSpanX(x0, y0, x1, y1 float64) (lo, hi int, ok bool) {
+	xa, xb, ok := rh.projectSegmentSpanXF(x0, y0, x1, y1)
+	return int(xa), int(xb), ok
+}
+
+// projectSegmentSpanXF is projectSegmentSpanX without the pixel truncation.
+func (rh *RenderingHelper) projectSegmentSpanXF(x0, y0, x1, y1 float64) (xa, xb float64, ok bool) {
 	const nearEps = 0.5 // world units; projection at this depth lands far off-screen
 	tx0, ty0, ok0 := rh.cameraSpaceXY(x0, y0)
 	tx1, ty1, ok1 := rh.cameraSpaceXY(x1, y1)
@@ -189,12 +195,12 @@ func (rh *RenderingHelper) projectSegmentSpanX(x0, y0, x1, y1 float64) (lo, hi i
 	tx0, ty0 = clamp(tx0, ty0, tx1, ty1)
 	tx1, ty1 = clamp(tx1, ty1, tx0, ty0)
 	halfW := float64(rh.game.worldWidth()) / 2
-	xa := halfW * (1 + tx0/ty0)
-	xb := halfW * (1 + tx1/ty1)
+	xa = halfW * (1 + tx0/ty0)
+	xb = halfW * (1 + tx1/ty1)
 	if xa > xb {
 		xa, xb = xb, xa
 	}
-	return int(xa), int(xb), true
+	return xa, xb, true
 }
 
 // projectToScreenXF is projectToScreenX without the pixel truncation.

@@ -2479,6 +2479,7 @@ func (r *Renderer) finalizeMapRenderPrewarm(task *mapRenderPrewarmTask) {
 		_, _ = r.ensureStandeeTrilinearShader()
 		_, _ = r.ensureStandeeVolumeShader()
 		_, _ = r.ensureStandeeSheetShader()
+		_, _ = r.ensureStandeeFlipBlendShader()
 		r.reserveStandeeBuffers()
 	}
 	_, _ = r.ensureFloorShader()

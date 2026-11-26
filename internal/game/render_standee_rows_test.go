@@ -1,6 +1,7 @@
 package game
 
 import (
+	"fmt"
 	"image"
 	"image/color"
 	"math"
@@ -21,6 +22,7 @@ func TestStandeeArtRowsHoldEverySampleThatReadsColour(t *testing.T) {
 	for y := 6; y < 20; y++ {
 		art.SetRGBA(12, y, color.RGBA{9, 9, 9, 9}) // a faint line still counts
 	}
+	art.SetRGBA(22, 2, color.RGBA{60, 40, 10, 100}) // a soft fringe: core, no wall
 	prepared := prepareStandeePixels(art, 0, false, false)
 	rows := prepared.rows
 	if len(rows) != len(prepared.stickerMips) || len(rows) != len(prepared.coreMips) || len(rows) < 3 {
@@ -73,6 +75,31 @@ func TestStandeeArtRowsHoldEverySampleThatReadsColour(t *testing.T) {
 	if band := standeeRowBand(27.5 / 40); rows[0].top[band] <= rows[0].bottom[band] {
 		t.Errorf("band %d holds no art yet measures rows %.3f..%.3f", band, rows[0].top[band], rows[0].bottom[band])
 	}
+	// The end walls close each row's opaque art where the faces show it: half
+	// a texel out from its first and last opaque texel, held to the art's
+	// edge. Neither the faint line nor the soft fringe at 22,2 moves them.
+	edge := func(texelEdge, n float64) float32 { return float32(math.Min(math.Max(texelEdge/n, 0), 1)) }
+	var starts, ends []standeeEndWall
+	for _, p := range []image.Point{{0, 0}, {20, 2}, {3, 9}, {31, 17}, {39, 23}} {
+		last := float64(p.X)
+		if p.Y == 2 {
+			last = 21
+		}
+		y := float64(p.Y)
+		v0, v1 := edge(y-0.5, h0-1), edge(y+0.5, h0-1)
+		end := edge(last+0.5, w0)
+		if last == w0-1 {
+			end = 1
+		}
+		starts = append(starts, standeeEndWall{v0, v1, edge(float64(p.X)-0.5, w0)})
+		ends = append(ends, standeeEndWall{v0, v1, end})
+	}
+	if got := rows[0].endWalls; fmt.Sprint(got) != fmt.Sprint([2][]standeeEndWall{starts, ends}) {
+		t.Errorf("end walls %v, want starts %v and ends %v", got, starts, ends)
+	}
+	if rows[0].endTone[3] == 0 {
+		t.Error("the end walls have no tone")
+	}
 }
 
 func TestStandeeTrimSpan(t *testing.T) {
@@ -122,15 +149,16 @@ func TestStandeeTrimSpan(t *testing.T) {
 	}
 
 	// reaching follows nearStickerAt: 0.375 of what the footprint exceeds a
-	// texel and a half by, along the major axis only.
+	// texel and a half by, along each axis, since the shader picks the major
+	// one per pixel.
 	full, mip := image.Pt(512, 256), image.Pt(128, 64)
-	if got := trim.reaching(40, full, mip); math.Abs(got.reachU-0.375*(40-1.5*4)/512) > 1e-9 || got.reachV != 0 {
+	if got := trim.reaching(40, 5, full, mip); math.Abs(got.reachU-0.375*(40-1.5*4)/512) > 1e-9 || got.reachV != 0 {
 		t.Errorf("horizontal footprint 40: reach %.6f, %.6f", got.reachU, got.reachV)
 	}
-	if got := trim.reaching(-40, full, mip); math.Abs(got.reachV-0.375*(40-1.5*4)/255) > 1e-9 || got.reachU != 0 {
+	if got := trim.reaching(5, 40, full, mip); math.Abs(got.reachV-0.375*(40-1.5*4)/255) > 1e-9 || got.reachU != 0 {
 		t.Errorf("vertical footprint 40: reach %.6f, %.6f", got.reachU, got.reachV)
 	}
-	if got := trim.reaching(5, full, mip); got.reachU != 0 || got.reachV != 0 {
+	if got := trim.reaching(5, 5, full, mip); got.reachU != 0 || got.reachV != 0 {
 		t.Errorf("a footprint under a texel and a half reaches %.6f, %.6f", got.reachU, got.reachV)
 	}
 	for _, tc := range []struct{ columns, want int }{{standeeTrimMinColumns - 1, 0}, {standeeTrimMinColumns, 1}, {standeeTrimPieceColumns * 3, 3}, {standeeTrimPieceColumns * 100, standeeTrimMaxPieces}} {

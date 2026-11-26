@@ -1,0 +1,11 @@
+//kage:unit pixels
+package main
+
+// Mixes a crossed plane's two readings near edge-on (drawStandeeFlipBlend in
+// render_standee.go). Image 0 holds the reading for the viewer's side, image 1
+// the other side's, both premultiplied; Weight is the other side's share.
+var Weight float
+
+func Fragment(dst vec4, src vec2, color vec4) vec4 {
+	return mix(imageSrc0UnsafeAt(src), imageSrc1UnsafeAt(src), Weight)
+}

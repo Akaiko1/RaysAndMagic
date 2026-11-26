@@ -24,7 +24,10 @@ Tiles are loaded by `TileManager` at startup. Read
 `solid`, `walkable`, `transparent`, and `render_type` are separate controls.
 Choose collision, standing permission, ray continuation, and drawing explicitly.
 `wall_mounted` is valid only on `standee`; `no_spin` only on `standee` or
-`landmark_standee`. A cross already has fixed planes.
+`landmark_standee`. A cross already has fixed planes on the diagonals. Its art
+reads unmirrored from either side of a plane: within
+`graphics.standee.cross_flip_blend_deg` of edge-on the two readings blend, so
+an uneven silhouette does not jump as the party walks past.
 
 `linked_panels: true` (only on `crossed_prop`) draws flat panels a tile long
 instead of the cross - screens, fences, railings. Each tile raises half a panel

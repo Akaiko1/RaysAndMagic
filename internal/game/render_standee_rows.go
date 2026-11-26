@@ -46,7 +46,30 @@ const standeeTapReach = 0.375
 type standeeLevelRows struct {
 	top, bottom           [standeeRowBands]float32
 	groupTop, groupBottom [standeeRowBands / standeeRowGroup]float32
+	// Level 0 only: the walls where the solid art of its rows starts (0) and
+	// ends (1), and the core colour they show, straight RGB; endTone[3] is 0
+	// until the tone is known.
+	endWalls [2][]standeeEndWall
+	endTone  [4]float32
 }
+
+// standeeEndWall is where a stretch of the art's rows, v0..v1 (0 at its top,
+// 1 at its bottom), starts or ends: u across the art (0..1), the outermost of
+// their own ends. Seen along its plane a slab shows these walls.
+type standeeEndWall struct{ v0, v1, u float32 }
+
+// Rows whose ends lie within 1/standeeEndWallGroup of the art's width of the
+// first one's share one wall.
+const standeeEndWallGroup = 64
+
+// standeeCoreMinAlpha is the alpha from which a texel is solid art: the core
+// fills it (prepareStandeePixels) and its tone averages it (standeeCoreTone).
+const standeeCoreMinAlpha = 24
+
+// standeeEndWallMinAlpha is the alpha from which a texel bounds an end wall:
+// the art's half-coverage edge. A wall is opaque, so one at a fainter fringe
+// would hide what the fringe lets through.
+const standeeEndWallMinAlpha = 128
 
 // cover widens lo..hi to the rows of bands first..last.
 func (r *standeeLevelRows) cover(first, last int, lo, hi float32) (float32, float32) {
@@ -83,11 +106,20 @@ func standeeArtRows(levels []*image.RGBA) []standeeLevelRows {
 	for x := range first {
 		first[x], last[x] = -1, -1
 	}
+	// Each row's first and last column at the wall's alpha, -1 for none.
+	solidFirst, solidLast := make([]int, h0), make([]int, h0)
 	for y := 0; y < h0; y++ {
 		row := base.Pix[base.PixOffset(b.Min.X, b.Min.Y+y):]
+		solidFirst[y], solidLast[y] = -1, -1
 		for x := 0; x < w0; x++ {
 			if binary.LittleEndian.Uint32(row[x*4:]) == 0 {
 				continue
+			}
+			if row[x*4+3] >= standeeEndWallMinAlpha {
+				if solidFirst[y] < 0 {
+					solidFirst[y] = x
+				}
+				solidLast[y] = x
 			}
 			if first[x] < 0 {
 				first[x] = y
@@ -96,6 +128,11 @@ func standeeArtRows(levels []*image.RGBA) []standeeLevelRows {
 		}
 	}
 	rows := make([]standeeLevelRows, len(levels))
+	group := max(1, w0/standeeEndWallGroup)
+	rows[0].endWalls = [2][]standeeEndWall{
+		standeeEndWalls(solidFirst, w0, group, false),
+		standeeEndWalls(solidLast, w0, group, true),
+	}
 	w, h := w0, h0
 	for k := range rows {
 		if k > 0 {
@@ -109,6 +146,50 @@ func standeeArtRows(levels []*image.RGBA) []standeeLevelRows {
 		rows[k].measure(first, last, h, w0, h0)
 	}
 	return rows
+}
+
+// standeeEndWalls groups rows into walls: consecutive rows with solid art
+// whose ends lie within group texels of the first row's share one wall, at the
+// outermost of their ends. ends holds each row's first (last: its last) solid
+// column, -1 for none. The faces show texel x around u = x/w0 and row y around
+// v = y/(h0-1), the last ones held to the edge (standeeSourcePosition), so a
+// wall stands half a texel out from its end texel.
+func standeeEndWalls(ends []int, w0, group int, last bool) []standeeEndWall {
+	var walls []standeeEndWall
+	h0 := len(ends)
+	at := func(texelEdge float64, n int) float32 {
+		return float32(min(max(texelEdge/float64(n), 0), 1))
+	}
+	start, ref, outer := -1, 0, 0
+	flush := func(y int) {
+		u := at(float64(outer)-0.5, w0)
+		if last {
+			u = at(float64(outer)+0.5, w0)
+			if outer == w0-1 {
+				u = 1
+			}
+		}
+		walls = append(walls, standeeEndWall{at(float64(start)-0.5, h0-1), at(float64(y-1)+0.5, h0-1), u})
+		start = -1
+	}
+	for y, end := range ends {
+		if start >= 0 && (end < 0 || end > ref+group || end < ref-group) {
+			flush(y)
+		}
+		switch {
+		case end < 0:
+		case start < 0:
+			start, ref, outer = y, end, end
+		case last:
+			outer = max(outer, end)
+		default:
+			outer = min(outer, end)
+		}
+	}
+	if start >= 0 {
+		flush(len(ends))
+	}
+	return walls
 }
 
 // reduceStandeeColumnRows carries each column's first and last coloured row
@@ -212,22 +293,20 @@ func newStandeeTrim(stickerMips, coreMips *mipChain, mipLevel, nextMipLevel, cor
 }
 
 // reaching is the trim for the material path, whose minified sticker spreads
-// four taps along its major axis. majorFootprint is the path's own: texels of
-// the full-size art per screen pixel, negative when the axis is vertical. The
-// slab carries one footprint, so on a token seen edge-on the taps can land many
-// screen pixels from their sample. The volume path measures its footprint per
-// pixel and needs none of this.
-func (t standeeTrim) reaching(majorFootprint float32, full, level image.Point) standeeTrim {
+// four taps along its major axis. footprintX and footprintY are the path's
+// own: texels of the full-size art per screen pixel. The shader picks the
+// major axis per pixel, so both axes keep their reach. The slab carries one
+// footprint per axis, so on a token seen edge-on the taps can land many screen
+// pixels from their sample. The volume path measures its footprint per pixel
+// and needs none of this.
+func (t standeeTrim) reaching(footprintX, footprintY float64, full, level image.Point) standeeTrim {
 	if t.count == 0 || level.X <= 0 || level.Y <= 0 || full.X < 2 || full.Y < 2 {
 		return t
 	}
-	if majorFootprint >= 0 {
-		texel := float64(full.X) / float64(level.X)
-		t.reachU = standeeTapReach * max(float64(majorFootprint)-1.5*texel, 0) / float64(full.X)
-	} else {
-		texel := float64(full.Y) / float64(level.Y)
-		t.reachV = standeeTapReach * max(float64(-majorFootprint)-1.5*texel, 0) / float64(full.Y-1)
-	}
+	texelX := float64(full.X) / float64(level.X)
+	t.reachU = standeeTapReach * max(footprintX-1.5*texelX, 0) / float64(full.X)
+	texelY := float64(full.Y) / float64(level.Y)
+	t.reachV = standeeTapReach * max(footprintY-1.5*texelY, 0) / float64(full.Y-1)
 	return t
 }
 

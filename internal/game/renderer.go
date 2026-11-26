@@ -163,6 +163,17 @@ type Renderer struct {
 	// Reusable slab-surface buffers: every plane of a cross drawn whole stays
 	// live for the interleaved arm draw.
 	standeeSurfaces []standeeSurface
+	// standeeEndWallScratch holds the end walls one slab draws.
+	standeeEndWallScratch []standeeEndWall
+	// standeeLayers take a fading slab with end walls before its one fade
+	// (drawStandeeFadeLayer) or a crossed plane's two readings before their
+	// mix (drawStandeeFlipBlend); standeeLayerRaster projects into them under
+	// Panini; standeeFlipSurfaces holds the mirrored reading's surfaces.
+	standeeLayers          [standeeLayerSlots]*ebiten.Image
+	standeeLayerRaster     paniniRasterizer
+	standeeFlipSurfaces    []standeeSurface
+	standeeFlipBlendShader *ebiten.Shader
+	standeeFlipBlendOpts   ebiten.DrawRectShaderOptions
 	// One surface buffer per further plane of a cross drawn whole.
 	standeeSurfacesMore [maxCrossPlanes - 1][]standeeSurface
 	crossedGeometry     crossedFrameGeometry
@@ -3149,6 +3160,7 @@ type UnifiedSpriteRenderData struct {
 	treeArmOnly     bool
 	treeArmIndex    int
 	treeArmSlab     int
+	treeArmSide     int8 // treeArm.side
 	treeArmLo       int
 	treeArmHi       int
 	treeCenterDepth float64
@@ -3358,6 +3370,7 @@ func (r *Renderer) splitCrossedTreesForPainterOrder(sprites []UnifiedSpriteRende
 			part.treeArmOnly = true
 			part.treeArmIndex = armIndex
 			part.treeArmSlab = arm.slabIdx
+			part.treeArmSide = arm.side
 			part.treeArmLo, part.treeArmHi = arm.lo, arm.hi
 			part.depthPerp = arm.depth
 			if armIndex == 0 {
